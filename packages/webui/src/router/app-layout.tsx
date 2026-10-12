@@ -6,6 +6,7 @@ import { useHookProcessOps } from '@/hooks/use-hook-process-ops';
 import { MainLayout } from '@/components/layout/main-layout';
 import { NAV_ITEMS } from '@/components/layout/sidebar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { LowIntegrityWarning } from '@/components/low-integrity-warning';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { AppStateProvider, type AppResourceState } from '@/contexts/AppStateContext';
 import { KioskProvider } from '@/contexts/KioskContext';
@@ -405,6 +406,7 @@ export function AppLayout() {
         </KioskProvider>
       </LayoutProvider>
 
+      <LowIntegrityWarning lowIntegrity={systemInfo?.runtime.lowIntegrity === true} />
       <ConfirmDialog
         open={!!unloadFailedAlert}
         onOpenChange={(open) => !open && dismissUnloadFailedAlert()}

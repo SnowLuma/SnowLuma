@@ -143,14 +143,14 @@ export class OneBotInstance {
         this.rkeyCache.resolveImageUrl(this.bridge, element, isGroup),
       mediaUrlResolver: (element, isGroup, sessionId) =>
         mediaUrlResolver.resolve(element, isGroup, sessionId),
-      messageIdResolver: (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
+      messageIdResolver: async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
         const resolvedEventName = eventName
           || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT);
         if (!isGroup
           && timestamp !== undefined
           && (resolvedEventName === PRIVATE_MESSAGE_EVENT
             || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
-          const storedId = this.messageStore.resolvePrivateReplyMessageId(
+          const storedId = await this.messageStore.resolvePrivateReplyMessageId(
             sessionId,
             sequence,
             resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
@@ -167,8 +167,8 @@ export class OneBotInstance {
             : resolvedEventName,
         );
       },
-      mediaSegmentSink: (mediaType, element, data, isGroup, sessionId) =>
-        mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
+      mediaSegmentSink: async (mediaType, element, data, isGroup, sessionId) =>
+        await mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
     };
     const ctx: OneBotInstanceContext = {
       uin: this.uin,
@@ -182,7 +182,7 @@ export class OneBotInstance {
       config,
       musicSignUrl: globalSettings.musicSignUrl,
       getUptimeMs: () => Math.max(0, Date.now() - this.startedAt),
-      cacheMessageMeta: (messageId, meta) => this.cacheMessageMeta(messageId, meta),
+      cacheMessageMeta: async (messageId, meta) => await this.cacheMessageMeta(messageId, meta),
       dispatchEvent: (event, source = 'bridge', startedAt) => this.dispatchEvent(event, source, startedAt),
     };
     this.ctx = ctx;
@@ -190,7 +190,12 @@ export class OneBotInstance {
     this.apiHandler = new ApiHandler(buildApiContext(ctx), uinNum > 0 ? uinNum : undefined);
     const networkCtx = this.buildNetworkContext();
     this.networkManager = new OneBotNetworkManager((desired) => this.createNetworkAdapter(desired, networkCtx));
-    this.networkReady = this.networkManager.reconcile(config);
+    this.networkReady = Promise.all([
+      bridge.identity.initialization,
+      this.messageStore.initialization,
+      this.mediaStore.initialization,
+      this.reactionStore.initialization,
+    ]).then(() => this.networkManager.reconcile(config));
     this.lifecycleTail = this.networkReady.then(
       () => undefined,
       () => undefined,
@@ -334,14 +339,14 @@ export class OneBotInstance {
       // reconcile and every transport have actually closed.
       const closeErrors: unknown[] = [];
       const stores = [
-        ['message', () => this.messageStore.close()],
-        ['media', () => this.mediaStore.close()],
-        ['reaction', () => this.reactionStore.close()],
+        ['message', async () => await this.messageStore.close()],
+        ['media', async () => await this.mediaStore.close()],
+        ['reaction', async () => await this.reactionStore.close()],
       ] as const;
       for (const [name, close] of stores) {
         if (this.storeCloseState[name]) continue;
         try {
-          close();
+          await close();
           this.storeCloseState[name] = true;
         } catch (error) {
           closeErrors.push(error);
@@ -389,8 +394,11 @@ export class OneBotInstance {
     source: 'bridge' | 'send' = 'bridge',
     startedAt = Date.now(),
   ): Promise<void> {
+    if (!await this.cacheMessageEvent(event)) {
+      this.traceEventHandoffTerminal(event, startedAt, 'suppressed', 'private_recall');
+      return;
+    }
     if (source === 'bridge') {
-      this.cacheMessageEvent(event);
       if (this.consumePendingSelfSentEcho(event)) {
         this.log.trace(
           'duplicate self-message echo suppressed message_id=%d message_seq=%d',
@@ -401,13 +409,12 @@ export class OneBotInstance {
         return;
       }
     } else {
-      this.cacheMessageEvent(event);
       this.rememberPendingSelfSentEcho(event);
     }
     // The send path already logged the real peer and payload. Logging its
     // synthetic event here would produce a second, less accurate "received"
     // line whose private user_id points at the bot itself.
-    if (source === 'bridge') this.logReceivedMessage(event);
+    if (source === 'bridge') await this.logReceivedMessage(event);
     // Built-in `#sl` only consumes events observed from QQ. Action-originated
     // messages must not recursively trigger the command handler.
     if (source === 'bridge' && this.handleStatusCommand(event)) {
@@ -426,7 +433,7 @@ export class OneBotInstance {
     event: JsonObject,
     startedAt: number,
     outcome: 'suppressed' | 'reporting_started',
-    reason?: 'duplicate_self_echo' | 'status_command',
+    reason?: 'duplicate_self_echo' | 'status_command' | 'private_recall',
   ): void {
     this.log.trace(() => [
       'event_terminal post_type=%s outcome=%s%s ms=%d',
@@ -555,7 +562,7 @@ export class OneBotInstance {
     return rejected;
   }
 
-  private logReceivedMessage(event: JsonObject): void {
+  private async logReceivedMessage(event: JsonObject): Promise<void> {
     const isSelf = event.post_type === 'message_sent';
     if (event.post_type !== 'message' && !isSelf) return;
 
@@ -580,7 +587,7 @@ export class OneBotInstance {
           : {};
         if (type === 'reply') {
           const replyId = toInt(data.id);
-          renderedParts.push(formatReply(this.messageStore, identity, replyId));
+          renderedParts.push(await formatReply(this.messageStore, identity, replyId));
         } else {
           renderedParts.push(formatMessageSegments([seg as JsonValue]));
         }
@@ -614,11 +621,11 @@ export class OneBotInstance {
     }
   }
 
-  private cacheMessageEvent(event: JsonObject): void {
-    if (event.post_type !== 'message' && event.post_type !== 'message_sent') return;
+  private async cacheMessageEvent(event: JsonObject): Promise<boolean> {
+    if (event.post_type !== 'message' && event.post_type !== 'message_sent') return true;
 
     const messageId = toInt(event.message_id);
-    if (messageId === 0) return;
+    if (messageId === 0) return true;
 
     const isGroup = event.message_type === 'group';
     const sessionId = isGroup
@@ -633,13 +640,13 @@ export class OneBotInstance {
         ? privateMessageEventName(event.post_type === 'message_sent', false)
         : PRIVATE_MESSAGE_EVENT;
 
-    if (sessionId === 0) return;
-    this.messageStore.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);
+    if (sessionId === 0) return true;
+    return this.messageStore.storeEvent(messageId, isGroup, sessionId, sequence, eventName, event);
   }
 
-  private cacheMessageMeta(messageId: number, meta: MessageMeta): void {
+  private async cacheMessageMeta(messageId: number, meta: MessageMeta): Promise<void> {
     if (!Number.isInteger(messageId) || messageId === 0) return;
-    this.messageStore.storeMeta(messageId, meta);
+    await this.messageStore.storeMeta(messageId, meta);
   }
 
   private makeLifecycleEvent(subType: 'connect' | 'enable' | 'disable'): JsonObject {

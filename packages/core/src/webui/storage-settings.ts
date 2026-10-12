@@ -1,3 +1,4 @@
+import { isObject } from '@snowluma/common/coerce';
 import type {
   LogStoragePolicy,
   LogStorageStatus,
@@ -305,8 +306,4 @@ function assertPersistedSettings(
   ) {
     throw new Error('persisted log storage settings do not match the requested values');
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

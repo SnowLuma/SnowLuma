@@ -47,6 +47,8 @@ Point the server at a running SnowLuma instance's **OneBot HTTP endpoint** (the
 Ordinary actions pass the OneBot envelope through verbatim — a logical failure
 (`retcode≠0`) comes back as data with its `wording`. Stream protocol failures are
 reported as MCP errors because they mean no complete stream result was committed.
+Omitted `params` defaults to an empty object; a supplied non-object value is
+rejected before calling OneBot.
 
 ### Configuration (env)
 

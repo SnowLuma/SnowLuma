@@ -11,20 +11,36 @@ import {
 import { parseFromCQString } from './helper/cq';
 import { getElementCodec, intOr } from './event-converter/element-codecs';
 import type { JsonValue } from './types';
+import { assertReplyPreviewType, elementsToReplyPreview } from './reply-preview';
 
 const log = createLogger('MsgParser');
 
 export { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 
+interface ForwardReplyContext {
+  senderUin: number;
+  time?: number;
+}
+
 export interface ParseMessageOptions {
-  resolveReplySequence?: (replyMessageId: number) => number | null;
+  /** Custom quote defaults, supplied only while parsing a merged-forward node. */
+  forwardReply?: ForwardReplyContext;
+  /** Internal: quote content cannot nest replies or invoke action-like codecs. */
+  replyPreview?: boolean;
+  resolveReplySequence?: (replyMessageId: number) => number | null | Promise<number | null>;
   resolveReplyMeta?: (replyMessageId: number) => {
     senderUin: number;
     time: number;
     random: number;
     elements?: MessageElement[];
     sequenceAuthoritative?: boolean;
-  } | null;
+  } | null | Promise<{
+    senderUin: number;
+    time: number;
+    random: number;
+    elements?: MessageElement[];
+    sequenceAuthoritative?: boolean;
+  } | null>;
   resolveMentionUid?: (targetUin: number) => string | null | Promise<string | null>;
   resolveContactArk?: (contactType: string, contactId: number) => string | null | Promise<string | null>;
   musicSignUrl?: string;
@@ -78,18 +94,6 @@ interface OutboundInputSegmentSummary {
 function isExplicitEmptyTextPlaceholder(segment: MessageSegment): boolean {
   return normalizeSegmentType(segment.type) === 'text'
     && segmentPayload(segment).text === '';
-}
-
-/**
- * True when the OneBot payload is a forward: every effective segment is
- * `node` (explicit empty-text placeholders ignored). `send_msg` routes
- * this list through the forward upload path instead of parseMessage.
- */
-export function isExclusiveForwardNodeMessage(
-  message: JsonValue,
-  autoEscape: boolean,
-): boolean {
-  return exclusiveForwardNodeList(message, autoEscape) !== null;
 }
 
 /** Node segments from an exclusive forward payload, or null if it is not one. */
@@ -249,8 +253,44 @@ function requireCoordinate(
   return text;
 }
 
+function replyInteger(data: Record<string, unknown>, field: string, defaultValue: number, max: number, min = 1): number {
+  const raw = data[field];
+  const value = raw === undefined ? defaultValue : intOr(raw);
+  if (raw === null || (typeof raw === 'string' && !raw.trim()) || value < min || value > max) {
+    throw new MessageElementValidationError(
+      'INVALID_FIELD', `reply.${field} must be an integer between ${min} and ${max}`, 'reply', field,
+    );
+  }
+  return value;
+}
+
+async function parseForwardReply(data: Record<string, unknown>, context: ForwardReplyContext): Promise<MessageElement> {
+  const { message, ...metadata } = data;
+  assertScalarSegmentData('reply', metadata);
+  const replySenderUin = replyInteger(data, 'qq', context.senderUin, Number.MAX_SAFE_INTEGER);
+  const replyTime = replyInteger(data, 'time', context.time ?? Math.floor(Date.now() / 1000), 0xffffffff, 0);
+  // A synthetic quote has no live message to navigate to; QQ still needs a
+  // positive origSeqs entry to render its inline preview.
+  const replySeq = replyInteger(data, 'seq', 1, 0xffffffff);
+  const elements = await parseMessage(message, false, { replyPreview: true });
+  return validatedOutboundElement({
+    type: 'reply', replySeq, replySenderUin, replyTime,
+    replyElements: elementsToReplyPreview(elements),
+  });
+}
+
 export async function segmentToElement(type: string, data: Record<string, unknown>, options?: ParseMessageOptions): Promise<MessageElement | null> {
   const normalizedType = normalizeSegmentType(type);
+
+  if (options?.replyPreview) assertReplyPreviewType(normalizedType);
+  if (normalizedType === 'reply' && Object.hasOwn(data, 'message')) {
+    if (!options?.forwardReply) {
+      throw new MessageElementValidationError(
+        'UNSENDABLE_TYPE', 'reply.message is only supported inside a forward node', 'reply', 'message',
+      );
+    }
+    return parseForwardReply(data, options.forwardReply);
+  }
 
   // Ordinary OneBot segment fields are scalar. JSON deliberately accepts its
   // object-valued data/config compatibility fields; every other object/array
@@ -476,7 +516,7 @@ function segmentPayload(seg: MessageSegment): Record<string, unknown> {
 
 // --- Public API ---
 
-export async function parseMessage(message: JsonValue, autoEscape: boolean, options?: ParseMessageOptions): Promise<MessageElement[]> {
+export async function parseMessage(message: unknown, autoEscape: boolean, options?: ParseMessageOptions): Promise<MessageElement[]> {
   if (typeof message === 'string') {
     if (message.length === 0) throw invalidMessageShape('message must not be empty');
     if (autoEscape) {
@@ -516,7 +556,7 @@ export async function parseMessage(message: JsonValue, autoEscape: boolean, opti
 
   // Single segment object
   if (typeof message === 'object' && message !== null && !Array.isArray(message)) {
-    const seg = message as unknown as MessageSegment;
+    const seg = message as MessageSegment;
     if (typeof seg.type === 'string' && seg.type.trim()) {
       const data = segmentPayload(seg);
       const elem = await segmentToElement(seg.type, data, options);

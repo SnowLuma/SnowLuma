@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { isObject } from './coerce';
 
 export interface RuntimeConfig {
   webuiPort?: number;
@@ -297,10 +298,6 @@ function parseBoolValue(raw: unknown): boolean | undefined {
   if (value === 'true' || value === '1' || value === 'yes' || value === 'on') return true;
   if (value === 'false' || value === '0' || value === 'no' || value === 'off') return false;
   return undefined;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isErrnoCode(error: unknown, code: string): boolean {

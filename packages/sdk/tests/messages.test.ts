@@ -72,6 +72,30 @@ describe('MessageChain', () => {
     expect(parseSegments('[CQ:reply,id=7]')).toEqual([{ type: 'reply', data: { id: '7' } }]);
   });
 
+  it.each([
+    message.image('literal&#44;&amp;#44;.png'),
+    message.customReply('literal &#44; [CQ:at,qq=all] &[],'),
+    message.raw('extension', { value: '&#91;&#93;&#44;&amp; &[],' }),
+  ])('decodes CQ parameters exactly once for $type', (segment) => {
+    expect(parseSegments(toCQString(segment))).toEqual([segment]);
+  });
+
+  it('preserves string custom replies and their metadata through CQ conversion', () => {
+    const reply = message.customReply('hello[CQ:at,qq=all] & goodbye', {
+      id: '-123', qq: '10001', time: '1700000000', seq: '42',
+    });
+    expect(parseSegments(toCQString(reply))).toEqual([reply]);
+    const inline = message.customReply('quoted');
+    expect(parseSegments(toCQString(inline))).toEqual([inline]);
+  });
+
+  it.each([
+    [message.text('quoted')],
+    message.text('quoted'),
+  ].map(content => ({ content })))('rejects nested custom replies during CQ conversion ($content)', ({ content }) => {
+    expect(() => toCQString(message.customReply(content))).toThrow(/must be sent as JSON/);
+  });
+
   it('can send itself through a compatible client', async () => {
     const client = {
       sendGroupMessage: vi.fn().mockResolvedValue({ message_id: 1 }),

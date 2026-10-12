@@ -21,5 +21,8 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

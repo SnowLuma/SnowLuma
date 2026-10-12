@@ -1,6 +1,6 @@
 import type { MessageElement } from '@snowluma/protocol/events';
 import { createHash } from 'node:crypto';
-import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { SqliteDatabase, type SqliteStatement } from '@snowluma/sqlite';
 import { openSqliteDb } from './sqlite-open';
 
 export interface CachedImage {
@@ -71,105 +71,146 @@ const INLINE_MEDIA_SOURCE = /^(base64:\/\/|data:)/i;
  * Only the in-memory lookup cache is bounded; history dependencies never expire.
  */
 export class MediaStore {
-  private readonly db: DatabaseSync;
+  private readonly db: SqliteDatabase;
   private readonly cache = new Map<string, string>();
-  private readonly upsertEntry: StatementSync;
-  private readonly upsertKey: StatementSync;
-  private readonly findEntry: StatementSync;
-  private readonly findLegacyEntry: StatementSync;
+  private upsertEntry!: SqliteStatement;
+  private upsertKey!: SqliteStatement;
+  private findEntry!: SqliteStatement;
+  private findLegacyEntry!: SqliteStatement;
+
+  readonly initialization: Promise<void>;
 
   constructor(dbPath: string, private readonly maxCachedEntries = DEFAULT_KEEP_ENTRIES) {
     this.db = openSqliteDb(dbPath);
-    for (const prefix of ['', 'legacy_']) {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS ${prefix}media_entries (
-          type TEXT NOT NULL, primary_key TEXT NOT NULL, data TEXT NOT NULL,
-          last_seen INTEGER NOT NULL, PRIMARY KEY (type, primary_key)
-        );
-        CREATE TABLE IF NOT EXISTS ${prefix}media_keys (
-          type TEXT NOT NULL, key TEXT NOT NULL, primary_key TEXT NOT NULL,
-          PRIMARY KEY (type, key)
-        );
+    this.initialization = this.db.serial(async () => {
+      for (const prefix of ['', 'legacy_']) {
+        await this.db.exec(`
+          CREATE TABLE IF NOT EXISTS ${prefix}media_entries (
+            type TEXT NOT NULL, primary_key TEXT NOT NULL, data TEXT NOT NULL,
+            last_seen INTEGER NOT NULL, PRIMARY KEY (type, primary_key)
+          );
+          CREATE TABLE IF NOT EXISTS ${prefix}media_keys (
+            type TEXT NOT NULL, key TEXT NOT NULL, primary_key TEXT NOT NULL,
+            PRIMARY KEY (type, key)
+          );
+        `);
+      }
+      this.upsertEntry = this.db.prepare(`
+        INSERT INTO media_entries (type, primary_key, data, last_seen) VALUES (?, ?, ?, ?)
+        ON CONFLICT(type, primary_key) DO UPDATE SET data = excluded.data, last_seen = excluded.last_seen
       `);
-    }
-    this.upsertEntry = this.db.prepare(`
-      INSERT INTO media_entries (type, primary_key, data, last_seen) VALUES (?, ?, ?, ?)
-      ON CONFLICT(type, primary_key) DO UPDATE SET data = excluded.data, last_seen = excluded.last_seen
-    `);
-    this.upsertKey = this.db.prepare(`
-      INSERT INTO media_keys (type, key, primary_key) VALUES (?, ?, ?)
-      ON CONFLICT(type, key) DO UPDATE SET primary_key = excluded.primary_key
-    `);
-    this.findEntry = this.db.prepare(`
-      SELECT data FROM media_entries WHERE type = ? AND primary_key = COALESCE(
-        (SELECT primary_key FROM media_keys WHERE type = ? AND key = ?), ?
-      )
-    `);
-    this.findLegacyEntry = this.db.prepare(`
-      SELECT data FROM legacy_media_entries WHERE type = ? AND primary_key = COALESCE(
-        (SELECT primary_key FROM legacy_media_keys WHERE type = ? AND key = ?), ?
-      )
-    `);
+      this.upsertKey = this.db.prepare(`
+        INSERT INTO media_keys (type, key, primary_key) VALUES (?, ?, ?)
+        ON CONFLICT(type, key) DO UPDATE SET primary_key = excluded.primary_key
+      `);
+      this.findEntry = this.db.prepare(`
+        SELECT data FROM media_entries WHERE type = ? AND primary_key = COALESCE(
+          (SELECT primary_key FROM media_keys WHERE type = ? AND key = ?), ?
+        )
+      `);
+      this.findLegacyEntry = this.db.prepare(`
+        SELECT data FROM legacy_media_entries WHERE type = ? AND primary_key = COALESCE(
+          (SELECT primary_key FROM legacy_media_keys WHERE type = ? AND key = ?), ?
+        )
+      `);
+    });
+    void this.initialization.catch(() => undefined);
   }
 
-  close(): void { this.cache.clear(); this.db.close(); }
-
-  rememberImage(info: CachedImage): void {
-    this.remember(TYPE_IMAGE, info, [info.file, info.fileName, info.url]);
+  async close(): Promise<void> {
+    await this.initialization.catch(() => undefined);
+    await this.db.close();
   }
 
-  rememberRecord(info: CachedRecord): void {
-    this.remember(TYPE_RECORD, info, [info.file, info.fileName, info.fileId, info.url]);
+  async rememberImage(info: CachedImage): Promise<void> {
+    info = structuredClone(info);
+    return this.db.serial(async () => {
+      await this.initialization;
+      await this.remember(TYPE_IMAGE, info, [info.file, info.fileName, info.url]);
+    });
   }
 
-  rememberVideo(info: CachedVideo): void {
-    this.remember(TYPE_VIDEO, info, [info.file, info.fileName, info.fileId, info.url]);
+  async rememberRecord(info: CachedRecord): Promise<void> {
+    info = structuredClone(info);
+    return this.db.serial(async () => {
+      await this.initialization;
+      await this.remember(TYPE_RECORD, info, [info.file, info.fileName, info.fileId, info.url]);
+    });
   }
 
-  findImage(key: string, source: MediaLookupSource = 'current'): CachedImage | null {
-    return this.find(TYPE_IMAGE, key, source);
-  }
-  findRecord(key: string, source: MediaLookupSource = 'current'): CachedRecord | null {
-    return this.find(TYPE_RECORD, key, source);
-  }
-  findVideo(key: string, source: MediaLookupSource = 'current'): CachedVideo | null {
-    return this.find(TYPE_VIDEO, key, source);
+  async rememberVideo(info: CachedVideo): Promise<void> {
+    info = structuredClone(info);
+    return this.db.serial(async () => {
+      await this.initialization;
+      await this.remember(TYPE_VIDEO, info, [info.file, info.fileName, info.fileId, info.url]);
+    });
   }
 
-  updateImageUrl(key: string, url: string): void { this.updateUrl(TYPE_IMAGE, key, url); }
-  updateRecordUrl(key: string, url: string): void { this.updateUrl(TYPE_RECORD, key, url); }
-  updateVideoUrl(key: string, url: string): void { this.updateUrl(TYPE_VIDEO, key, url); }
+  async findImage(key: string, source: MediaLookupSource = 'current'): Promise<CachedImage | null> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      return await this.find(TYPE_IMAGE, key, source);
+    });
+  }
+  async findRecord(key: string, source: MediaLookupSource = 'current'): Promise<CachedRecord | null> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      return await this.find(TYPE_RECORD, key, source);
+    });
+  }
+  async findVideo(key: string, source: MediaLookupSource = 'current'): Promise<CachedVideo | null> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      return await this.find(TYPE_VIDEO, key, source);
+    });
+  }
+
+  async updateImageUrl(key: string, url: string): Promise<void> {
+    return this.db.serial(async () => {
+      await this.initialization;   await this.updateUrl(TYPE_IMAGE, key, url);   });
+  }
+  async updateRecordUrl(key: string, url: string): Promise<void> {
+    return this.db.serial(async () => {
+      await this.initialization;   await this.updateUrl(TYPE_RECORD, key, url);   });
+  }
+  async updateVideoUrl(key: string, url: string): Promise<void> {
+    return this.db.serial(async () => {
+      await this.initialization;   await this.updateUrl(TYPE_VIDEO, key, url);   });
+  }
 
   /** Counts durable records, not the bounded lookup cache. */
-  size(): { images: number; records: number; videos: number } {
-    const counts = this.db.prepare(`SELECT type, COUNT(*) AS n FROM (
-        SELECT type FROM media_entries UNION ALL SELECT type FROM legacy_media_entries
-      ) GROUP BY type`)
-      .all() as Array<{ type: string; n: number }>;
-    const count = (type: string) => counts.find(row => row.type === type)?.n ?? 0;
-    return { images: count(TYPE_IMAGE), records: count(TYPE_RECORD), videos: count(TYPE_VIDEO) };
+  async size(): Promise<{ images: number; records: number; videos: number }> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      const counts = await this.db.prepare(`SELECT type, COUNT(*) AS n FROM (
+          SELECT type FROM media_entries UNION ALL SELECT type FROM legacy_media_entries
+        ) GROUP BY type`)
+        .all() as Array<{ type: string; n: number }>;
+      const count = (type: string) => counts.find(row => row.type === type)?.n ?? 0;
+      return { images: await count(TYPE_IMAGE), records: await count(TYPE_RECORD), videos: await count(TYPE_VIDEO) };
+    });
   }
 
-  private remember(type: string, info: object, aliases: string[]): void {
+  private async remember(type: string, info: object, aliases: string[]): Promise<void> {
     const primary = pickPrimary(aliases);
     if (!primary) throw new Error(`cannot store ${type} metadata without an identifier`);
     const data = serializeMediaInfo(info);
-    this.db.exec('BEGIN IMMEDIATE');
+    await this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.upsertEntry.run(type, primary, data, Math.floor(Date.now() / 1000));
+      await this.upsertEntry.run(type, primary, data, Math.floor(Date.now() / 1000));
       for (const key of new Set(aliases.filter(Boolean).map(foldMediaKey))) {
-        this.upsertKey.run(type, key, primary);
+        await this.upsertKey.run(type, key, primary);
       }
-      this.db.exec('COMMIT');
+      await this.db.exec('COMMIT');
     } catch (error) {
-      rollbackMediaTransaction(this.db, error);
+      await rollbackMediaTransaction(this.db, error);
     }
     // Alias remapping can invalidate any cached lookup. JSON strings ensure
     // callers cannot mutate the durable record through a returned object.
     this.cache.clear();
   }
 
-  private find<T>(type: string, key: string, source: MediaLookupSource = 'current'): T | null {
+  private async find<T>(type: string, key: string, source: MediaLookupSource = 'current'): Promise<T | null> {
     const lookup = foldMediaKey(key);
     if (!lookup) return null;
     const cacheKey = `${source}:${type}:${lookup}`;
@@ -177,8 +218,8 @@ export class MediaStore {
     if (data === undefined) {
       // Legacy history has no per-message snapshots. Its frozen migration
       // index must never resolve through a later, mutable filename alias.
-      const current = source === 'current' ? this.findEntry.get(type, type, lookup, lookup) : undefined;
-      const row = (current ?? this.findLegacyEntry.get(type, type, lookup, lookup)) as { data: string } | undefined;
+      const current = source === 'current' ? await this.findEntry.get(type, type, lookup, lookup) : undefined;
+      const row = (current ?? await this.findLegacyEntry.get(type, type, lookup, lookup)) as { data: string } | undefined;
       if (!row) return null;
       data = row.data;
     }
@@ -195,11 +236,11 @@ export class MediaStore {
     return result as T;
   }
 
-  private updateUrl(type: string, key: string, url: string): void {
+  private async updateUrl(type: string, key: string, url: string): Promise<void> {
     if (!url || mustFoldMediaKey(url)) return;
-    const info = this.find<Record<string, unknown>>(type, key);
+    const info = await this.find<Record<string, unknown>>(type, key);
     if (!info || info.url === url) return;
-    this.remember(type, { ...info, url }, [info.file, info.fileName, info.fileId, url]
+    await this.remember(type, { ...info, url }, [info.file, info.fileName, info.fileId, url]
       .filter((value): value is string => typeof value === 'string'));
   }
 }
@@ -212,8 +253,8 @@ export function serializeMediaInfo(info: object): string {
   return data;
 }
 
-export function rollbackMediaTransaction(db: DatabaseSync, error: unknown): never {
-  try { db.exec('ROLLBACK'); }
+export async function rollbackMediaTransaction(db: SqliteDatabase, error: unknown): Promise<never> {
+  try { await db.exec('ROLLBACK'); }
   catch (rollbackError) {
     throw new AggregateError([error, rollbackError], 'media write and rollback failed', { cause: error });
   }

@@ -1,18 +1,78 @@
-import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { MessageElement } from '@snowluma/protocol/events';
+import { createLogger } from '@snowluma/common/logger';
 import type { ImageUrlResolver } from '../event-converter';
-import type { MediaStore } from '../media-store';
+import type { CachedImage, MediaStore } from '../media-store';
 import type { MessageStore } from '../message-store';
+import type { OneBotInstanceContext } from '../instance-context';
+import { resolveRemoteMediaUrl } from '../media-url-resolver';
+import { segmentsToRawMessage } from '../helper/cq';
 import {
   deliverPttTransText,
   failPttTransWaiter,
   pttTransKey,
   waitPttTransText,
 } from './ptt-trans-waiter';
-import type { JsonObject } from '../types';
+import type { JsonObject, JsonValue } from '../types';
 
 const log = createLogger('OneBot');
+
+type StoredMediaSegment = JsonObject & { type: 'image' | 'record' | 'video'; data: JsonObject };
+
+function isStoredMediaSegment(segment: JsonValue): segment is StoredMediaSegment {
+  return segment !== null && typeof segment === 'object' && !Array.isArray(segment)
+    && (segment.type === 'image' || segment.type === 'record' || segment.type === 'video')
+    && segment.data !== null && typeof segment.data === 'object' && !Array.isArray(segment.data);
+}
+
+export async function refreshMessageMedia(
+  ref: Pick<OneBotInstanceContext, 'bridge' | 'messageStore' | 'mediaStore' | 'converterCtx'>,
+  messageId: number,
+  event: JsonObject,
+): Promise<void> {
+  if (!Array.isArray(event.message)) return;
+  const segments = event.message.filter(isStoredMediaSegment);
+  const voiceVideoSegments = segments.filter(segment => segment.type !== 'image');
+  const media = voiceVideoSegments.length > 0
+    ? (await ref.messageStore.findMedia(messageId))?.filter(element => element.type !== 'image') : null;
+  const meta = voiceVideoSegments.length > 0 ? await ref.messageStore.findMeta(messageId) : null;
+  // Validate the ordered association once; a filename lookup can select another upload.
+  const voiceVideo = meta && media && media.length === voiceVideoSegments.length
+    && media.every((element, index) => element.type === voiceVideoSegments[index]!.type) ? { media, meta } : null;
+  if (voiceVideoSegments.length > 0 && !voiceVideo) {
+    log.warn('[get_msg] media metadata missing or inconsistent message_id=%d', messageId);
+  }
+
+  let voiceVideoIndex = 0;
+  let changed = false;
+  for (const [index, segment] of segments.entries()) {
+    try {
+      let url: string | null;
+      if (segment.type === 'image') {
+        const file = typeof segment.data.file === 'string' ? segment.data.file : segment.data.file_id;
+        if (typeof file !== 'string' || !file) continue;
+        url = await resolveImageUrl(await ref.mediaStore.findImage(file), ref.converterCtx.imageUrlResolver);
+      } else {
+        if (!voiceVideo) continue;
+        const element = voiceVideo.media[voiceVideoIndex++]!;
+        url = await resolveRemoteMediaUrl(ref.bridge, element.type, element.mediaNode, voiceVideo.meta.isGroup, voiceVideo.meta.targetId);
+      }
+      if (url && url !== segment.data.url) {
+        segment.data.url = url;
+        changed = true;
+      }
+    } catch (err) {
+      // Refresh failure preserves this message's URL, never a different cached URL.
+      log.warn('[get_msg] media URL refresh failed message_id=%d type=%s media_index=%d: %s',
+        messageId, segment.type, index, err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (changed) event.raw_message = segmentsToRawMessage(event.message);
+}
+
+async function resolveImageUrl(cached: CachedImage | null, resolver?: ImageUrlResolver | null): Promise<string | null> {
+  if (!cached?.imageUrl || !resolver) return null;
+  return resolver({ type: 'image', imageUrl: cached.imageUrl, subType: cached.subType }, cached.isGroup);
+}
 
 /**
  * Voice-to-text for a received ptt (issue #79 / NapCat `fetch_ptt_text`).
@@ -27,7 +87,7 @@ export async function fetchPttText(
   selfId: number,
   messageId: number,
 ): Promise<{ text: string }> {
-  const event = messageStore.findEvent(messageId);
+  const event = await messageStore.findEvent(messageId);
   if (!event) throw new Error('消息不存在或已被撤回');
 
   const segments = Array.isArray(event.message) ? event.message : [];
@@ -42,8 +102,8 @@ export async function fetchPttText(
   }
   if (!file) throw new Error('消息中不包含语音');
 
-  const snapshot = messageStore.findMedia(messageId)?.find(element => element.type === 'record');
-  const cached = snapshot ? { ...snapshot, isGroup: event.message_type === 'group', sessionId: Number(event.group_id) || selfId } : mediaStore.findRecord(file, 'legacy');
+  const snapshot = (await messageStore.findMedia(messageId))?.find(element => element.type === 'record');
+  const cached = snapshot ? { ...snapshot, isGroup: event.message_type === 'group', sessionId: Number(event.group_id) || selfId } : await mediaStore.findRecord(file, 'legacy');
   if (!cached) throw new Error('语音不在缓存中，无法转写');
 
   const isGroup = event.message_type === 'group' || cached.isGroup;
@@ -81,25 +141,16 @@ export async function getImageInfo(
   file: string,
   imageUrlResolver?: ImageUrlResolver | null,
 ): Promise<JsonObject | null> {
-  const cached = mediaStore.findImage(file);
+  const cached = await mediaStore.findImage(file);
   if (!cached) return null;
 
   let url = cached.url || cached.imageUrl || '';
 
-  // Re-sign with a current rkey at lookup time. The stored `url` was signed
-  // when the message first arrived and its rkey may have since expired — the
-  // CDN then rejects the download with
-  // `{"retcode":-5503010,"retmsg":"invalid rkey"}`. Resolving from the raw
-  // (unsigned) `imageUrl` mints a fresh rkey, mirroring NapCat which
-  // re-signs on every getImageUrl call instead of handing back a baked URL.
-  if (imageUrlResolver && cached.imageUrl) {
-    try {
-      const element: MessageElement = { type: 'image', imageUrl: cached.imageUrl, subType: cached.subType };
-      const fresh = await imageUrlResolver(element, cached.isGroup);
-      if (fresh) url = fresh;
-    } catch {
-      // Best-effort: fall back to the stored URL on any resolver failure.
-    }
+  try {
+    const fresh = await resolveImageUrl(cached, imageUrlResolver);
+    if (fresh) url = fresh;
+  } catch (err) {
+    log.warn('get_image URL refresh failed: %s', err instanceof Error ? err.message : String(err));
   }
 
   return {
@@ -115,24 +166,13 @@ export async function getRecordInfo(
   mediaStore: MediaStore,
   file: string,
 ): Promise<JsonObject | null> {
-  const cached = mediaStore.findRecord(file);
+  const cached = await mediaStore.findRecord(file);
   if (!cached) return null;
-  let url = cached.url;
-  if (!url && cached.mediaNode) {
-    try {
-      url = cached.isGroup
-        ? await bridge.apis.groupFile.getPttUrl(cached.sessionId, cached.mediaNode)
-        : await bridge.apis.groupFile.getPrivatePttUrl(cached.mediaNode);
-      if (url) {
-        mediaStore.updateRecordUrl(file, url);
-      }
-    } catch (err) {
-      log.warn('get_record url refetch failed: %s', err instanceof Error ? err.message : String(err));
-    }
-  }
+  const url = await resolveRemoteMediaUrl(bridge, 'record', cached.mediaNode, cached.isGroup, cached.sessionId);
+  await mediaStore.updateRecordUrl(file, url);
   return {
-    file: url || cached.file,
-    url: url || '',
+    file: url,
+    url,
     file_size: String(cached.fileSize ?? 0),
     file_name: cached.fileName || cached.file,
   };

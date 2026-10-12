@@ -17,14 +17,14 @@ const SELF_ID = 3961840894;
 const PEER_ID = 2705892349;
 
 function productionResolver(store: MessageStore): ConverterContext['messageIdResolver'] {
-  return (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
+  return async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
     const resolvedEventName = eventName
       || (isGroup ? 'group_message' : PRIVATE_MESSAGE_EVENT);
     if (!isGroup
       && timestamp !== undefined
       && (resolvedEventName === PRIVATE_MESSAGE_EVENT
         || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
-      const storedId = store.resolvePrivateReplyMessageId(
+      const storedId = await store.resolvePrivateReplyMessageId(
         sessionId,
         sequence,
         resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
@@ -47,13 +47,14 @@ describe('private reply id matches send receipt (#417, #433)', () => {
   let dir: string;
   let store: MessageStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-reply-id-'));
     store = new MessageStore(path.join(dir, 'messages.db'));
+    await store.initialization;
   });
 
-  afterEach(() => {
-    store.close();
+  afterEach(async () => {
+    await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -63,21 +64,22 @@ describe('private reply id matches send receipt (#417, #433)', () => {
       [101, [{ type: 'text', data: { text: 'the quoted text' } }]],
       [102, [{ type: 'record', data: { file: 'voice.amr' } }]],
     ] as const) {
-      store.storeMeta(id, {
+      await store.storeMeta(id, {
         isGroup: false, targetId: PEER_ID, sequence: id, sequenceAuthoritative: true,
         eventName: PRIVATE_NT_MESSAGE_EVENT, clientSequence: id + 1000,
         privateDirection: 'outgoing', random: id, timestamp: sentAt,
       });
-      store.storeEvent(id, false, PEER_ID, id, PRIVATE_NT_MESSAGE_EVENT, {
+      await store.storeEvent(id, false, PEER_ID, id, PRIVATE_NT_MESSAGE_EVENT, {
         time: sentAt, post_type: 'message_sent', message_type: 'private', sub_type: 'friend',
         message: JSON.parse(JSON.stringify(message)),
       });
     }
-    store.close();
+    await store.close();
     store = new MessageStore(path.join(dir, 'messages.db'));
+    await store.initialization;
     const ctx: ConverterContext = {
       selfId: SELF_ID, imageUrlResolver: null, mediaUrlResolver: null, mediaSegmentSink: null,
-      messageIdResolver: productionResolver(store),
+      messageIdResolver: await productionResolver(store),
     };
     const event: FriendMessage = {
       kind: 'friend_message', time: sentAt + 2, selfUin: SELF_ID,
@@ -112,7 +114,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
     expect(sendId).toBe(fixture.sendId);
     expect(sendId).not.toBe(hashMessageIdInt32(fixture.quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
 
-    store.storeMeta(sendId, {
+    await store.storeMeta(sendId, {
       isGroup: false,
       targetId: PEER_ID,
       sequence: fixture.ntSeq,
@@ -129,7 +131,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
       imageUrlResolver: null,
       mediaUrlResolver: null,
       mediaSegmentSink: null,
-      messageIdResolver: productionResolver(store),
+      messageIdResolver: await productionResolver(store),
     };
 
     const event: FriendMessage = {
@@ -170,7 +172,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
     const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
     expect(sendId).not.toBe(hashMessageIdInt32(quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
 
-    store.storeMeta(sendId, {
+    await store.storeMeta(sendId, {
       isGroup: false,
       targetId: PEER_ID,
       sequence: ntSeq,
@@ -187,7 +189,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
       imageUrlResolver: null,
       mediaUrlResolver: null,
       mediaSegmentSink: null,
-      messageIdResolver: productionResolver(store),
+      messageIdResolver: await productionResolver(store),
     };
 
     const event: FriendMessage = {
@@ -227,7 +229,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
     const quoteTime = sentAt + 2;
     const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
 
-    store.storeMeta(sendId, {
+    await store.storeMeta(sendId, {
       isGroup: false,
       targetId: PEER_ID,
       sequence: ntSeq,
@@ -244,7 +246,7 @@ describe('private reply id matches send receipt (#417, #433)', () => {
       imageUrlResolver: null,
       mediaUrlResolver: null,
       mediaSegmentSink: null,
-      messageIdResolver: productionResolver(store),
+      messageIdResolver: await productionResolver(store),
     };
 
     const event: FriendMessage = {

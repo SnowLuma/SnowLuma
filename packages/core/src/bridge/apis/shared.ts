@@ -1,15 +1,4 @@
-export function toInt(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === 'bigint') {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.trunc(n) : 0;
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.trunc(n) : 0;
-  }
-  return 0;
-}
+export { toInt } from '@snowluma/protocol/oidb-services/shared';
 
 // The bot's-own-UID resolver is the single source of truth in @snowluma/protocol
 // (a Bridge satisfies its BridgeContext slice). Re-exported here so the existing

@@ -28,13 +28,13 @@ describe('forward metadata through upload and cached reads', () => {
     const forward = new ForwardApi(bridge as any);
     const ctx = {
       selfId: 10001,
-      bridge: { apis: {
+      bridge: { identity: { nickname: 'SnowLuma' }, apis: {
         forward,
         message: { sendGroup: vi.fn(async () => ({
           messageId: 1, sequence: 2, clientSequence: 0, random: 3, timestamp: 1700000000,
         })) },
       } },
-      messageStore: { findEvent: () => null, findMedia: () => null },
+      messageStore: { findEvent: () => null, findMedia: () => null, storeEvent: vi.fn() },
       cacheMessageMeta: vi.fn(),
       converterCtx: {
         selfId: 10001, imageUrlResolver: null, mediaUrlResolver: null,

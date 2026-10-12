@@ -6,6 +6,22 @@ export type MessageMedia = Extract<MessageElement, { type: 'image' | 'record' | 
 const mediaSnapshot = Symbol('message media snapshot');
 type MediaSegment = JsonObject & { [mediaSnapshot]?: MessageMedia };
 
+/** Snapshot queued writes, including metadata that is deliberately absent from JSON. */
+export function snapshotMessageEvent(event: JsonObject): JsonObject {
+  const snapshot = structuredClone(event);
+  if (Array.isArray(event.message) && Array.isArray(snapshot.message)) {
+    for (const [index, segment] of event.message.entries()) {
+      if (!segment || typeof segment !== 'object' || Array.isArray(segment)) continue;
+      const media = (segment as MediaSegment)[mediaSnapshot];
+      const copied = snapshot.message[index];
+      if (media && copied && typeof copied === 'object') {
+        Object.defineProperty(copied, mediaSnapshot, { value: structuredClone(media) });
+      }
+    }
+  }
+  return snapshot;
+}
+
 export function isMessageMedia(element: MessageElement): element is MessageMedia {
   return element.type === 'image' || element.type === 'record' || element.type === 'video';
 }

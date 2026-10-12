@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import {
@@ -138,8 +139,8 @@ export class LoginHistorySyncCoordinator {
       })),
       signal,
     );
-    const groupCandidates = selectGroupCandidates(ref.messageStore, state.groups);
-    const privateCandidates = selectPrivateCandidates(
+    const groupCandidates = await selectGroupCandidates(ref.messageStore, state.groups);
+    const privateCandidates = await selectPrivateCandidates(
       ref.messageStore,
       state.privateUsers,
     );
@@ -156,9 +157,9 @@ export class LoginHistorySyncCoordinator {
         imageUrlResolver: null,
         mediaUrlResolver: null,
         mediaSegmentSink: mediaSegmentSink
-          ? (mediaType, element, data, isGroup, sessionId) => {
+          ? async (mediaType, element, data, isGroup, sessionId) => {
             throwIfAborted(signal);
-            mediaSegmentSink(mediaType, element, data, isGroup, sessionId);
+            await mediaSegmentSink(mediaType, element, data, isGroup, sessionId);
           }
           : null,
       },
@@ -249,76 +250,74 @@ export class LoginHistorySyncCoordinator {
 
 export const loginHistorySyncCoordinator = new LoginHistorySyncCoordinator();
 
-function selectGroupCandidates(
+async function selectGroupCandidates(
   store: MessageStore,
   states: readonly GroupHistorySyncState[],
-): GroupCandidate[] {
-  return states
-    .flatMap((state): GroupCandidate[] => {
-      if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) return [];
-      const observedSequence = store.findLatestAuthoritativeSequence(true, state.groupId);
-      const localSequence = store.findLatestPersistedAuthoritativeSequence(
-        true,
-        state.groupId,
-      );
-      if (localSequence !== null) {
-        if (state.latestSeq <= localSequence) return [];
-        return [{
-          state,
-          localSequence,
-          priority: state.latestSeq - localSequence,
-          knownGap: true,
-        }];
-      }
-      if (observedSequence !== null) {
-        return [{
-          state,
-          localSequence: null,
-          priority: state.latestSeq,
-          knownGap: true,
-        }];
-      }
-      if (state.latestSeq <= state.readSeq) return [];
+): Promise<GroupCandidate[]> {
+  return (await mapWithConcurrency(states, 8, async (state): Promise<GroupCandidate[]> => {
+    if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) return [];
+    const observedSequence = await store.findLatestAuthoritativeSequence(true, state.groupId);
+    const localSequence = await store.findLatestPersistedAuthoritativeSequence(
+      true,
+      state.groupId,
+    );
+    if (localSequence !== null) {
+      if (state.latestSeq <= localSequence) return [];
+      return [{
+        state,
+        localSequence,
+        priority: state.latestSeq - localSequence,
+        knownGap: true,
+      }];
+    }
+    if (observedSequence !== null) {
       return [{
         state,
         localSequence: null,
-        priority: state.latestSeq - state.readSeq,
-        knownGap: false,
+        priority: state.latestSeq,
+        knownGap: true,
       }];
-    })
+    }
+    if (state.latestSeq <= state.readSeq) return [];
+    return [{
+      state,
+      localSequence: null,
+      priority: state.latestSeq - state.readSeq,
+      knownGap: false,
+    }];
+  })).flat()
     .sort(compareCandidates)
     .slice(0, LOGIN_HISTORY_SYNC_LIMITS.maxGroups);
 }
 
-function selectPrivateCandidates(
+async function selectPrivateCandidates(
   store: MessageStore,
   states: readonly PrivateHistorySyncState[],
-): PrivateCandidate[] {
-  return states
-    .flatMap((state): PrivateCandidate[] => {
-      if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) return [];
-      const observedSequence = store.findLatestAuthoritativeSequence(false, state.userId);
-      const localSequence = store.findLatestPersistedAuthoritativeSequence(
-        false,
-        state.userId,
-      );
-      if (localSequence !== null) {
-        if (state.latestSeq <= localSequence) return [];
-        return [{
-          state,
-          localSequence,
-          priority: state.latestSeq - localSequence,
-          knownGap: true,
-        }];
-      }
-      if (!Number.isSafeInteger(state.lastMsgTime) || state.lastMsgTime <= 0) return [];
+): Promise<PrivateCandidate[]> {
+  return (await mapWithConcurrency(states, 8, async (state): Promise<PrivateCandidate[]> => {
+    if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) return [];
+    const observedSequence = await store.findLatestAuthoritativeSequence(false, state.userId);
+    const localSequence = await store.findLatestPersistedAuthoritativeSequence(
+      false,
+      state.userId,
+    );
+    if (localSequence !== null) {
+      if (state.latestSeq <= localSequence) return [];
       return [{
         state,
-        localSequence: null,
-        priority: state.lastMsgTime,
-        knownGap: observedSequence !== null,
+        localSequence,
+        priority: state.latestSeq - localSequence,
+        knownGap: true,
       }];
-    })
+    }
+    if (!Number.isSafeInteger(state.lastMsgTime) || state.lastMsgTime <= 0) return [];
+    return [{
+      state,
+      localSequence: null,
+      priority: state.lastMsgTime,
+      knownGap: observedSequence !== null,
+    }];
+  })).flat()
     .sort(compareCandidates)
     .slice(0, LOGIN_HISTORY_SYNC_LIMITS.maxPrivateUsers);
 }
@@ -403,7 +402,7 @@ async function persistGroupMessage(
       + `messageType=${String(converted?.message_type)}`,
     );
   }
-  persistHistoryEvent(ref.messageStore, converted);
+  await persistHistoryEvent(ref.messageStore, converted);
 }
 
 async function persistPrivateMessage(
@@ -432,7 +431,7 @@ async function persistPrivateMessage(
       + `messageType=${String(converted?.message_type)}`,
     );
   }
-  if (ref.messageStore.isPrivateMessageRecalled(
+  if (await ref.messageStore.isPrivateMessageRecalled(
     peerUin,
     clientSequence,
     sentBySelf,
@@ -450,8 +449,7 @@ async function persistPrivateMessage(
   if (converted.post_type === 'message_sent' && toHistoryInt(converted.target_id) === 0) {
     converted.target_id = peerUin;
   }
-  persistHistoryEvent(ref.messageStore, converted, peerUin, message);
-  return true;
+  return persistHistoryEvent(ref.messageStore, converted, peerUin, message);
 }
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {

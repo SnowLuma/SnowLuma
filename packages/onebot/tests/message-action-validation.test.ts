@@ -15,6 +15,7 @@ function instanceContext(
   sendPrivate: ReturnType<typeof vi.fn> = vi.fn(),
 ): OneBotInstanceContext {
   const bridge = {
+    identity: { nickname: 'SnowLuma' },
     apis: { message: { sendGroup, sendPrivate } },
     resolveUserUid: vi.fn(async () => 'u_peer'),
   } as unknown as BridgeInterface;
@@ -27,9 +28,14 @@ function instanceContext(
       resolveReplySequence: () => 0,
       findEvent: () => null,
       findMeta: () => null,
+      storeEvent: vi.fn(),
     } as never,
     cacheMessageMeta: vi.fn(),
     mediaStore: {} as never,
+    converterCtx: {
+      selfId: 10001, imageUrlResolver: null, mediaUrlResolver: null,
+      messageIdResolver: null, mediaSegmentSink: null,
+    },
     musicSignUrl: '',
   } as unknown as OneBotInstanceContext;
 }

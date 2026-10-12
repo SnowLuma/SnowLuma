@@ -6,7 +6,6 @@ import type { AnyMessageSegment, FaceSegment, OutgoingMessage } from '../types/i
 const CQ_REGEX = /\[CQ:([a-zA-Z0-9_.-]+)(?:,([^\]]*))?\]/g;
 
 export function toCQString(input: OutgoingMessage): string {
-  if (typeof input === 'string') return escapeCqText(input);
   const normalized = normalizeMessage(input);
   return typeof normalized === 'string'
     ? escapeCqText(normalized)
@@ -18,20 +17,17 @@ export function fromCQString(input: string) {
   let lastIndex = 0;
 
   for (const match of input.matchAll(CQ_REGEX)) {
-    const index = match.index ?? 0;
+    const index = match.index;
     if (index > lastIndex) {
-      const textValue = cqUnescape(input.slice(lastIndex, index));
-      if (textValue) current = current.text(textValue);
+      current = current.text(cqUnescape(input.slice(lastIndex, index)));
     }
 
-    const segment = segmentFromCq(match[1] ?? '', parseCQParams(match[2] ?? ''));
-    if (segment) current = current.append(segment);
+    current = current.append(segmentFromCq(match[1]!, parseCQParams(match[2] ?? '')));
     lastIndex = index + match[0].length;
   }
 
   if (lastIndex < input.length) {
-    const textValue = cqUnescape(input.slice(lastIndex));
-    if (textValue) current = current.text(textValue);
+    current = current.text(cqUnescape(input.slice(lastIndex)));
   }
 
   return current;
@@ -62,10 +58,11 @@ function cqUnescape(text: string): string {
 }
 
 function cqUnescapeParam(text: string): string {
-  return cqUnescape(text).replace(/&#44;/g, ',');
+  // Decode ampersands last so literal entity text is not decoded twice.
+  return cqUnescape(text.replace(/&#44;/g, ','));
 }
 
-function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSegment | null {
+function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSegment {
   switch (type) {
     case 'text':
       return segments.text(data.text ?? '');
@@ -87,8 +84,11 @@ function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSe
           ? segments.at(qq, { name: data.name, uid: data.uid })
           : segments.raw(type, data);
       }
-    case 'reply':
+    case 'reply': {
+      const { message, ...metadata } = data;
+      if (message !== undefined) return segments.customReply(message, metadata);
       return segments.reply(data.id ?? '0');
+    }
     case 'image':
       return segments.image(data.file ?? data.url ?? '', {
         url: data.url,

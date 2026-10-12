@@ -1,4 +1,4 @@
-import { HookManager } from '@snowluma/bridge';
+import { getRuntimeIntegrity, HookManager } from '@snowluma/bridge';
 import { configureFileTransport } from '@snowluma/common/log-file-transport';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import {
@@ -20,6 +20,7 @@ import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
 import { bindSystemFaceCatalog } from './sys-face-catalog';
 import { readAppVersion, startNativeStageSync, tempStagePath } from './native-stage-sync';
+import { logRuntimeIntegrity } from './runtime-integrity-log';
 
 const log = createLogger('App');
 
@@ -49,6 +50,7 @@ async function main() {
     perUinEnabled: runtimeConfig.logPerUin ?? DEFAULT_LOG_PER_UIN,
   });
   log.info('SnowLuma starting');
+  logRuntimeIntegrity(getRuntimeIntegrity());
   const stopNativeStageSync = startNativeStageSync({
     version: readAppVersion(import.meta.url),
     dataDir: 'data',
@@ -146,6 +148,10 @@ async function main() {
     try { hookManager.dispose(); } catch (error) {
       exitCode = 1;
       log.error('hook shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
+    }
+    try { await bridgeManager.dispose(); } catch (error) {
+      exitCode = 1;
+      log.error('bridge shutdown failed: %s', error instanceof Error ? (error.stack ?? error.message) : String(error));
     }
     await closeLogger();
     process.exit(exitCode);

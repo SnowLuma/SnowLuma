@@ -76,13 +76,14 @@ function converterContext(): ConverterContext {
   };
 }
 
-function makeStore(): { store: MessageStore; close(): void } {
+async function makeStore(): Promise<{ store: MessageStore; close(): Promise<void> }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-history-sync-'));
   const store = new MessageStore(path.join(dir, 'messages.db'));
+  await store.initialization;
   return {
     store,
-    close: () => {
-      store.close();
+    close: async () => {
+      await store.close();
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -132,9 +133,9 @@ function makeBridge(options: {
   } as unknown as BridgeInterface;
 }
 
-const resources: Array<ReturnType<typeof makeStore>> = [];
-afterEach(() => {
-  for (const resource of resources.splice(0)) resource.close();
+const resources: Array<Awaited<ReturnType<typeof makeStore>>> = [];
+afterEach(async () => {
+  for (const resource of resources.splice(0)) await resource.close();
   vi.restoreAllMocks();
 });
 
@@ -144,7 +145,7 @@ describe('login history sync', () => {
     const coordinator = new LoginHistorySyncCoordinator({
       sleep: async (ms) => { delays.push(ms); },
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const bridge = makeBridge();
 
@@ -201,7 +202,7 @@ describe('login history sync', () => {
       groupPage,
       privateLatestPage,
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
 
@@ -241,7 +242,7 @@ describe('login history sync', () => {
       friendCount: LOGIN_HISTORY_SYNC_LIMITS.scannedPrivateUsers + 1,
       probe,
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
 
@@ -262,7 +263,7 @@ describe('login history sync', () => {
   });
 
   it('fills a known local gap from its oldest missing sequence', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const local = groupMessage(30001, 50);
     const localEvent = {
@@ -273,7 +274,7 @@ describe('login history sync', () => {
       message_seq: 50,
       group_id: 30001,
     };
-    resource.store.storeEvent(123, true, 30001, 50, 'group_message', localEvent);
+    await resource.store.storeEvent(123, true, 30001, 50, 'group_message', localEvent);
 
     const groupPage = vi.fn(async () => []);
     const bridge = makeBridge({
@@ -303,9 +304,9 @@ describe('login history sync', () => {
   });
 
   it('backfills past a newer metadata-only authoritative row', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
-    resource.store.storeEvent(123, true, 30001, 50, 'group_message', {
+    await resource.store.storeEvent(123, true, 30001, 50, 'group_message', {
       time: 1_700_000_050,
       post_type: 'message',
       message_type: 'group',
@@ -313,7 +314,7 @@ describe('login history sync', () => {
       message_seq: 50,
       group_id: 30001,
     });
-    resource.store.storeMeta(124, {
+    await resource.store.storeMeta(124, {
       isGroup: true,
       targetId: 30001,
       sequence: 100,
@@ -323,8 +324,8 @@ describe('login history sync', () => {
       random: 0,
       timestamp: 1_700_000_100,
     });
-    expect(resource.store.findLatestAuthoritativeSequence(true, 30001)).toBe(100);
-    expect(resource.store.findLatestPersistedAuthoritativeSequence(true, 30001)).toBe(50);
+    expect(await resource.store.findLatestAuthoritativeSequence(true, 30001)).toBe(100);
+    expect(await resource.store.findLatestPersistedAuthoritativeSequence(true, 30001)).toBe(50);
 
     const groupPage = vi.fn(async () => []);
     const bridge = makeBridge({
@@ -354,9 +355,9 @@ describe('login history sync', () => {
   });
 
   it('backfills a metadata-only session even when the server read cursor is current', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
-    resource.store.storeMeta(124, {
+    await resource.store.storeMeta(124, {
       isGroup: true,
       targetId: 30001,
       sequence: 100,
@@ -366,7 +367,7 @@ describe('login history sync', () => {
       random: 0,
       timestamp: 1_700_000_100,
     });
-    expect(resource.store.findLatestPersistedAuthoritativeSequence(true, 30001)).toBeNull();
+    expect(await resource.store.findLatestPersistedAuthoritativeSequence(true, 30001)).toBeNull();
 
     const groupPage = vi.fn(async () => []);
     const bridge = makeBridge({
@@ -396,9 +397,9 @@ describe('login history sync', () => {
   });
 
   it('uses the authoritative private sequence for a known local gap', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
-    resource.store.storeEvent(
+    await resource.store.storeEvent(
       456,
       false,
       40001,
@@ -469,7 +470,7 @@ describe('login history sync', () => {
       })),
       groupPage,
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
 
@@ -503,7 +504,7 @@ describe('login history sync', () => {
       })),
       groupPage,
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
 
@@ -527,16 +528,28 @@ describe('login history sync', () => {
       .resolves.toHaveLength(1);
   });
 
-  it('does not restore a private message hidden by a recall tombstone', async () => {
-    const resource = makeStore();
+  it.each([
+    'before reading',
+    'before persistence',
+  ] as const)('does not restore or count a private message recalled %s', async (timing) => {
+    const resource = await makeStore();
     resources.push(resource);
     const recalled = friendMessage(40001, 1);
-    resource.store.recordPrivateRecall(
+    const recall = () => resource.store.recordPrivateRecall(
       40001,
       recalled.clientSeq!,
       false,
       recalled.time + 1,
     );
+    if (timing === 'before reading') {
+      await recall();
+    } else {
+      const persist = resource.store.storeHistoryEvent.bind(resource.store);
+      vi.spyOn(resource.store, 'storeHistoryEvent').mockImplementationOnce(async (...args) => {
+        await recall();
+        return persist(...args);
+      });
+    }
     const bridge = makeBridge({
       groupCount: 0,
       probe: vi.fn(async () => ({
@@ -570,7 +583,7 @@ describe('login history sync', () => {
   });
 
   it('rejects private history attributed to a different peer', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const bridge = makeBridge({
       groupCount: 0,
@@ -613,7 +626,7 @@ describe('login history sync', () => {
     const mediaUrlResolver = vi.fn(async () => {
       throw new Error('media resolver must not run');
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const bridge = makeBridge({
       friendCount: 0,
@@ -655,8 +668,8 @@ describe('login history sync', () => {
       releaseFirst = () => resolve({ groups: [], privateUsers: [] });
     }));
     const secondProbe = vi.fn(async () => ({ groups: [], privateUsers: [] }));
-    const firstStore = makeStore();
-    const secondStore = makeStore();
+    const firstStore = await makeStore();
+    const secondStore = await makeStore();
     resources.push(firstStore, secondStore);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
 
@@ -690,9 +703,9 @@ describe('login history sync', () => {
     }));
     const cancelledProbe = vi.fn(async () => ({ groups: [], privateUsers: [] }));
     const thirdProbe = vi.fn(async () => ({ groups: [], privateUsers: [] }));
-    const firstStore = makeStore();
-    const cancelledStore = makeStore();
-    const thirdStore = makeStore();
+    const firstStore = await makeStore();
+    const cancelledStore = await makeStore();
+    const thirdStore = await makeStore();
     resources.push(firstStore, cancelledStore, thirdStore);
     const coordinator = new LoginHistorySyncCoordinator({ sleep: async () => undefined });
     const cancelledController = new AbortController();
@@ -734,7 +747,7 @@ describe('login history sync', () => {
     const groupPage = vi.fn(() => new Promise<GroupMessage[]>((resolve) => {
       releasePage = () => resolve([groupMessage(30001, 1)]);
     }));
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const bridge = makeBridge({
       friendCount: 0,
@@ -765,7 +778,7 @@ describe('login history sync', () => {
   });
 
   it('stops conversion side effects when disposal happens during conversion', async () => {
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const controller = new AbortController();
     const mediaSegmentSink = vi.fn();
@@ -813,7 +826,7 @@ describe('login history sync', () => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
       }),
     });
-    const resource = makeStore();
+    const resource = await makeStore();
     resources.push(resource);
     const controller = new AbortController();
 

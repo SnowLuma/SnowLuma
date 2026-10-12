@@ -1,16 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { MediaUrlResolver } from '../src/media-url-resolver';
+import { RKeyCache } from '../src/instance-rkey';
 import type { MessageElement } from '@snowluma/protocol/events';
 
-// Minimal stand-ins for the two collaborators. Each test wires whatever
-// subset of Bridge methods the element type exercises.
-//
-// MediaUrlResolver now reaches `bridge.apis.groupFile.{getUrl,
-// getPrivateUrl, getPttUrl, getPrivatePttUrl, getVideoUrl,
-// getPrivateVideoUrl}` per the #6 Api-on-ctx refactor. The helper here
-// builds an `apis.groupFile` stub directly so tests can keep asserting
-// "which file/url helper got called" without going through the
-// `mockBridge` shared fixture.
 function makeBridge(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   return {
     apis: {
@@ -123,16 +116,26 @@ describe('MediaUrlResolver — short-circuits and resilience', () => {
     expect(rkey.resolveMediaUrl).toHaveBeenCalledOnce();
   });
 
-  it('bridge throws: swallowed, rkey still applied', async () => {
-    const bridge = makeBridge({
-      getUrl: vi.fn(async () => { throw new Error('network down'); }),
-    });
-    const rkey = makeRkey({ resolveMediaUrl: vi.fn(async () => 'rkey-fallback') });
-    const resolver = new MediaUrlResolver(bridge as any, rkey as any);
-    const element: MessageElement = { type: 'file', fileId: 'fid' };
-    const out = await resolver.resolve(element, true, 12345);
-    expect(out).toBe('rkey-fallback');
-    expect(element.url).toBeUndefined(); // bridge threw before assignment
+  it.each([
+    ['file', true, 'getUrl'], ['file', false, 'getPrivateUrl'],
+    ['record', true, 'getPttUrl'], ['record', false, 'getPrivatePttUrl'],
+    ['video', true, 'getVideoUrl'], ['video', false, 'getPrivateVideoUrl'],
+  ] as const)('%s group=%s: reports URL failure and preserves the media', async (type, isGroup, method) => {
+    const bridge = makeBridge({ [method]: vi.fn().mockRejectedValue(new Error('network down')) });
+    const resolver = new MediaUrlResolver(bridge as any, new RKeyCache());
+    const element: MessageElement = { type, fileId: 'fid', fileHash: 'hash', mediaNode: MEDIA_NODE };
+    const original = structuredClone(element);
+    const entries: LogEntry[] = [];
+    const unsubscribe = subscribeLogs(entry => entries.push(entry));
+    try {
+      await expect(resolver.resolve(element, isGroup, 12345)).resolves.toBe('');
+      expect(element).toEqual(original);
+      expect(entries).toContainEqual(expect.objectContaining({
+        level: 'warn', message: expect.stringMatching(/media URL resolution failed.*network down/),
+      }));
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('always calls rkey.resolveMediaUrl at the end', async () => {

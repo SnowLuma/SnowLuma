@@ -237,7 +237,7 @@ export class NotificationManager {
       event: 'offline' as const,
       time: new Date(this.deps.now()).toISOString(),
     };
-    return { ...(await this.deliver(channel, vars)), found: true };
+    return { ...await this.deliver(channel, vars), found: true };
   }
 
   private record(rec: DeliveryRecord): void {

@@ -4,6 +4,7 @@
 // nested `webuiTls.enabled`.
 
 import type { RuntimeConfig } from '@snowluma/common/runtime';
+import { isObject } from '@snowluma/common/coerce';
 import { checkListenerExposure } from './listener-exposure';
 
 export type SettingsPatch = Partial<Pick<RuntimeConfig, 'webuiPort' | 'webuiHost' | 'webuiTls' | 'trustProxy'>>;
@@ -11,10 +12,6 @@ export type SettingsPatch = Partial<Pick<RuntimeConfig, 'webuiPort' | 'webuiHost
 export type CoerceResult =
   | { ok: true; patch: SettingsPatch }
   | { ok: false; error: string };
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 export function coerceSettingsPatch(body: unknown): CoerceResult {
   if (!isObject(body)) return { ok: false, error: 'body must be an object' };

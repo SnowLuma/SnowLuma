@@ -112,12 +112,16 @@
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@snowluma/protocol": "workspace:*",
-    "@snowluma/websocket": "workspace:*"
+    "@snowluma/websocket": "workspace:*",
+    "@snowluma/sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

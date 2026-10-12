@@ -1,6 +1,7 @@
 import type {
   AtSegment,
   ContactSegment,
+  CustomReplySegment,
   FaceSegment,
   ForwardSegment,
   ImageSegment,
@@ -42,6 +43,11 @@ export const segments = {
 
   reply(id: number | string): ReplySegment {
     return seg('reply', { id: String(id) });
+  },
+
+  /** An inline quote preview for use inside a merged-forward node. */
+  customReply(message: CustomReplySegment['data']['message'], options: Omit<CustomReplySegment['data'], 'message'> = {}): CustomReplySegment {
+    return seg('reply', { ...options, message });
   },
 
   image(file: string, options: Omit<ImageSegment['data'], 'file'> = {}): ImageSegment {

@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
+import { getRuntimeIntegrity, hasLowProcessIntegrity } from '@snowluma/bridge';
 import {
   clearManagedLogs,
   configureFileTransport,
@@ -1097,6 +1098,7 @@ export async function initWebUI(
       },
       runtime: {
         pid: process.pid,
+        lowIntegrity: hasLowProcessIntegrity(getRuntimeIntegrity()),
         rss: runtimeMemory.rss,
         heapTotal: runtimeMemory.heapTotal,
         heapUsed: runtimeMemory.heapUsed,

@@ -3776,7 +3776,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_forward_msg",
     "aliases": [],
     "summary": "获取合并转发消息（id 或 message_id）",
-    "returns": "{ messages }：转发内的消息节点数组（每项为 OneBot 消息事件，内部字段不固定）。",
+    "returns": "{ messages }：转发内的消息节点数组（每项为 OneBot 消息事件）；reply 保留 id，有内嵌引用内容时附带 message 和可用的 qq/time/seq，可作为转发节点 content 再次发送。",
     "returnsSchema": {
       "type": "object",
       "properties": {
@@ -6486,7 +6486,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_msg",
     "aliases": [],
     "summary": "获取消息",
-    "returns": "消息事件对象（首次收到时存储的副本，已去除 post_type/self_id、附带 real_id 字段并刷新图片 URL）。",
+    "returns": "消息事件对象（去除 post_type/self_id，附带 real_id）；逐个尝试刷新图片、语音和视频 URL，成功使用新地址，失败保留该段原地址并继续返回消息；地址更新时同步 raw_message。",
     "readOnly": true,
     "params": [
       {
@@ -7576,6 +7576,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_record",
     "aliases": [],
     "summary": "获取语音信息；传 out_format 则服务端转码并附带 base64",
+    "returns": "语音信息（file/url 为向 QQ 获取的当前下载地址）；资源元数据缺失或远端获取失败时返回错误。out_format 指定时附带转码后的 base64。",
     "readOnly": true,
     "params": [
       {
@@ -9195,7 +9196,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message",
@@ -9203,7 +9205,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message_type",
@@ -9267,10 +9270,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message_type": {
           "type": "string"
@@ -9441,7 +9444,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message",
@@ -9449,7 +9453,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "source",
@@ -9493,10 +9498,10 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "group_id"
         },
         "messages": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "source": {
           "type": "string"
@@ -9844,7 +9849,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message",
@@ -9852,7 +9858,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "source",
@@ -9895,10 +9902,10 @@ export const ACTIONS: CatalogAction[] = [
           "x-role": "user_id"
         },
         "messages": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "source": {
           "type": "string"
@@ -12848,7 +12855,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message",
@@ -12856,7 +12864,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "group_id",
@@ -12874,10 +12883,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "group_id": {
           "type": "integer",
@@ -12901,7 +12910,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "message",
@@ -12909,7 +12919,8 @@ export const ACTIONS: CatalogAction[] = [
         "required": false,
         "schema": {
           "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
-        }
+        },
+        "desc": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
       },
       {
         "name": "group_id",
@@ -12927,10 +12938,10 @@ export const ACTIONS: CatalogAction[] = [
       "type": "object",
       "properties": {
         "messages": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "message": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "description": "转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。"
         },
         "group_id": {
           "type": "integer",

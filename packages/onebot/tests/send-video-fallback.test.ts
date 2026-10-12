@@ -17,7 +17,7 @@ import { sendGroupMessage, videoNeedsFileFallback } from '../src/modules/message
 const MB = 1024 * 1024;
 
 function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-  return new Proxy(overrides as BridgeInterface, {
+  return new Proxy({ identity: { nickname: 'SnowLuma' }, ...overrides } as BridgeInterface, {
     get(target, prop) {
       if (prop in target) return (target as any)[prop];
       throw new Error(`fakeBridge: '${String(prop)}' was not stubbed for this test`);
@@ -28,10 +28,15 @@ function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
 function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
   return {
     uin: '10001',
+    selfId: 10001,
     bridge,
-    messageStore: { findEvent: () => null, resolveReplySequence: () => 0 } as any,
+    messageStore: { findEvent: () => null, resolveReplySequence: () => 0, storeEvent: vi.fn() } as any,
     cacheMessageMeta: vi.fn(),
     mediaStore: {} as any,
+    converterCtx: {
+      selfId: 10001, imageUrlResolver: null, mediaUrlResolver: null,
+      messageIdResolver: null, mediaSegmentSink: null,
+    },
     musicSignUrl: '',
   } as unknown as OneBotInstanceContext;
 }

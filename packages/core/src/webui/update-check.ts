@@ -119,7 +119,7 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return { ...base, error: `github ${res.status}` };
-    const rel = (await res.json()) as GithubRelease;
+    const rel = await res.json() as GithubRelease;
     const tag = (rel.tag_name ?? '').trim();
     if (!tag) return { ...base, error: 'no tag' };
     const latest = tag.replace(/^v/, '');

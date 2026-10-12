@@ -20,6 +20,7 @@ This is a pnpm workspace. Package ownership matters more than directory names:
 | `packages/protocol` | Packet decoding, typed QQ events, identity resolution, protocol requests and media transfers |
 | `packages/onebot` | Action validation and dispatch, event conversion, message storage, HTTP/WebSocket adapters |
 | `packages/common` | Shared logging, configuration and utilities without business dependencies |
+| `packages/sqlite` | Asynchronous SQLite facade, native loader, prebuild selection and Vite release assets |
 | `packages/proto-defs` | Typed protocol schemas |
 | `packages/proton` | Compile-time protobuf codecs and build integration |
 | `packages/websocket` | WebSocket implementation and native binding integration |

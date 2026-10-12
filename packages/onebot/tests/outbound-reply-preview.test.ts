@@ -23,11 +23,16 @@ async function sendQuote(isGroup: boolean, original: JsonValue | null) {
   });
   const ref = {
     uin: '10001', selfId: 10001,
-    bridge: { apis: { message: { sendGroup: send, sendPrivate: send } } },
+    bridge: { identity: { nickname: 'SnowLuma' }, apis: { message: { sendGroup: send, sendPrivate: send } } },
     messageStore: {
       findEvent: () => original === null ? null : { user_id: sender, time, message: original },
       findMeta: () => ({ isGroup, targetId: target, timestamp: time, random: 7, sequenceAuthoritative: true }),
       resolveReplySequence: () => sequence,
+      storeEvent: vi.fn(),
+    },
+    converterCtx: {
+      selfId: 10001, imageUrlResolver: null, mediaUrlResolver: null,
+      messageIdResolver: null, mediaSegmentSink: null,
     },
     cacheMessageMeta: vi.fn(), mediaStore: {}, musicSignUrl: '',
   } as unknown as OneBotInstanceContext;

@@ -1,3 +1,4 @@
+import { SqliteDatabase } from '@snowluma/sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,10 +14,10 @@ describe('message history migration scans', () => {
   let db: DatabaseSync;
   let migrator: MessageStoreMigrator | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-migration-scans-'));
     dbPath = path.join(directory, 'messages.db');
-    prepareMessageStoreDatabase(dbPath);
+    await prepareMessageStoreDatabase(dbPath);
     db = new DatabaseSync(dbPath);
     const insert = db.prepare(`INSERT INTO messages
       (message_hash, is_group, session_id, sequence, client_sequence, event_name, data, media_data, classification_version)
@@ -32,9 +33,9 @@ describe('message history migration scans', () => {
     db.exec('COMMIT');
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
-    migrator?.close();
+    await migrator?.close();
     migrator = undefined;
     db.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -60,15 +61,16 @@ describe('message history migration scans', () => {
     }
   }
 
-  it('uses pending rows for the actual count and ordered batch queries without changing history', () => {
+  it('uses pending rows for the actual count and ordered batch queries without changing history', async () => {
     const before = db.prepare('SELECT message_hash, data, media_data FROM messages ORDER BY message_hash').all();
-    const prepare = vi.spyOn(DatabaseSync.prototype, 'prepare');
+    const prepare = vi.spyOn(SqliteDatabase.prototype, 'prepare');
     migrator = new MessageStoreMigrator(dbPath);
+    await migrator.initialization;
     const queries = capturedPendingQueries(prepare.mock.calls.map(([sql]) => sql));
     expectPendingQueryPlans(queries);
-    expect(migrator.getStatus()).toEqual({ phase: 'migrating', processed: 0, total: 3 });
-    expect(migrator.runBatch(2)).toEqual({ phase: 'migrating', processed: 2, total: 3 });
-    expect(migrator.runBatch(2)).toEqual({ phase: 'complete', processed: 3, total: 3 });
+    expect(await migrator.getStatus()).toEqual({ phase: 'migrating', processed: 0, total: 3 });
+    expect(await migrator.runBatch(2)).toEqual({ phase: 'migrating', processed: 2, total: 3 });
+    expect(await migrator.runBatch(2)).toEqual({ phase: 'complete', processed: 3, total: 3 });
     expectPendingQueryPlans(queries);
     expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE classification_version < 1').get()).toEqual({ n: 0 });
     expect(db.prepare('SELECT message_hash, data, media_data FROM messages ORDER BY message_hash').all()).toEqual(before);
@@ -79,68 +81,78 @@ describe('message history migration scans', () => {
     ]);
   });
 
-  it('adds the index when resuming a migration started by an older version', () => {
+  it('adds the index when resuming a migration started by an older version', async () => {
     migrator = new MessageStoreMigrator(dbPath);
-    expect(migrator.runBatch(1)).toEqual({ phase: 'migrating', processed: 1, total: 3 });
-    migrator.close(); migrator = undefined;
+    await migrator.initialization;
+    expect(await migrator.runBatch(1)).toEqual({ phase: 'migrating', processed: 1, total: 3 });
+    await migrator.close(); migrator = undefined;
     db.exec(`DROP INDEX IF EXISTS ${pendingIndex}`);
 
     migrator = new MessageStoreMigrator(dbPath);
+    await migrator.initialization;
     expect(db.prepare('SELECT name FROM sqlite_schema WHERE type = ? AND name = ?').get('index', pendingIndex)).toEqual({ name: pendingIndex });
-    expect(migrator.getStatus()).toEqual({ phase: 'migrating', processed: 1, total: 3 });
-    expect(migrator.runBatch(3)).toEqual({ phase: 'complete', processed: 3, total: 3 });
+    expect(await migrator.getStatus()).toEqual({ phase: 'migrating', processed: 1, total: 3 });
+    expect(await migrator.runBatch(3)).toEqual({ phase: 'complete', processed: 3, total: 3 });
   });
 
-  it('does not rebuild an existing pending index when an interrupted migration resumes', () => {
+  it('does not rebuild an existing pending index when an interrupted migration resumes', async () => {
     migrator = new MessageStoreMigrator(dbPath);
-    migrator.runBatch(1);
-    migrator.close(); migrator = undefined;
+    await migrator.initialization;
+    await migrator.runBatch(1);
+    await migrator.close(); migrator = undefined;
     const schemaVersion = db.prepare('PRAGMA schema_version').get();
 
     migrator = new MessageStoreMigrator(dbPath);
+    await migrator.initialization;
     expect(db.prepare('PRAGMA schema_version').get()).toEqual(schemaVersion);
-    expect(migrator.runBatch(3)).toEqual({ phase: 'complete', processed: 3, total: 3 });
+    expect(await migrator.runBatch(3)).toEqual({ phase: 'complete', processed: 3, total: 3 });
   });
 
-  it('revisits rows left behind the cursor after a concurrent update prevented classification', () => {
+  it('revisits rows left behind the cursor after a concurrent update prevented classification', async () => {
     db.exec(`CREATE TRIGGER defer_first BEFORE UPDATE ON messages
       WHEN OLD.message_hash = -400 BEGIN SELECT RAISE(IGNORE); END`);
     migrator = new MessageStoreMigrator(dbPath);
-    expect(migrator.runBatch(1)).toEqual({ phase: 'migrating', processed: 0, total: 3 });
+    await migrator.initialization;
+    expect(await migrator.runBatch(1)).toEqual({ phase: 'migrating', processed: 0, total: 3 });
     db.exec('DROP TRIGGER defer_first');
-    expect(migrator.runBatch(2)).toEqual({ phase: 'migrating', processed: 2, total: 3 });
-    expect(migrator.runBatch(2)).toEqual({ phase: 'complete', processed: 3, total: 3 });
+    expect(await migrator.runBatch(2)).toEqual({ phase: 'migrating', processed: 2, total: 3 });
+    expect(await migrator.runBatch(2)).toEqual({ phase: 'complete', processed: 3, total: 3 });
     expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE classification_version < 1').get()).toEqual({ n: 0 });
     expect(db.prepare('SELECT COUNT(*) AS n FROM messages').get()).toEqual({ n: 1001 });
   });
 
-  it('skips index creation and pending counts when an older version already completed migration', () => {
+  it('skips index creation and pending counts when an older version already completed migration', async () => {
     migrator = new MessageStoreMigrator(dbPath);
-    migrator.runBatch(10);
-    migrator.close(); migrator = undefined;
+    await migrator.initialization;
+    await migrator.runBatch(10);
+    await migrator.close(); migrator = undefined;
     db.exec(`DROP INDEX IF EXISTS ${pendingIndex}`);
-    const exec = vi.spyOn(DatabaseSync.prototype, 'exec');
-    const prepare = vi.spyOn(DatabaseSync.prototype, 'prepare');
+    const exec = vi.spyOn(SqliteDatabase.prototype, 'exec');
+    const prepare = vi.spyOn(SqliteDatabase.prototype, 'prepare');
 
     migrator = new MessageStoreMigrator(dbPath);
-    expect(migrator.runBatch(10)).toEqual({ phase: 'complete', processed: 3, total: 3 });
+    await migrator.initialization;
+    expect(await migrator.runBatch(10)).toEqual({ phase: 'complete', processed: 3, total: 3 });
     expect(exec.mock.calls.some(([sql]) => /CREATE\s+INDEX/i.test(sql))).toBe(false);
     expect(prepare.mock.calls.some(([sql]) => sql.includes('COUNT(*)'))).toBe(false);
     expect(db.prepare('SELECT name FROM sqlite_schema WHERE type = ? AND name = ?').get('index', pendingIndex)).toBeUndefined();
   });
 
-  it('propagates preparation failure and closes the failed migration connection', () => {
-    const originalExec = DatabaseSync.prototype.exec;
+  it('propagates preparation failure and closes the failed migration connection', async () => {
+    const originalExec = SqliteDatabase.prototype.exec;
     const failure = new Error('pending index unavailable');
-    let failedDb: DatabaseSync | undefined;
-    vi.spyOn(DatabaseSync.prototype, 'exec').mockImplementation(function (this: DatabaseSync, sql) {
+    let failedDb: SqliteDatabase | undefined;
+    vi.spyOn(SqliteDatabase.prototype, 'exec').mockImplementation(async function (this: SqliteDatabase, sql) {
       if (sql.includes(pendingIndex)) { failedDb = this; throw failure; }
       return originalExec.call(this, sql);
     });
 
-    expect(() => { migrator = new MessageStoreMigrator(dbPath); }).toThrow(failure);
+    await expect(async () => { migrator = new MessageStoreMigrator(dbPath);
+      await migrator.initialization; }).rejects.toThrow(failure);
     expect(failedDb).toBeDefined();
-    expect(() => failedDb!.prepare('SELECT 1')).toThrow(/not open/);
+    await migrator!.close();
+    migrator = undefined;
+    await expect(failedDb!.exec('SELECT 1')).rejects.toThrow(/closing/);
     expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE classification_version < 1').get()).toEqual({ n: 3 });
   });
 });

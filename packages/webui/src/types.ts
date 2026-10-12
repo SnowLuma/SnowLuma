@@ -452,6 +452,7 @@ export interface SystemInfo {
   };
   runtime: {
     pid: number;
+    lowIntegrity: boolean;
     rss: number;
     heapTotal: number;
     heapUsed: number;

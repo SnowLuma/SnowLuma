@@ -2,9 +2,32 @@ packages:
   - 'packages/*'
 
 catalog:
-  '@types/node': 22.13.0
+  '@types/node': 24.19.2
   vite: ^8.0.16
   typescript: ~6.0.2
 
 overrides:
-  tar: ^7.5.13
+  'tar': ^7.5.13
+  'esbuild@<0.28.1': ^0.28.1
+  '@babel/core@<7.29.6': ^7.29.6
+  'qs@<=6.15.3': ^6.16.0
+  'fast-uri@<3.1.6': ^3.1.6
+  '@hono/node-server@<1.19.15': ^1.19.15
+  'hono': ~4.12.34
+  'postcss@<=8.5.22': ^8.5.23
+  'ip-address@<=10.3.0': ^10.3.1
+  'body-parser@<2.3.0': ^2.3.0
+  'brace-expansion@<5.0.7': ^5.0.7
+
+peerDependencyRules:
+  allowedVersions:
+    'eslint-plugin-react-hooks>eslint': '10'
+
+allowBuilds:
+  # @snowluma/sqlite loads the tarball's prebuilds directly; never compile at install time.
+  '@appthreat/sqlite3': false
+  '@parcel/watcher': true
+  esbuild: true
+
+# Core and OneBot deliberately share interface types.
+ignoreWorkspaceCycles: true

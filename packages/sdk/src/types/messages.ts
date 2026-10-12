@@ -11,7 +11,15 @@ export interface MessageSegment<
 export type TextSegment = MessageSegment<'text', { text: string }>;
 export type FaceSegment = MessageSegment<'face', { id: string; large?: boolean; resultId?: string }>;
 export type AtSegment = MessageSegment<'at', { qq: string; name?: string; uid?: string }>;
-export type ReplySegment = MessageSegment<'reply', { id: string }>;
+type ReplyContent = {
+  /** Inline quote preview; supported only inside merged-forward nodes. */
+  message: string | AnyMessageSegment | AnyMessageSegment[];
+  qq?: string | number;
+  time?: string | number;
+  seq?: string | number;
+};
+export type ReplySegment = MessageSegment<'reply', { id: string } & Partial<ReplyContent>>;
+export type CustomReplySegment = MessageSegment<'reply', { id?: string } & ReplyContent>;
 export type ImageSegment = MessageSegment<'image', {
   file: string;
   type?: 'flash';
@@ -74,7 +82,7 @@ export type KnownMessageSegment =
   | LocationSegment
   | ContactSegment;
 
-export type AnyMessageSegment = KnownMessageSegment | MessageSegment;
+export type AnyMessageSegment = KnownMessageSegment | CustomReplySegment | MessageSegment;
 
 export interface MessageChainLike {
   readonly length: number;

@@ -11,7 +11,7 @@ function makeMediaStore() {
 }
 
 describe('MediaIndexer', () => {
-  it('image: maps element fields into rememberImage with file fallback to fileId', () => {
+  it('image: maps element fields into rememberImage with file fallback to fileId', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
     const element: MessageElement = {
@@ -27,7 +27,7 @@ describe('MediaIndexer', () => {
       height: 600,
       picFormat: 1000,
     };
-    indexer.remember('image', element, { url: 'http://x', file: '' }, true, 99999);
+    await indexer.remember('image', element, { url: 'http://x', file: '' }, true, 99999);
 
     expect(store.rememberImage).toHaveBeenCalledOnce();
     const arg = store.rememberImage.mock.calls[0]![0];
@@ -48,7 +48,7 @@ describe('MediaIndexer', () => {
     });
   });
 
-  it('record: maps element fields into rememberRecord with file fallback chain', () => {
+  it('record: maps element fields into rememberRecord with file fallback chain', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
     const element: MessageElement = {
@@ -63,7 +63,7 @@ describe('MediaIndexer', () => {
       sha1Hex: 's',
       voiceFormat: 1,
     };
-    indexer.remember('record', element, { url: 'http://r', file: '' }, false, 12345);
+    await indexer.remember('record', element, { url: 'http://r', file: '' }, false, 12345);
 
     const arg = store.rememberRecord.mock.calls[0]![0];
     expect(arg.file).toBe('voice.amr');  // data.file '' → element.fileName
@@ -74,7 +74,7 @@ describe('MediaIndexer', () => {
     expect(arg.voiceFormat).toBe(1);
   });
 
-  it('video: maps element fields into rememberVideo', () => {
+  it('video: maps element fields into rememberVideo', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
     const element: MessageElement = {
@@ -87,7 +87,7 @@ describe('MediaIndexer', () => {
       height: 1080,
       videoFormat: 2,
     };
-    indexer.remember('video', element, { url: 'http://v', file: 'override.mp4' }, true, 11111);
+    await indexer.remember('video', element, { url: 'http://v', file: 'override.mp4' }, true, 11111);
 
     const arg = store.rememberVideo.mock.calls[0]![0];
     expect(arg.file).toBe('override.mp4');  // data.file used when non-empty
@@ -97,18 +97,18 @@ describe('MediaIndexer', () => {
     expect(arg.videoFormat).toBe(2);
   });
 
-  it('falls back to element.fileId when data.file AND element.fileName are missing (record)', () => {
+  it('falls back to element.fileId when data.file AND element.fileName are missing (record)', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
     const element: MessageElement = { type: 'record', fileId: 'only-fid' };
-    indexer.remember('record', element, { url: '', file: '' }, false, 1);
+    await indexer.remember('record', element, { url: '', file: '' }, false, 1);
     expect(store.rememberRecord.mock.calls[0]![0].file).toBe('only-fid');
   });
 
-  it('defaults missing numeric fields to 0 / missing strings to ""', () => {
+  it('defaults missing numeric fields to 0 / missing strings to ""', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
-    indexer.remember('image', { type: 'image' }, { url: '', file: '' }, false, 0);
+    await indexer.remember('image', { type: 'image' }, { url: '', file: '' }, false, 0);
     const arg = store.rememberImage.mock.calls[0]![0];
     expect(arg.fileSize).toBe(0);
     expect(arg.subType).toBe(0);
@@ -116,10 +116,10 @@ describe('MediaIndexer', () => {
     expect(arg.imageUrl).toBe('');
   });
 
-  it('only the matching rememberX is called', () => {
+  it('only the matching rememberX is called', async () => {
     const store = makeMediaStore();
     const indexer = new MediaIndexer(store as any);
-    indexer.remember('image', { type: 'image' }, { url: '', file: 'a' }, true, 1);
+    await indexer.remember('image', { type: 'image' }, { url: '', file: 'a' }, true, 1);
     expect(store.rememberImage).toHaveBeenCalledOnce();
     expect(store.rememberRecord).not.toHaveBeenCalled();
     expect(store.rememberVideo).not.toHaveBeenCalled();

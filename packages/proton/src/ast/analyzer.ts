@@ -4,6 +4,7 @@ import { collectInterface, collectGenericInterface, collectConcreteFieldGenericT
 import { monomorphizeTypeNode } from './monomorphizer.js';
 import {
   createImportedTypeNameResolver,
+  getCallableName,
   typeNodeToMangledName,
   registerSyntheticTypeSourceFile,
   resolveSourceFileForTypeNode,
@@ -17,12 +18,6 @@ import {
 import { buildDependencyRegistry } from './dependency-graph.js';
 
 export { typeNodeToMangledName } from './utils.js';
-
-function getCallableName(expr: ts.Expression): string | null {
-  if (ts.isIdentifier(expr)) return expr.text;
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
-  return null;
-}
 
 function instantiateWrapperTypePattern(
   binding: WrapperBinding,

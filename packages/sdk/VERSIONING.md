@@ -43,4 +43,4 @@ If the package version already exists on npm, the workflow skips publishing that
 
 ## Action Compatibility
 
-SnowLuma action coverage is synchronized from `packages/core/src/onebot/actions/*.ts`. Adding an action type is a minor change unless it changes an existing method signature or return type.
+SnowLuma action coverage is synchronized from `packages/onebot/src/actions/*.ts`. Adding an action type is a minor change unless it changes an existing method signature or return type.

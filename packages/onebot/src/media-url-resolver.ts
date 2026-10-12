@@ -1,6 +1,22 @@
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import { createLogger } from '@snowluma/common/logger';
 import type { MessageElement } from '@snowluma/protocol/events';
 import type { RKeyCache } from './instance-rkey';
+
+const log = createLogger('OneBot');
+
+export function resolveRemoteMediaUrl(
+  bridge: BridgeInterface,
+  type: 'record' | 'video',
+  node: MessageElement['mediaNode'],
+  isGroup: boolean,
+  sessionId: number,
+): Promise<string> {
+  if (!node) throw new Error(`${type} media metadata is missing`);
+  const api = bridge.apis.groupFile;
+  if (type === 'record') return isGroup ? api.getPttUrl(sessionId, node) : api.getPrivatePttUrl(node);
+  return isGroup ? api.getVideoUrl(sessionId, node) : api.getPrivateVideoUrl(node);
+}
 
 export class MediaUrlResolver {
   constructor(
@@ -12,9 +28,10 @@ export class MediaUrlResolver {
     if (!element.url) {
       try {
         await this.populateUrl(element, isGroup, sessionId);
-      } catch {
-        // Best-effort: a URL fetch hiccup should never block the
-        // outgoing segment. The RKey pass below still runs.
+      } catch (err) {
+        // Preserve the media segment when its download URL is unavailable.
+        log.warn('media URL resolution failed type=%s is_group=%s: %s',
+          element.type, isGroup, err instanceof Error ? err.message : String(err));
       }
     }
     return this.rkeyCache.resolveMediaUrl(this.bridge, element, isGroup);
@@ -32,15 +49,7 @@ export class MediaUrlResolver {
     }
 
     if ((element.type === 'record' || element.type === 'video') && element.mediaNode) {
-      if (isGroup) {
-        element.url = element.type === 'record'
-          ? await this.bridge.apis.groupFile.getPttUrl(sessionId, element.mediaNode)
-          : await this.bridge.apis.groupFile.getVideoUrl(sessionId, element.mediaNode);
-      } else {
-        element.url = element.type === 'record'
-          ? await this.bridge.apis.groupFile.getPrivatePttUrl(element.mediaNode)
-          : await this.bridge.apis.groupFile.getPrivateVideoUrl(element.mediaNode);
-      }
+      element.url = await resolveRemoteMediaUrl(this.bridge, element.type, element.mediaNode, isGroup, sessionId);
     }
   }
 }

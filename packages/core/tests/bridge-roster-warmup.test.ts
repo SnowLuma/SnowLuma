@@ -80,7 +80,7 @@ describe('Bridge roster warmup', () => {
     expect(identity.findFriend(22222)?.uid).toBe('u_friend');
     expect(identity.findGroup(123)?.groupName).toBe('group');
     expect(identity.findGroupMember(123, 33333)?.uid).toBe('u_member');
-    bridge.dispose();
+    await bridge.dispose();
   });
 
   it('does not retry a failed friend list fetch', async () => {
@@ -98,7 +98,7 @@ describe('Bridge roster warmup', () => {
     bridge.bindPid(8, sender);
     await bridge.whenRosterWarmupSettled();
     expect(fetchFriendList).toHaveBeenCalledOnce();
-    bridge.dispose();
+    await bridge.dispose();
   });
 
   it('discards in-flight warmup writes after dispose', async () => {
@@ -111,7 +111,7 @@ describe('Bridge roster warmup', () => {
 
     bridge.bindPid(7, sender);
     const settled = bridge.whenRosterWarmupSettled();
-    bridge.dispose();
+    await bridge.dispose();
     releaseFriends([makeFriend(22222, 'u_friend', 'friend')]);
 
     await expect(settled).resolves.toEqual({ friendsLoaded: false, groupsLoaded: false });

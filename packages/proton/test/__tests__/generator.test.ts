@@ -6,23 +6,15 @@ import { loadFixture } from '../helpers';
 
 /** Analyze fixture → generate → eval → return encode/decode pair */
 function makeRoundTrip(fixtureName: string, msgName: string) {
-  const gen = generateCode(analyzeSource(loadFixture(fixtureName), fixtureName));
-  new Function(gen + `\nglobalThis.__enc = protobuf_encode_${msgName}; globalThis.__dec = protobuf_decode_${msgName};`)();
-  const enc = (globalThis as any).__enc as (obj: any) => Uint8Array;
-  const dec = (globalThis as any).__dec as (data: Uint8Array) => any;
-  delete (globalThis as any).__enc;
-  delete (globalThis as any).__dec;
-  return { enc, dec };
+  return makeRoundTripFromSchema(loadFixture(fixtureName), msgName);
 }
 
 function makeRoundTripFromSchema(schema: string, msgName: string) {
   const gen = generateCode(analyzeSource(schema, `${msgName}.ts`));
-  new Function(gen + `\nglobalThis.__enc = protobuf_encode_${msgName}; globalThis.__dec = protobuf_decode_${msgName};`)();
-  const enc = (globalThis as any).__enc as (obj: any) => Uint8Array;
-  const dec = (globalThis as any).__dec as (data: Uint8Array) => any;
-  delete (globalThis as any).__enc;
-  delete (globalThis as any).__dec;
-  return { enc, dec };
+  return new Function(gen + `\nreturn { enc: protobuf_encode_${msgName}, dec: protobuf_decode_${msgName} };`)() as {
+    enc: (obj: unknown) => Uint8Array;
+    dec: (data: Uint8Array) => any;
+  };
 }
 
 function encodeVarint32(value: number): number[] {
@@ -38,6 +30,27 @@ function encodeVarint32(value: number): number[] {
 }
 
 describe('code generator', () => {
+  it.each([
+    [0, []], [1, [0x08, 0x01]], [127, [0x08, 0x7f]],
+    [128, [0x08, 0x80, 0x01]], [300, [0x08, 0xac, 0x02]],
+    [16384, [0x08, 0x80, 0x80, 0x01]],
+    [0xffffffff, [0x08, 0xff, 0xff, 0xff, 0xff, 0x0f]],
+  ] as const)('encodes and decodes uint32 wire fixture %i', (value, bytes) => {
+    const { enc, dec } = makeRoundTrip('simple.ts', 'SimpleMsg');
+    expect([...enc({ value })]).toEqual(bytes);
+    expect(dec(Uint8Array.from(bytes)).value).toBe(value);
+  });
+
+  it.each([
+    [0x10, 0xac, 0x02],
+    [0x12, 0x03, 0x41, 0x42, 0x43],
+    [0x15, 0, 0, 0, 0],
+    [0x11, 0, 0, 0, 0, 0, 0, 0, 0],
+  ])('skips an unknown wire field before a known field (%j)', (...bytes) => {
+    const { dec } = makeRoundTrip('simple.ts', 'SimpleMsg');
+    expect(dec(Uint8Array.from([...bytes, 0x08, 42])).value).toBe(42);
+  });
+
   it('generates encode/decode for simple uint_32', () => {
     const gen = generateCode(analyzeSource(loadFixture('simple.ts'), 't.ts'));
     expect(gen).toContain('function protobuf_encode_SimpleMsg(obj)');

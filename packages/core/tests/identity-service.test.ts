@@ -73,19 +73,45 @@ afterEach(() => {
 });
 
 describe('IdentityService', () => {
-  it('persists friends, groups, and active group members', () => {
+  it('replays observations accepted during loading and drains them when closed before ready', async () => {
+    const dbPath = tempDbPath('async-startup');
+    const previous = new IdentityService(SELF_UIN, dbPath);
+    previous.rememberFriends([{ uin: 22222, uid: 'u_old', nickname: 'old', remark: '' }]);
+    await previous.close();
+    let release!: () => void;
+    const loading = new Promise<void>(resolve => { release = resolve; });
+    const identity = new IdentityService(SELF_UIN, dbPath, loading);
+    const friends = [{ uin: 33333, uid: 'u_new', nickname: 'accepted', remark: '' }];
+    identity.rememberFriends(friends);
+    friends[0]!.nickname = 'mutated by caller';
+    expect(identity.findFriend(33333)?.nickname).toBe('accepted');
+    const closing = identity.close();
+    expect(() => identity.rememberFriends([])).toThrow(/closed/);
+    release();
+    await closing;
+    const reopened = new IdentityService(SELF_UIN, dbPath);
+    try {
+      await reopened.initialization;
+      expect(reopened.findFriend(22222)).toBeNull();
+      expect(reopened.findFriend(33333)?.nickname).toBe('accepted');
+    } finally { await reopened.close(); }
+  });
+
+  it('persists friends, groups, and active group members', async () => {
     const dbPath = tempDbPath('persist');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberFriends([{ uin: 22222, uid: 'u_friend', nickname: 'friend', remark: 'remark' }]);
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [makeMember(33333, 'u_member', 'card')]);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
 
       expect(identity.findFriend(22222)?.uid).toBe('u_friend');
       expect(identity.findGroup(GROUP_ID)?.groupName).toBe('group');
@@ -93,28 +119,30 @@ describe('IdentityService', () => {
       expect(identity.findUidByUin(33333, GROUP_ID)).toBe('u_member');
       expect(identity.findUinByUid('u_member', GROUP_ID)).toBe(33333);
 
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('persists group member robot classification across restarts', () => {
+  it('persists group member robot classification across restarts', async () => {
     const dbPath = tempDbPath('persist-robot');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [makeMember(33333, 'u_robot', '', true)]);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroupMember(GROUP_ID, 33333)?.isRobot).toBe(true);
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('migrates legacy member caches without inventing a robot classification', () => {
+  it('migrates legacy member caches without inventing a robot classification', async () => {
     const dbPath = tempDbPath('migrate-robot');
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const legacy = new DatabaseSync(dbPath);
@@ -164,8 +192,9 @@ describe('IdentityService', () => {
     legacy.close();
 
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     expect(identity.findGroupMember(GROUP_ID, 33333)?.isRobot).toBeUndefined();
-    identity.close();
+    await identity.close();
 
     const migrated = new DatabaseSync(dbPath);
     const columns = migrated.prepare('PRAGMA table_info(group_members)').all() as Array<{ name: string }>;
@@ -173,52 +202,57 @@ describe('IdentityService', () => {
     migrated.close();
   });
 
-  it('keeps updateGroupMember changes after reopening the persistent cache', () => {
+  it('keeps updateGroupMember changes after reopening the persistent cache', async () => {
     const dbPath = tempDbPath('update-member');
     const member = makeMember(33333, 'u_member', 'old-card');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.updateGroupMember(GROUP_ID, { ...member, card: 'new-card' });
 
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('new-card');
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('new-card');
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('persists an explicitly cleared member card instead of restoring the old value', () => {
+  it('persists an explicitly cleared member card instead of restoring the old value', async () => {
     const dbPath = tempDbPath('clear-member-card');
     const member = makeMember(33333, 'u_member', 'old-card');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.updateGroupMember(GROUP_ID, { ...member, card: '' });
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('');
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('');
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('keeps friend remark updates after reopening the persistent cache', () => {
+  it('keeps friend remark updates after reopening the persistent cache', async () => {
     const dbPath = tempDbPath('update-friend-remark');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberFriends([{
         uin: 22222,
         uid: 'u_friend',
@@ -228,37 +262,40 @@ describe('IdentityService', () => {
 
       expect(identity.updateFriendRemark('u_friend', 22222, 'new-remark')).toBe(true);
       expect(identity.findFriend(22222)?.remark).toBe('new-remark');
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findFriend(22222)?.remark).toBe('new-remark');
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('keeps exact group remark updates after reopening the persistent cache', () => {
+  it('keeps exact group remark updates after reopening the persistent cache', async () => {
     const dbPath = tempDbPath('update-group-remark');
     const remark = '  project group  ';
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([{ ...makeGroup(), remark: 'old-remark' }]);
 
       expect(identity.updateGroupRemark(GROUP_ID, remark)).toBe(true);
       expect(identity.findGroup(GROUP_ID)?.remark).toBe(remark);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroup(GROUP_ID)?.remark).toBe(remark);
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('does not invent a group while applying a remark update', () => {
+  it('does not invent a group while applying a remark update', async () => {
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
 
@@ -266,18 +303,19 @@ describe('IdentityService', () => {
     expect(identity.groups).toHaveLength(1);
     expect(identity.findGroup(GROUP_ID)?.remark).toBe('');
     expect(identity.findGroup(987654321)).toBeNull();
-    identity.close();
+    await identity.close();
   });
 
   it.each([
     ['empty', ''],
     ['whitespace-only', '   '],
     ['surrounding-whitespace', '  padded remark  '],
-  ])('preserves %s friend remarks exactly after reopening', (_label, remark) => {
+  ])('preserves %s friend remarks exactly after reopening', async (_label, remark) => {
     const dbPath = tempDbPath('exact-friend-remark');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberFriends([{
         uin: 22222,
         uid: 'u_friend',
@@ -287,13 +325,14 @@ describe('IdentityService', () => {
 
       expect(identity.updateFriendRemark('u_friend', 22222, remark)).toBe(true);
       expect(identity.findFriend(22222)?.remark).toBe(remark);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findFriend(22222)?.remark).toBe(remark);
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -314,6 +353,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-recovery');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
     let closed = false;
 
@@ -326,6 +366,7 @@ describe('IdentityService', () => {
       }]);
 
       expect(identity.findFriend(22222)?.uid).toBe('u_retry');
+      await expect(identity.flush()).rejects.toThrow(/locked/i);
       expect(identity.persistenceStatus).toMatchObject({
         state: 'degraded',
         pendingWrites: 1,
@@ -336,6 +377,7 @@ describe('IdentityService', () => {
       expect(identity.persistenceStatus.nextRetryAt! - Date.now()).toBe(100);
 
       await vi.advanceTimersByTimeAsync(100);
+      await expect(identity.flush()).rejects.toThrow(/locked/i);
       expect(identity.persistenceStatus).toMatchObject({
         state: 'degraded',
         pendingWrites: 1,
@@ -345,6 +387,7 @@ describe('IdentityService', () => {
 
       releaseLock();
       await vi.advanceTimersByTimeAsync(500);
+      await identity.flush();
 
       expect(identity.persistenceStatus).toMatchObject({
         state: 'healthy',
@@ -352,15 +395,16 @@ describe('IdentityService', () => {
         retryAttempt: 0,
         nextRetryAt: null,
       });
-      identity.close();
+      await identity.close();
       closed = true;
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findFriend(22222)?.uid).toBe('u_retry');
-      reopened.close();
+      await reopened.close();
     } finally {
       releaseLock();
-      if (!closed) identity.close();
+      if (!closed) await identity.close();
     }
   });
 
@@ -368,6 +412,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-order');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
     let closed = false;
 
@@ -391,16 +436,17 @@ describe('IdentityService', () => {
 
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
-      identity.close();
+      await identity.close();
       closed = true;
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findFriend(11111)).toBeNull();
       expect(reopened.findFriend(22222)?.uid).toBe('u_second');
-      reopened.close();
+      await reopened.close();
     } finally {
       releaseLock();
-      if (!closed) identity.close();
+      if (!closed) await identity.close();
     }
   });
 
@@ -408,6 +454,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-snapshot');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const member = makeMember(33333, 'u_member', 'before');
     identity.rememberGroups([makeGroup()]);
     identity.rememberGroupMembers(GROUP_ID, [member]);
@@ -421,14 +468,15 @@ describe('IdentityService', () => {
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('accepted');
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
-      identity.close();
+      await identity.close();
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findGroupMember(GROUP_ID, member.uin)?.card).toBe('accepted');
-      reopened.close();
+      await reopened.close();
     } finally {
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -436,6 +484,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('pending-member-group-refresh');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const member = makeMember(33333, 'u_member', 'persisted-card');
     identity.rememberGroups([makeGroup()]);
     identity.rememberGroupMembers(GROUP_ID, [member]);
@@ -450,15 +499,16 @@ describe('IdentityService', () => {
 
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
-      identity.close();
+      await identity.close();
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findGroup(GROUP_ID)?.groupName).toBe('refreshed-group');
       expect(reopened.findGroupMember(GROUP_ID, member.uin)?.card).toBe('pending-card');
-      reopened.close();
+      await reopened.close();
     } finally {
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -466,6 +516,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('pending-rebind');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     identity.rememberRequestIdentity({ uid: 'u_old_for_uin', uin: 22001 });
     identity.rememberRequestIdentity({ uid: 'u_stable', uin: 22002 });
     const releaseLock = holdWriteLock(dbPath);
@@ -481,15 +532,16 @@ describe('IdentityService', () => {
 
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
-      identity.close();
+      await identity.close();
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findUidByUin(22001)).toBe('u_new_for_uin');
       expect(reopened.findUinByUid('u_stable')).toBe(22999);
-      reopened.close();
+      await reopened.close();
     } finally {
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -497,6 +549,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-capacity');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
 
     try {
@@ -528,7 +581,7 @@ describe('IdentityService', () => {
     } finally {
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -536,6 +589,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('retry-exhausted');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
     const seen: Array<{ level: string; message: string }> = [];
     const unsubscribe = subscribeLogs((entry) => {
@@ -551,8 +605,10 @@ describe('IdentityService', () => {
       }]);
       identity.rememberRequestIdentity({ uid: 'u_abandoned_request', uin: 33333 });
 
+      await expect(identity.flush()).rejects.toThrow(/locked/i);
       for (const delay of [100, 500, 2_000, 10_000, 30_000]) {
         await vi.advanceTimersByTimeAsync(delay);
+        await identity.flush().catch(() => undefined);
       }
 
       expect(identity.persistenceStatus).toMatchObject({
@@ -608,9 +664,10 @@ describe('IdentityService', () => {
       expect(skipLogs[1]?.message).toMatch(/suppressed=50/);
 
       releaseLock();
-      identity.close();
+      await identity.close();
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.persistenceStatus).toMatchObject({
         state: 'healthy',
         suspended: false,
@@ -620,22 +677,24 @@ describe('IdentityService', () => {
       expect(reopened.findUinByUid('u_abandoned_request')).toBeNull();
       expect(reopened.findUinByUid('u_skipped_after_suspend')).toBeNull();
       reopened.rememberRequestIdentity({ uid: 'u_after_restart', uin: 55555 });
-      reopened.close();
+      await reopened.close();
 
       const persisted = new IdentityService(SELF_UIN, dbPath);
+      await persisted.initialization;
       expect(persisted.findUinByUid('u_after_restart')).toBe(55555);
-      persisted.close();
+      await persisted.close();
     } finally {
       unsubscribe();
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('flushes pending writes synchronously during close when SQLite has recovered', () => {
+  it('flushes pending writes during asynchronous close when SQLite has recovered', async () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('close-flush');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
 
     identity.rememberFriends([{
@@ -647,7 +706,7 @@ describe('IdentityService', () => {
     expect(identity.persistenceStatus.pendingWrites).toBe(1);
 
     releaseLock();
-    identity.close();
+    await identity.close();
 
     expect(identity.persistenceStatus).toMatchObject({
       state: 'closed',
@@ -657,14 +716,16 @@ describe('IdentityService', () => {
     });
 
     const reopened = new IdentityService(SELF_UIN, dbPath);
+    await reopened.initialization;
     expect(reopened.findFriend(22222)?.uid).toBe('u_close_flush');
-    reopened.close();
+    await reopened.close();
   });
 
-  it('warns and releases pending retry work when close cannot flush SQLite', () => {
+  it('warns and releases pending retry work when close cannot flush SQLite', async () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('close-pending');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
     const seen: Array<{ level: string; message: string }> = [];
     const unsubscribe = subscribeLogs((entry) => {
@@ -680,7 +741,7 @@ describe('IdentityService', () => {
       }]);
       expect(identity.persistenceStatus.pendingWrites).toBe(1);
 
-      identity.close();
+      await identity.close();
 
       expect(identity.persistenceStatus).toMatchObject({
         state: 'closed',
@@ -697,7 +758,7 @@ describe('IdentityService', () => {
     } finally {
       unsubscribe();
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
@@ -705,6 +766,7 @@ describe('IdentityService', () => {
     vi.useFakeTimers();
     const dbPath = tempDbPath('close-failure');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     const releaseLock = holdWriteLock(dbPath);
     const database = (identity as unknown as { db: DatabaseSync }).db;
     const closeSpy = vi.spyOn(database, 'close').mockImplementationOnce(() => {
@@ -720,7 +782,8 @@ describe('IdentityService', () => {
       }]);
       expect(identity.persistenceStatus.pendingWrites).toBe(1);
 
-      expect(() => identity.close()).toThrow(/injected close failure/);
+      await expect(identity.flush()).rejects.toThrow(/locked/i);
+      await expect(identity.close()).rejects.toThrow(/injected close failure/);
       expect(identity.persistenceStatus).toMatchObject({
         state: 'degraded',
         pendingWrites: 1,
@@ -739,29 +802,31 @@ describe('IdentityService', () => {
       closeSpy.mockRestore();
       releaseLock();
       await vi.runOnlyPendingTimersAsync();
+      await identity.flush();
       expect(identity.persistenceStatus).toMatchObject({
         state: 'healthy',
         pendingWrites: 0,
       });
-      identity.close();
+      await identity.close();
 
       const reopened = new IdentityService(SELF_UIN, dbPath);
+      await reopened.initialization;
       expect(reopened.findFriend(22222)?.uid).toBe('u_close_retry_friend');
       expect(reopened.findUinByUid('u_after_close_failure')).toBe(33333);
-      reopened.close();
+      await reopened.close();
     } finally {
       closeSpy.mockRestore();
       releaseLock();
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('fails fast on every observation entry point after close', () => {
+  it('fails fast on every observation entry point after close', async () => {
     const identity = IdentityService.memory(SELF_UIN);
     const member = makeMember(33333, 'u_member', 'before-close');
     identity.rememberGroups([makeGroup()]);
     identity.rememberGroupMembers(GROUP_ID, [member]);
-    identity.close();
+    await identity.close();
 
     const profile: UserProfileInfo = {
       uin: 44444,
@@ -824,39 +889,41 @@ describe('IdentityService', () => {
     expect(identity.findUinByUid('u_request')).toBeNull();
   });
 
-  it('does not treat identity-only sightings as live group members', () => {
+  it('does not treat identity-only sightings as live group members', async () => {
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
     identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_seen', uin: 88888 });
 
     expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
     expect(identity.findUinByUid('u_seen')).toBe(88888);
-    identity.close();
+    await identity.close();
   });
 
-  it('does not hydrate identity-only sightings as live members after reopen', () => {
+  it('does not hydrate identity-only sightings as live members after reopen', async () => {
     const dbPath = tempDbPath('identity-only-not-roster');
     const member = makeMember(33333, 'u_member', 'card');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.rememberGroupMemberIdentity(GROUP_ID, { uid: 'u_operator', uin: 88888 });
       expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('card');
       expect(identity.findGroupMember(GROUP_ID, 88888)).toBeNull();
       expect(identity.findUinByUid('u_operator')).toBe(88888);
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('records a thin live member on join without inventing roster details', () => {
+  it('records a thin live member on join without inventing roster details', async () => {
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
     const existing = makeMember(33333, 'u_existing', 'card');
@@ -876,23 +943,25 @@ describe('IdentityService', () => {
     });
     expect(joined?.isRobot).toBeUndefined();
     expect(identity.findGroupMember(GROUP_ID, 33333)?.card).toBe('card');
-    identity.close();
+    await identity.close();
   });
 
-  it('persists a thin live member on join across reopen', () => {
+  it('persists a thin live member on join across reopen', async () => {
     const dbPath = tempDbPath('join-live-roster');
     const existing = makeMember(33333, 'u_existing', 'card');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [existing]);
       identity.rememberGroupMemberJoined(GROUP_ID, { uid: 'u_join', uin: 44444 });
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       const joined = identity.findGroupMember(GROUP_ID, 44444);
       expect(joined).toMatchObject({
         uin: 44444,
@@ -903,11 +972,11 @@ describe('IdentityService', () => {
       });
       expect(joined?.isRobot).toBeUndefined();
       expect(identity.findGroupMember(GROUP_ID, 33333)?.card).toBe('card');
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('drops a leaver from the live roster and keeps their identity mapping', () => {
+  it('drops a leaver from the live roster and keeps their identity mapping', async () => {
     const identity = IdentityService.memory(SELF_UIN);
     identity.rememberGroups([makeGroup()]);
     const member = makeMember(33333, 'u_member', 'card');
@@ -917,71 +986,77 @@ describe('IdentityService', () => {
 
     expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
     expect(identity.findUidByUin(member.uin, GROUP_ID)).toBe(member.uid);
-    identity.close();
+    await identity.close();
   });
 
-  it('keeps a leaver out of the live roster after reopen', () => {
+  it('keeps a leaver out of the live roster after reopen', async () => {
     const dbPath = tempDbPath('leave-live-roster');
     const member = makeMember(33333, 'u_member', 'card');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.markGroupMemberInactive(GROUP_ID, { uid: member.uid, uin: member.uin });
       expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
       expect(identity.findUidByUin(member.uin, GROUP_ID)).toBe(member.uid);
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('marks missing members inactive only after a successful full refresh', () => {
+  it('marks missing members inactive only after a successful full refresh', async () => {
     const dbPath = tempDbPath('inactive-refresh');
     const first = makeMember(33333, 'u_first');
     const second = makeMember(44444, 'u_second');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [first, second]);
       identity.rememberGroupMembers(GROUP_ID, [second]);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
 
       expect(identity.findGroupMember(GROUP_ID, first.uin)).toBeNull();
       expect(identity.findGroupMember(GROUP_ID, second.uin)?.uid).toBe(second.uid);
       // Historical identity remains available for UID/UIN resolution.
       expect(identity.findUidByUin(first.uin, GROUP_ID)).toBe(first.uid);
 
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('marks missing friends and groups inactive after successful full refreshes', () => {
+  it('marks missing friends and groups inactive after successful full refreshes', async () => {
     const dbPath = tempDbPath('inactive-lists');
     const member = makeMember(33333, 'u_member');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberFriends([{ uin: 22222, uid: 'u_friend', nickname: 'friend', remark: '' }]);
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.rememberFriends([]);
       identity.rememberGroups([]);
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
 
       expect(identity.findFriend(22222)).toBeNull();
       expect(identity.findGroup(GROUP_ID)).toBeNull();
@@ -989,37 +1064,40 @@ describe('IdentityService', () => {
       expect(identity.findUidByUin(22222)).toBe('u_friend');
       expect(identity.findUidByUin(member.uin, GROUP_ID)).toBe(member.uid);
 
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('can mark one member inactive without losing the identity mapping', () => {
+  it('can mark one member inactive without losing the identity mapping', async () => {
     const dbPath = tempDbPath('inactive-event');
     const member = makeMember(33333, 'u_member');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberGroups([makeGroup()]);
       identity.rememberGroupMembers(GROUP_ID, [member]);
       identity.markGroupMemberInactive(GROUP_ID, { uid: member.uid, uin: member.uin });
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
 
       expect(identity.findGroupMember(GROUP_ID, member.uin)).toBeNull();
       expect(identity.findUinByUid(member.uid, GROUP_ID)).toBe(member.uin);
 
-      identity.close();
+      await identity.close();
     }
   });
 
-  it('persists identities learned from request events', () => {
+  it('persists identities learned from request events', async () => {
     const dbPath = tempDbPath('request-events');
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
       identity.rememberRequestIdentity({
         uid: 'u_friend_request',
         uin: 55555,
@@ -1031,18 +1109,19 @@ describe('IdentityService', () => {
         uin: 66666,
         source: 'group_request',
       });
-      identity.close();
+      await identity.close();
     }
 
     {
       const identity = new IdentityService(SELF_UIN, dbPath);
+      await identity.initialization;
 
       expect(identity.findUidByUin(55555)).toBe('u_friend_request');
       expect(identity.findUinByUid('u_friend_request')).toBe(55555);
       expect(identity.findGroup(GROUP_ID)).toBeNull();
       expect(identity.findUidByUin(66666)).toBe('u_group_request');
 
-      identity.close();
+      await identity.close();
     }
   });
 });
@@ -1247,6 +1326,7 @@ describe('IdentityService inbound UID→UIN', () => {
   it('does not enter Identity degraded when the inbound fetcher throws', async () => {
     const dbPath = tempDbPath('inbound-fetch-throw');
     const identity = new IdentityService(SELF_UIN, dbPath);
+    await identity.initialization;
     identity.setFetcher({
       fetchProfile: async () => makeProfile(0, ''),
       fetchProfileByUid: async () => {
@@ -1257,6 +1337,6 @@ describe('IdentityService inbound UID→UIN', () => {
     await expect(identity.resolveUin('u_none')).resolves.toBeNull();
     expect(identity.persistenceStatus.state).toBe('healthy');
     expect(identity.persistenceStatus.pendingWrites).toBe(0);
-    identity.close();
+    await identity.close();
   });
 });

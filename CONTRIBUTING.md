@@ -35,8 +35,15 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 | 路径 | 作用 |
 | --- | --- |
-| `packages/core` | 核心运行时：协议、桥接、OneBot 适配、WebUI 服务端 |
+| `packages/core` | 应用入口、账号级 Bridge 编排、WebUI 服务端和发行构建 |
+| `packages/bridge` | QQ 进程发现、Hook 会话和原生传输生命周期 |
+| `packages/protocol` | QQ 数据包解码、身份解析、协议请求和媒体传输 |
+| `packages/onebot` | OneBot 动作、事件转换、消息存储和传输适配 |
+| `packages/common` | 日志、配置和共享工具 |
+| `packages/proto-defs`、`packages/proton` | 协议结构定义、编译期 protobuf 编解码和构建集成 |
 | `packages/sdk` | 面向第三方开发者的 SDK，会发布到 npm |
+| `packages/mcp` | MCP 服务端和生成的动作目录 |
+| `packages/ui` | 发布到 npm 的共享 UI 组件 |
 | `packages/runtime` | 运行时辅助包 |
 | `packages/websocket` | WebSocket 实现 |
 | `packages/webui` | 基于 Vite + React 的前端控制台 |
@@ -51,12 +58,12 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 ### 系统要求
 
-- **Node.js 22.13+（23 系需 23.4+）**（项目使用默认启用的 `node:sqlite`）
-- **pnpm 10.28.0**（项目通过 `packageManager` 与 CI 统一版本）
+- **Node.js 24+**
+- **pnpm 11.25.0**（项目通过 `packageManager` 与 CI 统一版本）
 - macOS / Linux / Windows 均可。如果要构建原生产物，需要对应平台的工具链。
 
 如果系统提供 Corepack，可执行 `corepack enable pnpm`；没有 Corepack 时可执行
-`npm install -g pnpm@10.28.0`。进入仓库后，`node --version` 与
+`npm install -g pnpm@11.25.0`。进入仓库后，`node --version` 与
 `pnpm --version` 应满足上述版本要求，否则安装会直接失败。
 
 ### 拉代码、装依赖、跑起来
@@ -177,7 +184,7 @@ git push origin fix/onebot-mention-encoding
 
 - 单测放在被测代码同包的 `tests/` 或同目录的 `*.test.ts`，按既有风格走。
 - 测试要描述行为，不要测实现细节。`it('should call internal foo')` 这种是反例。
-- 涉及 IO / 时序 / 外部进程的，用现有的 fake/stub 模式，参考 `packages/core/src/onebot/` 下的 `fake-bridge` 类测试。
+- 涉及 IO / 时序 / 外部进程的，用现有的 fake/stub 模式，参考 `packages/onebot/tests/` 中的 Bridge 测试替身。
 
 ### 文档
 

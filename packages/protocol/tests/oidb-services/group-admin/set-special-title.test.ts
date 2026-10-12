@@ -5,6 +5,7 @@ import type { OidbSpecialTitle } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 
 import { SetSpecialTitle } from '../../../src/oidb-services/group-admin/set-special-title';
+import { env, v, s, m } from '../_pb-oracle';
 
 function makeDeps() {
   const r: SendPacketResult = { success: true, gotResponse: true, errorCode: 0, errorMessage: '', responseData: Buffer.alloc(0) };
@@ -34,5 +35,24 @@ describe('SetSpecialTitle namespace', () => {
     expect(env.body?.body?.uinName).toBe('crown');
     // int_32 preserves the signed -1 sentinel after the wire round-trip.
     expect(env.body?.body?.expireTime).toBe(-1);
+  });
+
+  it.each(['', ' ', '龙王👑'])('preserves title %j in both wire fields', async (title) => {
+    const deps = makeDeps();
+    await SetSpecialTitle.invoke(deps, { groupId: 12345, userId: 67890, title });
+    expect(deps.resolveUserUid).toHaveBeenCalledWith(67890, 12345);
+    const [wire, bytes] = deps.sendRawPacket.mock.calls[0]!;
+    expect(wire).toBe('OidbSvcTrpcTcp.0x8fc_2');
+
+    // Empty titles must emit tag 5 + length 0 and tag 7 + length 0:
+    // omitting either field turns clearing the title into a silent no-op (#517).
+    const member = [
+      ...s(1, 'resolved-uid'),
+      ...s(5, title),
+      ...v(6, 0xFFFFFFFF),
+      ...s(7, title),
+    ];
+    const body = [...v(1, 12345), ...m(3, member)];
+    expect(Buffer.from(bytes).toString('hex')).toBe(env(0x8FC, 2, body, false));
   });
 });

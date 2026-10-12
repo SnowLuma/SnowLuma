@@ -188,10 +188,10 @@ async function execute(args: Record<string, unknown>, ctx: CallCtx, kind: 'read'
     return asError(`${action} 是写操作，不能用 query_action；请用 invoke_action（需 SNOWLUMA_MCP_MODE=write）。`);
   }
 
-  const params =
-    args.params && typeof args.params === 'object' && !Array.isArray(args.params)
-      ? (args.params as Record<string, unknown>)
-      : {};
+  if (args.params !== undefined && (args.params === null || typeof args.params !== 'object' || Array.isArray(args.params))) {
+    return asError('params 必须是对象。');
+  }
+  const params = (args.params ?? {}) as Record<string, unknown>;
   let inputFile: string | undefined;
   if (args.execution !== undefined) {
     if (!args.execution || typeof args.execution !== 'object' || Array.isArray(args.execution)) {

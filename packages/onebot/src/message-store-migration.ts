@@ -1,4 +1,4 @@
-import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { SqliteDatabase, type SqliteStatement } from '@snowluma/sqlite';
 import { openSqliteDb } from './sqlite-open';
 
 const CLASSIFICATION_VERSION = 1;
@@ -38,134 +38,141 @@ interface PendingMessageRow {
 }
 
 export class MessageStoreMigrator {
-  private readonly db: DatabaseSync;
-  private readonly selectInitialBatch: StatementSync;
-  private readonly selectNextBatch: StatementSync;
-  private readonly updateRow: StatementSync;
-  private readonly updateState: StatementSync;
-  private state: MigrationStateRow;
+  private readonly db: SqliteDatabase;
+  private selectInitialBatch!: SqliteStatement;
+  private selectNextBatch!: SqliteStatement;
+  private updateRow!: SqliteStatement;
+  private updateState!: SqliteStatement;
+  private state!: MigrationStateRow;
+
+  readonly initialization: Promise<void>;
 
   constructor(dbPath: string, reportPreparation?: (progress: MessageStoreMigrationPreparation) => void) {
     this.db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
-    try {
-      createMigrationStateTable(this.db);
-      this.state = this.loadOrCreateState(reportPreparation);
+    this.initialization = this.db.serial(async () => {
+      await createMigrationStateTable(this.db);
+      this.state = await this.loadOrCreateState(reportPreparation);
       this.selectInitialBatch = this.db.prepare(`
-        SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
-        FROM messages
-        WHERE classification_version < ?
-        ORDER BY message_hash ASC
-        LIMIT ?
-      `);
+          SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
+          FROM messages
+          WHERE classification_version < ?
+          ORDER BY message_hash ASC
+          LIMIT ?
+        `);
       this.selectNextBatch = this.db.prepare(`
-        SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
-        FROM messages
-        WHERE classification_version < ? AND message_hash > ?
-        ORDER BY message_hash ASC
-        LIMIT ?
-      `);
+          SELECT message_hash, is_group, sequence, sequence_authoritative, client_sequence, private_direction, random, data
+          FROM messages
+          WHERE classification_version < ? AND message_hash > ?
+          ORDER BY message_hash ASC
+          LIMIT ?
+        `);
       this.updateRow = this.db.prepare(`
-        UPDATE messages
-        SET sequence_authoritative = ?, private_direction = ?, classification_version = ?
-        WHERE message_hash = ?
-          AND classification_version < ?
-          AND is_group = ?
-          AND sequence = ?
-          AND sequence_authoritative = ?
-          AND client_sequence = ?
-          AND private_direction = ?
-          AND random = ?
-          AND data IS ?
-      `);
+          UPDATE messages
+          SET sequence_authoritative = ?, private_direction = ?, classification_version = ?
+          WHERE message_hash = ?
+            AND classification_version < ?
+            AND is_group = ?
+            AND sequence = ?
+            AND sequence_authoritative = ?
+            AND client_sequence = ?
+            AND private_direction = ?
+            AND random = ?
+            AND data IS ?
+        `);
       this.updateState = this.db.prepare(`
-        UPDATE message_store_migration_state
-        SET phase = ?, processed = ?, total = ?, cursor = ?, updated_at = ?
-        WHERE name = ?
-      `);
-    } catch (error) {
-      this.db.close();
-      throw error;
-    }
+          UPDATE message_store_migration_state
+          SET phase = ?, processed = ?, total = ?, cursor = ?, updated_at = ?
+          WHERE name = ?
+        `);
+    });
+    void this.initialization.catch(() => undefined);
   }
 
-  close(): void {
-    this.db.close();
+  async close(): Promise<void> {
+    await this.initialization.catch(() => undefined);
+    await this.db.close();
   }
 
-  getStatus(): MessageStoreMigrationStatus {
-    return publicStatus(this.state);
+  async getStatus(): Promise<MessageStoreMigrationStatus> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      return publicStatus(this.state);
+    });
   }
 
-  runBatch(batchSize: number): MessageStoreMigrationStatus {
-    const limit = normalizeBatchSize(batchSize);
-    if (this.state.phase === 'complete') return this.getStatus();
+  async runBatch(batchSize: number): Promise<MessageStoreMigrationStatus> {
+    return this.db.serial(async () => {
+      await this.initialization;
+      const limit = normalizeBatchSize(batchSize);
+      if (this.state.phase === 'complete') return this.getStatus();
 
-    let rows = this.readBatch(limit, this.state.cursor);
-    if (rows.length === 0 && this.state.cursor !== null) {
-      rows = this.readBatch(limit, null);
-    }
-    if (rows.length === 0) {
-      const remaining = this.countPending();
-      this.persistState({
-        ...this.state,
-        phase: remaining === 0 ? 'complete' : 'migrating',
-        processed: remaining === 0 ? this.state.total : this.state.total - remaining,
-        cursor: null,
-      });
-      return this.getStatus();
-    }
-
-    const lastMessageHash = rows[rows.length - 1].message_hash;
-    const classified = rows.map((row) => ({ row, classification: classifyLegacyMessage(row) }));
-    let updatedRows = 0;
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      for (const { row, classification } of classified) {
-        const result = this.updateRow.run(
-          classification.sequenceAuthoritative ? 1 : 0,
-          classification.privateDirection,
-          CLASSIFICATION_VERSION,
-          row.message_hash,
-          CLASSIFICATION_VERSION,
-          row.is_group,
-          row.sequence,
-          row.sequence_authoritative,
-          row.client_sequence,
-          row.private_direction,
-          row.random,
-          row.data,
-        );
-        updatedRows += Number(result.changes);
+      let rows = await this.readBatch(limit, this.state.cursor);
+      if (rows.length === 0 && this.state.cursor !== null) {
+        rows = await this.readBatch(limit, null);
       }
-      const nextState: MigrationStateRow = {
-        ...this.state,
-        processed: Math.min(this.state.total, this.state.processed + updatedRows),
-        cursor: lastMessageHash,
-      };
-      this.writeState(nextState);
-      this.db.exec('COMMIT');
-      this.state = nextState;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-
-    if (rows.length < limit) {
-      const remaining = this.countPending();
-      if (remaining === 0) {
-        this.persistState({
+      if (rows.length === 0) {
+        const remaining = await this.countPending();
+        await this.persistState({
           ...this.state,
-          phase: 'complete',
-          processed: this.state.total,
+          phase: remaining === 0 ? 'complete' : 'migrating',
+          processed: remaining === 0 ? this.state.total : this.state.total - remaining,
           cursor: null,
         });
+        return this.getStatus();
       }
-    }
-    return this.getStatus();
+
+      const lastMessageHash = rows[rows.length - 1].message_hash;
+      const classified = rows.map((row) => ({ row, classification: classifyLegacyMessage(row) }));
+      let updatedRows = 0;
+      await this.db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const { row, classification } of classified) {
+          const result = await this.updateRow.run(
+            classification.sequenceAuthoritative ? 1 : 0,
+            classification.privateDirection,
+            CLASSIFICATION_VERSION,
+            row.message_hash,
+            CLASSIFICATION_VERSION,
+            row.is_group,
+            row.sequence,
+            row.sequence_authoritative,
+            row.client_sequence,
+            row.private_direction,
+            row.random,
+            row.data,
+          );
+          updatedRows += Number(result.changes);
+        }
+        const nextState: MigrationStateRow = {
+          ...this.state,
+          processed: Math.min(this.state.total, this.state.processed + updatedRows),
+          cursor: lastMessageHash,
+        };
+        await this.writeState(nextState);
+        await this.db.exec('COMMIT');
+        this.state = nextState;
+      } catch (error) {
+        await this.db.exec('ROLLBACK');
+        throw error;
+      }
+
+      if (rows.length < limit) {
+        const remaining = await this.countPending();
+        if (remaining === 0) {
+          await this.persistState({
+            ...this.state,
+            phase: 'complete',
+            processed: this.state.total,
+            cursor: null,
+          });
+        }
+      }
+      return this.getStatus();
+    });
   }
 
-  private loadOrCreateState(reportPreparation?: (progress: MessageStoreMigrationPreparation) => void): MigrationStateRow {
-    const existing = this.db.prepare(`
+  private async loadOrCreateState(reportPreparation?: (progress: MessageStoreMigrationPreparation) => void): Promise<MigrationStateRow> {
+    const existing = await this.db.prepare(`
       SELECT phase, processed, total, cursor
       FROM message_store_migration_state
       WHERE name = ?
@@ -174,7 +181,7 @@ export class MessageStoreMigrator {
 
     reportPreparation?.({ stage: 'started' });
     const preparationStartedAt = performance.now();
-    this.db.exec(`
+    await this.db.exec(`
       CREATE INDEX IF NOT EXISTS ${PENDING_INDEX_NAME}
       ON messages(message_hash, classification_version)
       WHERE classification_version < ${CLASSIFICATION_VERSION}
@@ -183,7 +190,7 @@ export class MessageStoreMigrator {
     if (existing) return existing;
 
     const countStartedAt = performance.now();
-    const row = this.db.prepare(`
+    const row = await this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM messages
       WHERE classification_version < ?
@@ -197,7 +204,7 @@ export class MessageStoreMigrator {
       total,
       cursor: null,
     };
-    this.db.prepare(`
+    await this.db.prepare(`
       INSERT INTO message_store_migration_state
         (name, phase, processed, total, cursor, started_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -205,8 +212,8 @@ export class MessageStoreMigrator {
     return state;
   }
 
-  private countPending(): number {
-    const row = this.db.prepare(`
+  private async countPending(): Promise<number> {
+    const row = await this.db.prepare(`
       SELECT COUNT(*) AS total
       FROM messages
       WHERE classification_version < ?
@@ -214,26 +221,26 @@ export class MessageStoreMigrator {
     return Number(row.total);
   }
 
-  private readBatch(limit: number, cursor: number | null): PendingMessageRow[] {
+  private async readBatch(limit: number, cursor: number | null): Promise<PendingMessageRow[]> {
     return (cursor === null
-      ? this.selectInitialBatch.all(CLASSIFICATION_VERSION, limit)
-      : this.selectNextBatch.all(CLASSIFICATION_VERSION, cursor, limit)) as unknown as PendingMessageRow[];
+      ? await this.selectInitialBatch.all(CLASSIFICATION_VERSION, limit)
+      : await this.selectNextBatch.all(CLASSIFICATION_VERSION, cursor, limit)) as unknown as PendingMessageRow[];
   }
 
-  private persistState(state: MigrationStateRow): void {
-    this.db.exec('BEGIN IMMEDIATE');
+  private async persistState(state: MigrationStateRow): Promise<void> {
+    await this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.writeState(state);
-      this.db.exec('COMMIT');
+      await this.writeState(state);
+      await this.db.exec('COMMIT');
       this.state = state;
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      await this.db.exec('ROLLBACK');
       throw error;
     }
   }
 
-  private writeState(state: MigrationStateRow): void {
-    this.updateState.run(
+  private async writeState(state: MigrationStateRow): Promise<void> {
+    await this.updateState.run(
       state.phase,
       state.processed,
       state.total,
@@ -244,15 +251,15 @@ export class MessageStoreMigrator {
   }
 }
 
-export function prepareMessageStoreDatabase(dbPath: string): void {
+export async function prepareMessageStoreDatabase(dbPath: string): Promise<void> {
   const db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
   try {
-    const messagesTableExists = db.prepare(`
+    const messagesTableExists = await db.prepare(`
       SELECT 1 AS present
       FROM sqlite_schema
       WHERE type = 'table' AND name = 'messages'
     `).get() !== undefined;
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         message_hash    INTEGER PRIMARY KEY,
         is_group        INTEGER NOT NULL,
@@ -268,26 +275,26 @@ export function prepareMessageStoreDatabase(dbPath: string): void {
         classification_version INTEGER NOT NULL DEFAULT 1
       )
     `);
-    prepareMessageStoreSchema(db);
+    await prepareMessageStoreSchema(db);
     if (!messagesTableExists) {
-      createMessageStoreIndexes(db);
+      await createMessageStoreIndexes(db);
     }
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-export function inspectMessageStoreMigration(dbPath: string): MessageStoreMigrationStatus {
+export async function inspectMessageStoreMigration(dbPath: string): Promise<MessageStoreMigrationStatus> {
   const db = openSqliteDb(dbPath.replace(/\.json$/, '.db'));
   try {
-    createMigrationStateTable(db);
-    const row = db.prepare(`
+    await createMigrationStateTable(db);
+    const row = await db.prepare(`
       SELECT phase, processed, total
       FROM message_store_migration_state
       WHERE name = ?
     `).get(MIGRATION_NAME) as MessageStoreMigrationStatus | undefined;
     if (row) return row;
-    const pending = db.prepare(`
+    const pending = await db.prepare(`
       SELECT COUNT(*) AS total
       FROM messages
       WHERE classification_version < ?
@@ -295,56 +302,56 @@ export function inspectMessageStoreMigration(dbPath: string): MessageStoreMigrat
     const total = Number(pending.total);
     return { phase: total === 0 ? 'complete' : 'migrating', processed: 0, total };
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-export function prepareMessageStoreSchema(db: DatabaseSync): void {
-  const before = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
+export async function prepareMessageStoreSchema(db: SqliteDatabase): Promise<void> {
+  const before = await db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
   const existingColumns = new Set(before.map((column) => column.name));
   if (!existingColumns.has('media_data')) {
-    db.exec('ALTER TABLE messages ADD COLUMN media_data TEXT');
+    await db.exec('ALTER TABLE messages ADD COLUMN media_data TEXT');
   }
   const existingRowsAreCurrent = existingColumns.has('sequence_authoritative')
     && existingColumns.has('private_direction')
-    && hasLegacyPrivateSequenceMigration(db);
+    && await hasLegacyPrivateSequenceMigration(db);
 
   if (!existingColumns.has('sequence_authoritative')) {
-    db.exec('ALTER TABLE messages ADD COLUMN sequence_authoritative INTEGER NOT NULL DEFAULT 1');
+    await db.exec('ALTER TABLE messages ADD COLUMN sequence_authoritative INTEGER NOT NULL DEFAULT 1');
   }
   if (!existingColumns.has('private_direction')) {
-    db.exec('ALTER TABLE messages ADD COLUMN private_direction INTEGER NOT NULL DEFAULT -1');
+    await db.exec('ALTER TABLE messages ADD COLUMN private_direction INTEGER NOT NULL DEFAULT -1');
   }
   if (!existingColumns.has('classification_version')) {
-    db.exec(
+    await db.exec(
       `ALTER TABLE messages ADD COLUMN classification_version INTEGER NOT NULL DEFAULT ${existingRowsAreCurrent ? CLASSIFICATION_VERSION : 0}`,
     );
   }
 }
 
-export function createMessageStoreIndexes(db: DatabaseSync): void {
-  db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(is_group, session_id, sequence)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_authoritative_seq ON messages(is_group, session_id, sequence_authoritative, sequence)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_seq ON messages(is_group, session_id, client_sequence)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_direction ON messages(is_group, session_id, client_sequence, private_direction)');
+export async function createMessageStoreIndexes(db: SqliteDatabase): Promise<void> {
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(is_group, session_id, sequence)');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_authoritative_seq ON messages(is_group, session_id, sequence_authoritative, sequence)');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_seq ON messages(is_group, session_id, client_sequence)');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_private_client_direction ON messages(is_group, session_id, client_sequence, private_direction)');
 }
 
-function hasLegacyPrivateSequenceMigration(db: DatabaseSync): boolean {
-  const tableExists = db.prepare(`
+async function hasLegacyPrivateSequenceMigration(db: SqliteDatabase): Promise<boolean> {
+  const tableExists = await db.prepare(`
     SELECT 1 AS present
     FROM sqlite_schema
     WHERE type = 'table' AND name = 'message_store_migrations'
   `).get() !== undefined;
   if (!tableExists) return false;
-  return db.prepare(`
+  return await db.prepare(`
     SELECT 1 AS applied
     FROM message_store_migrations
     WHERE name = ?
   `).get(LEGACY_PRIVATE_SEQUENCE_MIGRATION) !== undefined;
 }
 
-function createMigrationStateTable(db: DatabaseSync): void {
-  db.exec(`
+async function createMigrationStateTable(db: SqliteDatabase): Promise<void> {
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS message_store_migration_state (
       name       TEXT PRIMARY KEY,
       phase      TEXT NOT NULL,

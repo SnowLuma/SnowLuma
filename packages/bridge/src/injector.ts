@@ -14,6 +14,7 @@ export interface ManualMapHandle {
 }
 
 interface NativeHookAddon {
+  getRuntimeIntegrity?(): unknown;
   getAllMainProcess(): number[];
   loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
   unloadModuleManual(pid: number, handle: ManualMapHandle): void;

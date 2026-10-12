@@ -29,7 +29,7 @@ function device(overrides: Partial<OnlineDeviceInfo> = {}): OnlineDeviceInfo {
 }
 
 describe('Bridge online-device snapshot', () => {
-  it('distinguishes not-yet-observed from an observed empty snapshot', () => {
+  it('distinguishes not-yet-observed from an observed empty snapshot', async () => {
     const bridge = new Bridge(IdentityService.memory('10001'));
     let current: OnlineDeviceInfo[] = [device()];
     bridge.registerCmd('test.online_devices', () => [{
@@ -41,15 +41,15 @@ describe('Bridge online-device snapshot', () => {
 
     expect(bridge.getOnlineClients()).toBeNull();
 
-    bridge.onPacket(packet(1));
+    await bridge.onPacket(packet(1));
     expect(bridge.getOnlineClients()).toEqual([device()]);
 
     current = [];
-    bridge.onPacket(packet(2));
+    await bridge.onPacket(packet(2));
     expect(bridge.getOnlineClients()).toEqual([]);
   });
 
-  it('owns an immutable copy and clears it when the Bridge is disposed', () => {
+  it('owns an immutable copy and clears it when the Bridge is disposed', async () => {
     const bridge = new Bridge(IdentityService.memory('10001'));
     const source = device();
     bridge.registerCmd('test.online_devices', () => [{
@@ -59,7 +59,7 @@ describe('Bridge online-device snapshot', () => {
       devices: [source],
     }]);
 
-    bridge.onPacket(packet(1));
+    await bridge.onPacket(packet(1));
     const snapshot = bridge.getOnlineClients();
     expect(snapshot).not.toBeNull();
     expect(snapshot?.[0]).not.toBe(source);
@@ -69,7 +69,7 @@ describe('Bridge online-device snapshot', () => {
     source.deviceName = 'MUTATED';
     expect(bridge.getOnlineClients()?.[0]?.deviceName).toBe('DESKTOP-TEST');
 
-    bridge.dispose();
+    await bridge.dispose();
     expect(bridge.getOnlineClients()).toBeNull();
   });
 });

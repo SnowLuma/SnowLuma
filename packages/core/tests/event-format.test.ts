@@ -186,7 +186,7 @@ describe('formatMessageSegments', () => {
 });
 
 describe('formatReply', () => {
-  it('renders the resolved sender + body preview when the original is in the store', () => {
+  it('renders the resolved sender + body preview when the original is in the store', async () => {
     const store = fakeMessageStore({
       42: {
         message_type: 'group',
@@ -197,16 +197,16 @@ describe('formatReply', () => {
       },
     });
     const id = fakeIdentity({ members: { '1/100': { uin: 100, card: 'OrigSender' } } });
-    expect(formatReply(store, id, 42)).toBe('[回复 [OrigSender(100)]: 早安]');
+    expect(await formatReply(store, id, 42)).toBe('[回复 [OrigSender(100)]: 早安]');
   });
 
-  it('falls back to [回复:<id>] when the original is missing', () => {
+  it('falls back to [回复:<id>] when the original is missing', async () => {
     const store = fakeMessageStore({});
     const id = fakeIdentity();
-    expect(formatReply(store, id, 9999)).toBe('[回复:9999]');
+    expect(await formatReply(store, id, 9999)).toBe('[回复:9999]');
   });
 
-  it('uses the sender baked into the stored event when cache misses', () => {
+  it('uses the sender baked into the stored event when cache misses', async () => {
     const store = fakeMessageStore({
       42: {
         message_type: 'private',
@@ -216,10 +216,10 @@ describe('formatReply', () => {
       },
     });
     const id = fakeIdentity(); // no cache
-    expect(formatReply(store, id, 42)).toBe('[回复 [StoredNick(100)]: hi]');
+    expect(await formatReply(store, id, 42)).toBe('[回复 [StoredNick(100)]: hi]');
   });
 
-  it('truncates the body preview to 30 chars', () => {
+  it('truncates the body preview to 30 chars', async () => {
     const store = fakeMessageStore({
       42: {
         message_type: 'private',
@@ -229,16 +229,16 @@ describe('formatReply', () => {
       },
     });
     const id = fakeIdentity();
-    const out = formatReply(store, id, 42);
+    const out = await formatReply(store, id, 42);
     // Inner text gets truncated to 50 by formatMessageSegments, then to 30 here
     expect(out).toContain('...');
     expect(out.length).toBeLessThan(80);
   });
 
-  it('returns the fallback when findEvent throws', () => {
+  it('returns the fallback when findEvent throws', async () => {
     const store = { findEvent: () => { throw new Error('store dead'); } } as any;
     const id = fakeIdentity();
-    expect(formatReply(store, id, 42)).toBe('[回复:42]');
+    expect(await formatReply(store, id, 42)).toBe('[回复:42]');
   });
 });
 
