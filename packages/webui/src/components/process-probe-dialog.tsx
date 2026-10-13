@@ -100,6 +100,9 @@ export function ProcessProbeDialog({
             closeLabel="关闭登录状态弹窗"
         >
             <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                    账号检测不保证 100% 成功，检测结果仅供参考。
+                </p>
                 <SkeletonSwap
                     ready={!loading}
                     reserve={128}
