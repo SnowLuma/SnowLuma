@@ -879,6 +879,22 @@ function readProtobufVarint(buf: Uint8Array, offset: number): { value: number; n
     throw new Error('truncated protobuf varint');
 }
 
+function skipProtobufVarint(buf: Uint8Array, offset: number): number {
+    for (let index = 0; index < 10 && offset < buf.length; index++) {
+        const byte = buf[offset++];
+
+        if (index === 9 && byte > 1) {
+            throw new Error('protobuf varint exceeds 64 bits');
+        }
+
+        if ((byte & 0x80) === 0) {
+            return offset;
+        }
+    }
+
+    throw new Error('truncated protobuf varint');
+}
+
 function protobufSubmessage(buf: Uint8Array, path: readonly number[]): Uint8Array | undefined {
     let current: Uint8Array | undefined = buf;
 
@@ -903,7 +919,7 @@ function firstLengthDelimitedField(buf: Uint8Array, fieldNo: number): Uint8Array
         const wire = key.value % 8;
 
         if (wire === 0) {
-            offset = readProtobufVarint(buf, offset).next;
+            offset = skipProtobufVarint(buf, offset);
         } else if (wire === 1) {
             offset += 8;
         } else if (wire === 5) {

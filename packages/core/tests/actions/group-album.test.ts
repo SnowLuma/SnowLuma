@@ -953,6 +953,30 @@ describe('apis/group-album', () => {
         );
     });
 
+    it.each([
+        { name: 'six-byte', value: [0x80, 0x80, 0x80, 0x80, 0x80, 0x20] },
+        { name: 'ten-byte', value: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01] },
+    ])('accepts a $name unknown integer before the feed data', async ({ value }) => {
+        const packed = packFeedDetail('official-feed-id', 1700000123n, { ownerUin: '10002' });
+        const responseData = Buffer.from(
+            concatBytes([new Uint8Array([0x30, ...value]), new Uint8Array(packed.responseData)]),
+        );
+        expect(
+            protobuf_decode<GetQunFeedDetailResponse>(responseData).data?.feed?.feed?.cellCommon
+                ?.feedId,
+        ).toBe('official-feed-id');
+        const bridge = mockBridge();
+        bridge.sendRawPacket.mockImplementation(
+            commentMocks((cmd) =>
+                cmd.endsWith('GetQunFeedDetail') ? { ...packed, responseData } : undefined,
+            ),
+        );
+
+        await expect(
+            new GroupAlbumApi(bridge as never).comment(12345, 'album-id', 'photo-lloc', 'hello'),
+        ).resolves.toMatchObject({ id: 'cmt-1' });
+    });
+
     it('copies an unknown media-cell field through unchanged', async () => {
         const packed = packFeedDetail('official-feed-id', 1700000123n, {
             ownerUin: '3119936551',
