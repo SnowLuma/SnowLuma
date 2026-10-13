@@ -72,6 +72,48 @@ describeBundledAddon('bundled native ffmpeg addon', () => {
     });
     afterAll(() => rmSync(tmpDir, { recursive: true, force: true }));
 
+    describe.each(['silk', 'ntsilk', 'extensionless'] as const)('%s duration', (format) => {
+        it.each([0.02, 1, 2.5])('measures %s seconds from the encoded frames', async (seconds) => {
+            const addon = loadBundledAddon();
+            const wavPath = path.join(tmpDir, `duration-${format}-${seconds}.wav`);
+            const recordPath = path.join(
+                tmpDir,
+                `duration-${format}-${seconds}${format === 'extensionless' ? '' : `.${format}`}`,
+            );
+            writeFileSync(wavPath, makeMonoWav(24_000, seconds));
+            await addon.convertToNTSilkTct(wavPath, recordPath);
+
+            if (format === 'silk') {
+                // Standard SILK has the same packets without the QQ container prefix.
+                const encoded = readFileSync(recordPath);
+                expect(encoded.subarray(0, 10)).toEqual(
+                    Buffer.concat([Buffer.from([0x02]), Buffer.from('#!SILK_V3', 'ascii')]),
+                );
+                writeFileSync(recordPath, encoded.subarray(1));
+            }
+
+            expect(await addon.getDuration(recordPath)).toBeCloseTo(seconds, 6);
+        });
+
+        it('rejects a truncated packet instead of reporting a duration', async () => {
+            const addon = loadBundledAddon();
+            const wavPath = path.join(tmpDir, `truncated-${format}.wav`);
+            const recordPath = path.join(
+                tmpDir,
+                `truncated-${format}${format === 'extensionless' ? '' : `.${format}`}`,
+            );
+            writeFileSync(wavPath, makeMonoWav());
+            await addon.convertToNTSilkTct(wavPath, recordPath);
+            const encoded = readFileSync(recordPath);
+            writeFileSync(
+                recordPath,
+                encoded.subarray(format === 'silk' ? 1 : 0, encoded.length - 1),
+            );
+
+            await expect(addon.getDuration(recordPath)).rejects.toThrow(/Invalid data/);
+        });
+    });
+
     it('converts a mono QQ-style SILK record to a decodable MP3 through the public transcode seam', async () => {
         const addon = loadBundledAddon();
         const wavPath = path.join(tmpDir, 'mono-input.wav');
