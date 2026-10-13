@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'async_hooks';
 
 interface RequestStore {
-  id: number;
+    id: number;
 }
 
 const storage = new AsyncLocalStorage<RequestStore | undefined>();
@@ -13,9 +13,13 @@ let counter = 0;
  * unambiguous.
  */
 export function nextRequestId(): number {
-  counter = (counter + 1) >>> 0;
-  if (counter === 0) counter = 1;
-  return counter;
+    counter = (counter + 1) >>> 0;
+
+    if (counter === 0) {
+        counter = 1;
+    }
+
+    return counter;
 }
 
 /**
@@ -26,15 +30,15 @@ export function nextRequestId(): number {
  * journey (entry → outbound packets → exit) under one `[req#N]` tag.
  */
 export function runWithRequestId<T>(id: number, fn: () => T): T {
-  return storage.run({ id }, fn);
+    return storage.run({ id }, fn);
 }
 
 /** Run `fn` without inheriting an ambient request id. */
 export function runWithoutRequestContext<T>(fn: () => T): T {
-  return storage.run(undefined, fn);
+    return storage.run(undefined, fn);
 }
 
 /** The request id bound to the current async context, or undefined outside one. */
 export function currentRequestId(): number | undefined {
-  return storage.getStore()?.id;
+    return storage.getStore()?.id;
 }

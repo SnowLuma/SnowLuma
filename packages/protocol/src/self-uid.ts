@@ -17,13 +17,19 @@ import type { BridgeContext } from './bridge-context';
  * bare context (e.g. an OIDB service's Deps) satisfy it.
  */
 export async function resolveSelfUid(
-  ctx: Pick<BridgeContext, 'identity' | 'resolveUserUid'>,
+    ctx: Pick<BridgeContext, 'identity' | 'resolveUserUid'>,
 ): Promise<string> {
-  const cached = ctx.identity.selfUid;
-  if (cached) return cached;
-  const selfUin = Number(ctx.identity.uin);
-  if (!Number.isFinite(selfUin) || selfUin <= 0) {
-    throw new Error('self uid is unavailable');
-  }
-  return ctx.resolveUserUid(selfUin);
+    const cached = ctx.identity.selfUid;
+
+    if (cached) {
+        return cached;
+    }
+
+    const selfUin = Number(ctx.identity.uin);
+
+    if (!Number.isFinite(selfUin) || selfUin <= 0) {
+        throw new Error('self uid is unavailable');
+    }
+
+    return ctx.resolveUserUid(selfUin);
 }

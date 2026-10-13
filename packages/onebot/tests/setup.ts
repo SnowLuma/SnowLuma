@@ -4,15 +4,17 @@ import path from 'node:path';
 import { afterAll } from 'vitest';
 
 const originalTempEnv = {
-  TMPDIR: process.env.TMPDIR,
-  TMP: process.env.TMP,
-  TEMP: process.env.TEMP,
+    TMPDIR: process.env.TMPDIR,
+    TMP: process.env.TMP,
+    TEMP: process.env.TEMP,
 };
 const originalCwd = process.cwd();
-const testTempDir = fs.mkdtempSync(path.join(
-  os.tmpdir(),
-  `snowluma-onebot-vitest-${process.pid}-${process.env.VITEST_POOL_ID ?? '0'}-`,
-));
+const testTempDir = fs.mkdtempSync(
+    path.join(
+        os.tmpdir(),
+        `snowluma-onebot-vitest-${process.pid}-${process.env.VITEST_POOL_ID ?? '0'}-`,
+    ),
+);
 
 process.env.TMPDIR = testTempDir;
 process.env.TMP = testTempDir;
@@ -34,20 +36,26 @@ process.chdir(testTempDir);
 const rootEntriesBefore = new Set(fs.readdirSync(originalCwd));
 
 afterAll(() => {
-  // Leave the temp dir before deleting it.
-  process.chdir(originalCwd);
-  for (const [name, value] of Object.entries(originalTempEnv)) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
-  fs.rmSync(testTempDir, { recursive: true, force: true });
+    // Leave the temp dir before deleting it.
+    process.chdir(originalCwd);
 
-  const added = fs.readdirSync(originalCwd).filter((name) => !rootEntriesBefore.has(name));
-  if (added.length > 0) {
-    throw new Error(
-      `OneBot tests created ${added.join(', ')} in ${originalCwd}. Runtime state must resolve `
-      + 'under the per-worker temp dir this setup chdir-s into; a test that switches cwd itself '
-      + 'must restore it before its asynchronous work settles.',
-    );
-  }
+    for (const [name, value] of Object.entries(originalTempEnv)) {
+        if (value === undefined) {
+            delete process.env[name];
+        } else {
+            process.env[name] = value;
+        }
+    }
+
+    fs.rmSync(testTempDir, { recursive: true, force: true });
+
+    const added = fs.readdirSync(originalCwd).filter((name) => !rootEntriesBefore.has(name));
+
+    if (added.length > 0) {
+        throw new Error(
+            `OneBot tests created ${added.join(', ')} in ${originalCwd}. Runtime state must resolve ` +
+                'under the per-worker temp dir this setup chdir-s into; a test that switches cwd itself ' +
+                'must restore it before its asynchronous work settles.',
+        );
+    }
 });

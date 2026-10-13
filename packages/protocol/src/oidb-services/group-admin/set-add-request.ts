@@ -10,49 +10,49 @@ import type { OidbGroupRequestAction } from '@snowluma/proto-defs/oidb-actions/b
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace SetAddRequest {
-  export const command = 0x10C8;
-  export const uinForm = true;
+    export const command = 0x10c8;
+    export const uinForm = true;
 
-  export interface Params {
-    groupId: number;
-    sequence: number;
-    eventType: number;
-    approve: boolean;
-    reason?: string;
-    filtered?: boolean;
-    operateTransInfo?: Uint8Array;
-  }
+    export interface Params {
+        groupId: number;
+        sequence: number;
+        eventType: number;
+        approve: boolean;
+        reason?: string;
+        filtered?: boolean;
+        operateTransInfo?: Uint8Array;
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const resolveSubCommand = (p: Params): number => p.filtered ? 2 : 1;
+    export const resolveSubCommand = (p: Params): number => (p.filtered ? 2 : 1);
 
-  export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestAction => {
-    const reason = p.reason ?? '';
-    return {
-      accept: p.approve ? 1 : 2,
-      body: {
-        sequence: BigInt(p.sequence),
-        eventType: p.eventType,
-        groupUin: p.groupId,
-        // Native operate always writes field 4. An omitted empty string is
-        // rejected; a present space is the native empty-reason form.
-        message: reason.length > 0 ? reason : ' ',
-        ...(p.operateTransInfo && p.operateTransInfo.length > 0
-          ? { operateTransInfo: p.operateTransInfo }
-          : {}),
-      },
+    export const serialize = (_ctx: Deps, p: Params): OidbGroupRequestAction => {
+        const reason = p.reason ?? '';
+        return {
+            accept: p.approve ? 1 : 2,
+            body: {
+                sequence: BigInt(p.sequence),
+                eventType: p.eventType,
+                groupUin: p.groupId,
+                // Native operate always writes field 4. An omitted empty string is
+                // rejected; a present space is the native empty-reason form.
+                message: reason.length > 0 ? reason : ' ',
+                ...(p.operateTransInfo && p.operateTransInfo.length > 0
+                    ? { operateTransInfo: p.operateTransInfo }
+                    : {}),
+            },
+        };
     };
-  };
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbGroupRequestAction>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbGroupRequestAction>>(env);
+    export const encode = (env: OidbBase<OidbGroupRequestAction>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbGroupRequestAction>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SetAddRequest, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SetAddRequest, params);
 }

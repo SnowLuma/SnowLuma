@@ -11,25 +11,25 @@ export { resolveSelfUid } from '@snowluma/protocol/self-uid';
  * fetchers in group-file.ts.
  */
 export interface MediaIndexNode {
-  info?: {
-    fileSize?: number;
-    fileHash?: string;
-    fileSha1?: string;
-    fileName?: string;
-    width?: number;
-    height?: number;
-    time?: number;
-    original?: number;
-    type?: {
-      type?: number;
-      picFormat?: number;
-      videoFormat?: number;
-      voiceFormat?: number;
+    info?: {
+        fileSize?: number;
+        fileHash?: string;
+        fileSha1?: string;
+        fileName?: string;
+        width?: number;
+        height?: number;
+        time?: number;
+        original?: number;
+        type?: {
+            type?: number;
+            picFormat?: number;
+            videoFormat?: number;
+            voiceFormat?: number;
+        };
     };
-  };
-  fileUuid?: string;
-  storeId?: number;
-  uploadTime?: number;
-  ttl?: number;
-  subType?: number;
+    fileUuid?: string;
+    storeId?: number;
+    uploadTime?: number;
+    ttl?: number;
+    subType?: number;
 }

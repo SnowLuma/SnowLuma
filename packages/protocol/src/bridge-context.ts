@@ -27,55 +27,59 @@ import type { SendPacketResult } from '@snowluma/common/packet-sender';
  * without circular-importing @snowluma/core.
  */
 export interface UploadedFileMeta {
-  fileId: string;
-  scope: 'group' | 'private';
-  /** Group id if scope='group', else `undefined`. */
-  groupId?: number;
-  /** Friend uin if scope='private', else `undefined`. */
-  userId?: number;
-  fileName: string;
-  fileSize: number;
-  fileMd5: Uint8Array;
-  fileSha1: Uint8Array;
-  /** Server-issued hash returned alongside the upload (private only). */
-  fileHash?: string;
-  /** Insert time — used to evict the oldest entry when the cache fills. */
-  rememberedAt: number;
+    fileId: string;
+    scope: 'group' | 'private';
+    /** Group id if scope='group', else `undefined`. */
+    groupId?: number;
+    /** Friend uin if scope='private', else `undefined`. */
+    userId?: number;
+    fileName: string;
+    fileSize: number;
+    fileMd5: Uint8Array;
+    fileSha1: Uint8Array;
+    /** Server-issued hash returned alongside the upload (private only). */
+    fileHash?: string;
+    /** Insert time — used to evict the oldest entry when the cache fills. */
+    rememberedAt: number;
 }
 
 export interface BridgeContext {
-  // ── Per-instance state (one set per QQ account in a multi-account
-  //    runtime; `BridgeManager` allocates one `Bridge` per uin and
-  //    each Bridge owns its own identity/events/pipeline/apis). ──
-  readonly identity: IdentityService;
-  readonly events: BridgeEventBus;
+    // ── Per-instance state (one set per QQ account in a multi-account
+    //    runtime; `BridgeManager` allocates one `Bridge` per uin and
+    //    each Bridge owns its own identity/events/pipeline/apis). ──
+    readonly identity: IdentityService;
+    readonly events: BridgeEventBus;
 
-  // ── Raw I/O ──
-  /** Escape hatch for arbitrary protocol calls (used by Api classes
-   * and by the `send_packet` OneBot action). Every typed wrapper on an
-   * Api class eventually routes through here. */
-  sendRawPacket(serviceCmd: string, body: Uint8Array, timeoutMs?: number): Promise<SendPacketResult>;
-  /** uin → uid lookup (cached in IdentityService). `groupId` is an
-   * optional hint that lets the resolver fall back to a group-member
-   * roster when the friend list doesn't have the uin. */
-  resolveUserUid(uin: number, groupId?: number): Promise<string>;
+    // ── Raw I/O ──
+    /** Escape hatch for arbitrary protocol calls (used by Api classes
+     * and by the `send_packet` OneBot action). Every typed wrapper on an
+     * Api class eventually routes through here. */
+    sendRawPacket(
+        serviceCmd: string,
+        body: Uint8Array,
+        timeoutMs?: number,
+    ): Promise<SendPacketResult>;
+    /** uin → uid lookup (cached in IdentityService). `groupId` is an
+     * optional hint that lets the resolver fall back to a group-member
+     * roster when the friend list doesn't have the uin. */
+    resolveUserUid(uin: number, groupId?: number): Promise<string>;
 
-  // ── Send-side protocol helpers (Api classes that build a
-  //    `SendMessageRequest` need these monotonic generators to fill in
-  //    `clientSequence` and `random`). They were previously `private`
-  //    on Bridge — promoted to public so the new Api classes can call
-  //    them without `(bridge as any).nextXxx()`. ──
-  nextMessageRandom(): number;
-  nextClientSequence(): number;
+    // ── Send-side protocol helpers (Api classes that build a
+    //    `SendMessageRequest` need these monotonic generators to fill in
+    //    `clientSequence` and `random`). They were previously `private`
+    //    on Bridge — promoted to public so the new Api classes can call
+    //    them without `(bridge as any).nextXxx()`. ──
+    nextMessageRandom(): number;
+    nextClientSequence(): number;
 
-  // ── Uploaded-file metadata cache ──
-  //
-  // Bookkeeping shared between `GroupFileApi.upload*File` (writes the
-  // tuple at upload time) and `MessageApi.sendPrivateMessage` (reads
-  // it on later `send_msg` calls that carry only a file_id). Lives at
-  // this layer rather than inside `GroupFileApi` because the message
-  // send path is what queries the cache, and it shouldn't have to
-  // reach into a different Api class for an infrastructure lookup.
-  rememberUploadedFile(meta: UploadedFileMeta): void;
-  recallUploadedFile(fileId: string): UploadedFileMeta | undefined;
+    // ── Uploaded-file metadata cache ──
+    //
+    // Bookkeeping shared between `GroupFileApi.upload*File` (writes the
+    // tuple at upload time) and `MessageApi.sendPrivateMessage` (reads
+    // it on later `send_msg` calls that carry only a file_id). Lives at
+    // this layer rather than inside `GroupFileApi` because the message
+    // send path is what queries the cache, and it shouldn't have to
+    // reach into a different Api class for an infrastructure lookup.
+    rememberUploadedFile(meta: UploadedFileMeta): void;
+    recallUploadedFile(fileId: string): UploadedFileMeta | undefined;
 }

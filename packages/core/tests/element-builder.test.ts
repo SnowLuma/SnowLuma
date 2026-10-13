@@ -19,13 +19,13 @@ import { inflateSync } from 'zlib';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 
 vi.mock('@snowluma/protocol/highway/image-upload', () => ({
-  uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
+    uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
 }));
 vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
-  uploadPttMsgInfo: vi.fn(async () => new Uint8Array([4, 5, 6])),
+    uploadPttMsgInfo: vi.fn(async () => new Uint8Array([4, 5, 6])),
 }));
 vi.mock('@snowluma/protocol/highway/video-upload', () => ({
-  uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
+    uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
 import { protobuf_encode } from '@snowluma/proton';
@@ -38,462 +38,534 @@ import { uploadVideoMsgInfo } from '@snowluma/protocol/highway/video-upload';
 const fakeBridge = {} as any;
 
 function commonElem(elem: any): { serviceType: number; businessType: number; pbElem: Uint8Array } {
-  return elem.commonElem;
+    return elem.commonElem;
 }
 
 function inflatePrefixedPayload(data: Uint8Array): string {
-  expect(data[0]).toBe(0x01);
-  return inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
+    expect(data[0]).toBe(0x01);
+    return inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
 }
 
 describe('element-builder / rich card encoding', () => {
-  it('encodes json segments as deflated LightApp payloads and preserves non-ASCII text', async () => {
-    const card = JSON.stringify({
-      app: 'com.tencent.structmsg',
-      view: 'music',
-      prompt: '[音乐]起风了',
-      meta: { music: { title: '起风了', desc: '买辣椒也用券' } },
+    it('encodes json segments as deflated LightApp payloads and preserves non-ASCII text', async () => {
+        const card = JSON.stringify({
+            app: 'com.tencent.structmsg',
+            view: 'music',
+            prompt: '[音乐]起风了',
+            meta: { music: { title: '起风了', desc: '买辣椒也用券' } },
+        });
+
+        const [elem] = await buildSendElems([{ type: 'json', text: card } as any], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
+
+        expect(elem.lightApp).toBeDefined();
+        expect((elem as any).richMsg).toBeUndefined();
+        expect(inflatePrefixedPayload(elem.lightApp!.data!)).toBe(card);
     });
 
-    const [elem] = await buildSendElems(
-      [{ type: 'json', text: card } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
+    it('encodes xml richMsg payloads by UTF-8 bytes, not JavaScript string length', async () => {
+        const xml = '<msg serviceID="35" brief="[分享]中文卡片"></msg>';
 
-    expect(elem.lightApp).toBeDefined();
-    expect((elem as any).richMsg).toBeUndefined();
-    expect(inflatePrefixedPayload(elem.lightApp!.data!)).toBe(card);
-  });
+        const [elem] = await buildSendElems([{ type: 'xml', text: xml, subType: 35 } as any], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
 
-  it('encodes xml richMsg payloads by UTF-8 bytes, not JavaScript string length', async () => {
-    const xml = '<msg serviceID="35" brief="[分享]中文卡片"></msg>';
-
-    const [elem] = await buildSendElems(
-      [{ type: 'xml', text: xml, subType: 35 } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-
-    expect(elem.richMsg?.serviceId).toBe(35);
-    expect(inflatePrefixedPayload(elem.richMsg!.template1!)).toBe(xml);
-  });
+        expect(elem.richMsg?.serviceId).toBe(35);
+        expect(inflatePrefixedPayload(elem.richMsg!.template1!)).toBe(xml);
+    });
 });
 
 describe('element-builder / commonElem.businessType per scene', () => {
-  describe('private window shake', () => {
-    it('encodes poke type 1 as CommonElem service 2 with the verified payload', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'poke', subType: 1 }],
-        { bridge: fakeBridge, userUid: 'u_peer', scene: 'direct-private' },
-      );
+    describe('private window shake', () => {
+        it('encodes poke type 1 as CommonElem service 2 with the verified payload', async () => {
+            const [elem] = await buildSendElems([{ type: 'poke', subType: 1 }], {
+                bridge: fakeBridge,
+                userUid: 'u_peer',
+                scene: 'direct-private',
+            });
 
-      expect(commonElem(elem)).toMatchObject({
-        serviceType: 2,
-        businessType: 1,
-      });
-      expect(Array.from(commonElem(elem).pbElem)).toEqual([0x08, 0x01]);
+            expect(commonElem(elem)).toMatchObject({
+                serviceType: 2,
+                businessType: 1,
+            });
+            expect(Array.from(commonElem(elem).pbElem)).toEqual([0x08, 0x01]);
+        });
+
+        it('rejects mixed window-shake content before uploading an earlier media segment', async () => {
+            vi.mocked(uploadImageMsgInfo).mockClear();
+
+            await expect(
+                buildSendElems(
+                    [
+                        { type: 'image', url: 'file:///tmp/must-not-upload.png' },
+                        { type: 'poke', subType: 1 },
+                    ],
+                    {
+                        bridge: fakeBridge,
+                        userUid: 'u_peer',
+                        scene: 'direct-private',
+                    },
+                ),
+            ).rejects.toMatchObject({
+                code: 'UNSENDABLE_TYPE',
+                elementType: 'poke',
+                message: expect.stringContaining('only segment'),
+            });
+
+            expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+        });
     });
 
-    it('rejects mixed window-shake content before uploading an earlier media segment', async () => {
-      vi.mocked(uploadImageMsgInfo).mockClear();
+    describe('image', () => {
+        it('c2c → businessType 10', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'image', url: 'file:///tmp/a.png' } as any],
+                {
+                    bridge: fakeBridge,
+                    userUid: 'u_peer',
+                },
+            );
+            expect(commonElem(elem).serviceType).toBe(48);
+            expect(commonElem(elem).businessType).toBe(10);
+        });
 
-      await expect(buildSendElems([
-        { type: 'image', url: 'file:///tmp/must-not-upload.png' },
-        { type: 'poke', subType: 1 },
-      ], {
-        bridge: fakeBridge,
-        userUid: 'u_peer',
-        scene: 'direct-private',
-      })).rejects.toMatchObject({
-        code: 'UNSENDABLE_TYPE',
-        elementType: 'poke',
-        message: expect.stringContaining('only segment'),
-      });
-
-      expect(uploadImageMsgInfo).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('image', () => {
-    it('c2c → businessType 10', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'image', url: 'file:///tmp/a.png' } as any],
-        { bridge: fakeBridge, userUid: 'u_peer' },
-      );
-      expect(commonElem(elem).serviceType).toBe(48);
-      expect(commonElem(elem).businessType).toBe(10);
+        it('group → businessType 20', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'image', url: 'file:///tmp/a.png' } as any],
+                {
+                    bridge: fakeBridge,
+                    groupId: 12345,
+                },
+            );
+            expect(commonElem(elem).businessType).toBe(20);
+        });
     });
 
-    it('group → businessType 20', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'image', url: 'file:///tmp/a.png' } as any],
-        { bridge: fakeBridge, groupId: 12345 },
-      );
-      expect(commonElem(elem).businessType).toBe(20);
-    });
-  });
+    describe('video', () => {
+        it('c2c → businessType 11 (regression: was 21, server returned result=79)', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any],
+                {
+                    bridge: fakeBridge,
+                    userUid: 'u_peer',
+                },
+            );
+            expect(commonElem(elem).serviceType).toBe(48);
+            expect(commonElem(elem).businessType).toBe(11);
+        });
 
-  describe('video', () => {
-    it('c2c → businessType 11 (regression: was 21, server returned result=79)', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any],
-        { bridge: fakeBridge, userUid: 'u_peer' },
-      );
-      expect(commonElem(elem).serviceType).toBe(48);
-      expect(commonElem(elem).businessType).toBe(11);
-    });
-
-    it('group → businessType 21', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any],
-        { bridge: fakeBridge, groupId: 12345 },
-      );
-      expect(commonElem(elem).businessType).toBe(21);
-    });
-  });
-
-  describe('record', () => {
-    it('c2c → businessType 12 (regression: was 22)', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'record', url: 'file:///tmp/voice.amr' } as any],
-        { bridge: fakeBridge, userUid: 'u_peer' },
-      );
-      expect(commonElem(elem).serviceType).toBe(48);
-      expect(commonElem(elem).businessType).toBe(12);
+        it('group → businessType 21', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'video', url: 'file:///tmp/clip.mp4' } as any],
+                {
+                    bridge: fakeBridge,
+                    groupId: 12345,
+                },
+            );
+            expect(commonElem(elem).businessType).toBe(21);
+        });
     });
 
-    it('group → businessType 22', async () => {
-      const [elem] = await buildSendElems(
-        [{ type: 'record', url: 'file:///tmp/voice.amr' } as any],
-        { bridge: fakeBridge, groupId: 12345 },
-      );
-      expect(commonElem(elem).businessType).toBe(22);
+    describe('record', () => {
+        it('c2c → businessType 12 (regression: was 22)', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'record', url: 'file:///tmp/voice.amr' } as any],
+                { bridge: fakeBridge, userUid: 'u_peer' },
+            );
+            expect(commonElem(elem).serviceType).toBe(48);
+            expect(commonElem(elem).businessType).toBe(12);
+        });
+
+        it('group → businessType 22', async () => {
+            const [elem] = await buildSendElems(
+                [{ type: 'record', url: 'file:///tmp/voice.amr' } as any],
+                { bridge: fakeBridge, groupId: 12345 },
+            );
+            expect(commonElem(elem).businessType).toBe(22);
+        });
     });
-  });
 });
 
 describe('element-builder / all-message validation preflight', () => {
-  it('rejects hidden siblings and duplicate videos before uploading', async () => {
-    vi.mocked(uploadVideoMsgInfo).mockClear();
+    it('rejects hidden siblings and duplicate videos before uploading', async () => {
+        vi.mocked(uploadVideoMsgInfo).mockClear();
 
-    await expect(buildSendElems([
-      { type: 'video', url: 'file:///tmp/clip.mp4' },
-      { type: 'text', text: 'must not become hidden content' },
-    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
-      code: 'UNSENDABLE_TYPE',
-      elementType: 'video',
-      message: expect.stringContaining('only segment'),
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'video', url: 'file:///tmp/clip.mp4' },
+                    { type: 'text', text: 'must not become hidden content' },
+                ],
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            code: 'UNSENDABLE_TYPE',
+            elementType: 'video',
+            message: expect.stringContaining('only segment'),
+        });
+
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'video', url: 'file:///tmp/first.mp4' },
+                    { type: 'video', url: 'file:///tmp/second.mp4' },
+                ],
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            code: 'UNSENDABLE_TYPE',
+            elementType: 'video',
+            message: expect.stringContaining('only once'),
+        });
+
+        expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
     });
 
-    await expect(buildSendElems([
-      { type: 'video', url: 'file:///tmp/first.mp4' },
-      { type: 'video', url: 'file:///tmp/second.mp4' },
-    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
-      code: 'UNSENDABLE_TYPE',
-      elementType: 'video',
-      message: expect.stringContaining('only once'),
+    it('keeps empty canonical text invalid instead of sending it beside a video', async () => {
+        vi.mocked(uploadVideoMsgInfo).mockClear();
+
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'text', text: '' },
+                    { type: 'video', url: 'file:///tmp/clip.mp4' },
+                ],
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            code: 'INVALID_FIELD',
+            elementType: 'text',
+        });
+
+        expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
     });
 
-    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
-  });
+    it('applies standalone-video validation to forward nodes', async () => {
+        vi.mocked(uploadVideoMsgInfo).mockClear();
 
-  it('keeps empty canonical text invalid instead of sending it beside a video', async () => {
-    vi.mocked(uploadVideoMsgInfo).mockClear();
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'video', url: 'file:///tmp/clip.mp4' },
+                    { type: 'text', text: 'must not survive bot forwarding' },
+                ],
+                {
+                    bridge: fakeBridge,
+                    groupId: 12345,
+                    forwardFake: true,
+                    scene: 'forward',
+                },
+            ),
+        ).rejects.toMatchObject({
+            code: 'UNSENDABLE_TYPE',
+            elementType: 'video',
+        });
 
-    await expect(buildSendElems([
-      { type: 'text', text: '' },
-      { type: 'video', url: 'file:///tmp/clip.mp4' },
-    ], { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
-      code: 'INVALID_FIELD',
-      elementType: 'text',
+        expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
     });
 
-    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
-  });
+    it('does not upload an early image when a later segment is unsendable', async () => {
+        vi.mocked(uploadImageMsgInfo).mockClear();
 
-  it('applies standalone-video validation to forward nodes', async () => {
-    vi.mocked(uploadVideoMsgInfo).mockClear();
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
+                    { type: 'poke', subType: 1 },
+                ] as any,
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            code: 'UNSENDABLE_TYPE',
+            elementType: 'poke',
+        });
 
-    await expect(buildSendElems([
-      { type: 'video', url: 'file:///tmp/clip.mp4' },
-      { type: 'text', text: 'must not survive bot forwarding' },
-    ], {
-      bridge: fakeBridge,
-      groupId: 12345,
-      forwardFake: true,
-      scene: 'forward',
-    })).rejects.toMatchObject({
-      code: 'UNSENDABLE_TYPE',
-      elementType: 'video',
+        expect(uploadImageMsgInfo).not.toHaveBeenCalled();
     });
 
-    expect(uploadVideoMsgInfo).not.toHaveBeenCalled();
-  });
+    it('emits a customFace sibling for forwardFake group images (#441)', async () => {
+        const md5Hex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const msgInfo = protobuf_encode<MsgInfo>({
+            msgInfoBody: [
+                {
+                    index: {
+                        fileUuid: 'EhRimg',
+                        info: {
+                            fileHash: md5Hex,
+                            fileName: `${md5Hex}.png`,
+                            fileSize: 12,
+                            width: 10,
+                            height: 10,
+                            type: { picFormat: 1001 },
+                        },
+                    },
+                },
+            ],
+        });
+        vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(msgInfo);
 
-  it('does not upload an early image when a later segment is unsendable', async () => {
-    vi.mocked(uploadImageMsgInfo).mockClear();
+        const elems = await buildSendElems([{ type: 'image', url: 'file:///tmp/a.png' }], {
+            bridge: fakeBridge,
+            groupId: 12345,
+            forwardFake: true,
+            scene: 'forward',
+        });
 
-    await expect(buildSendElems([
-      { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
-      { type: 'poke', subType: 1 },
-    ] as any, { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
-      code: 'UNSENDABLE_TYPE',
-      elementType: 'poke',
+        expect(elems).toHaveLength(2);
+        expect(elems[0]!.commonElem).toBeDefined();
+        expect(elems[1]!.customFace?.filePath).toBe(`${md5Hex}.png`);
+        expect(elems[1]!.customFace?.md5).toHaveLength(16);
     });
 
-    expect(uploadImageMsgInfo).not.toHaveBeenCalled();
-  });
-
-  it('emits a customFace sibling for forwardFake group images (#441)', async () => {
-    const md5Hex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    const msgInfo = protobuf_encode<MsgInfo>({
-      msgInfoBody: [{
-        index: {
-          fileUuid: 'EhRimg',
-          info: {
-            fileHash: md5Hex,
-            fileName: `${md5Hex}.png`,
-            fileSize: 12,
-            width: 10,
-            height: 10,
-            type: { picFormat: 1001 },
-          },
-        },
-      }],
-    });
-    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(msgInfo);
-
-    const elems = await buildSendElems(
-      [{ type: 'image', url: 'file:///tmp/a.png' }],
-      { bridge: fakeBridge, groupId: 12345, forwardFake: true, scene: 'forward' },
-    );
-
-    expect(elems).toHaveLength(2);
-    expect(elems[0]!.commonElem).toBeDefined();
-    expect(elems[1]!.customFace?.filePath).toBe(`${md5Hex}.png`);
-    expect(elems[1]!.customFace?.md5).toHaveLength(16);
-  });
-
-  it('does not emit a legacy sibling on a live group image send', async () => {
-    vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(new Uint8Array([7, 8, 9]));
-    const elems = await buildSendElems(
-      [{ type: 'image', url: 'file:///tmp/a.png' }],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(elems).toHaveLength(1);
-    expect(elems[0]!.commonElem).toBeDefined();
-    expect(elems[0]!.customFace).toBeUndefined();
-  });
-
-  it('accepts a received imageUrl-only element for re-send', async () => {
-    vi.mocked(uploadImageMsgInfo).mockClear();
-    await buildSendElems(
-      [{ type: 'image', imageUrl: 'https://gchat.qpic.cn/received.jpg' }],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(uploadImageMsgInfo).toHaveBeenCalledWith(
-      fakeBridge,
-      true,
-      12345,
-      expect.objectContaining({ imageUrl: 'https://gchat.qpic.cn/received.jpg' }),
-      undefined,
-    );
-  });
-
-  it('does not upload an early image when a later fast-only media element lacks hashes', async () => {
-    vi.mocked(uploadImageMsgInfo).mockClear();
-
-    await expect(buildSendElems([
-      { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
-      {
-        type: 'image',
-        url: 'file:///tmp/must-not-fallback.png',
-        noByteFallback: true,
-      },
-    ] as any, { bridge: fakeBridge, groupId: 12345 })).rejects.toMatchObject({
-      code: 'MISSING_FIELD',
-      elementType: 'image',
-      field: 'md5Hex',
+    it('does not emit a legacy sibling on a live group image send', async () => {
+        vi.mocked(uploadImageMsgInfo).mockResolvedValueOnce(new Uint8Array([7, 8, 9]));
+        const elems = await buildSendElems([{ type: 'image', url: 'file:///tmp/a.png' }], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
+        expect(elems).toHaveLength(1);
+        expect(elems[0]!.commonElem).toBeDefined();
+        expect(elems[0]!.customFace).toBeUndefined();
     });
 
-    expect(uploadImageMsgInfo).not.toHaveBeenCalled();
-  });
+    it('accepts a received imageUrl-only element for re-send', async () => {
+        vi.mocked(uploadImageMsgInfo).mockClear();
+        await buildSendElems([{ type: 'image', imageUrl: 'https://gchat.qpic.cn/received.jpg' }], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
+        expect(uploadImageMsgInfo).toHaveBeenCalledWith(
+            fakeBridge,
+            true,
+            12345,
+            expect.objectContaining({ imageUrl: 'https://gchat.qpic.cn/received.jpg' }),
+            undefined,
+        );
+    });
+
+    it('does not upload an early image when a later fast-only media element lacks hashes', async () => {
+        vi.mocked(uploadImageMsgInfo).mockClear();
+
+        await expect(
+            buildSendElems(
+                [
+                    { type: 'image', url: 'file:///tmp/valid-before-invalid.png' },
+                    {
+                        type: 'image',
+                        url: 'file:///tmp/must-not-fallback.png',
+                        noByteFallback: true,
+                    },
+                ] as any,
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            code: 'MISSING_FIELD',
+            elementType: 'image',
+            field: 'md5Hex',
+        });
+
+        expect(uploadImageMsgInfo).not.toHaveBeenCalled();
+    });
 });
 
 describe('element-builder / file element is no longer carried in elems[]', () => {
-  // Regression for the `result=79` class: previously the element-builder
-  // emitted a `transElem(elemType=24, ...)` for `{type:'file'}` segments
-  // and the QQ-NT server rejected the outgoing PbSendMsg with that wire
-  // shape. The fix moves group-file publishing onto a dedicated OIDB
-  // call (`OidbSvcTrpcTcp.0x6d9_4`), driven from the OneBot layer in
-  // `modules/message-actions.ts::sendGroupMessage` after the file
-  // segment is split off. The element-builder therefore must NOT emit
-  // any element for `{type:'file'}` anymore — if it does, the message
-  // ships with a transElem(24) payload and result=79 returns.
-  it('fails fast when a live {type:"file"} reaches the element builder', async () => {
-    await expect(buildSendElems(
-      [{
-        type: 'file',
-        fileId: 'fid-abc',
-        fileName: 'doc.txt',
-        fileSize: 123,
-        md5Hex: 'aabbccddeeff00112233445566778899',
-        sha1Hex: '0102030405060708090a0b0c0d0e0f1011121314',
-      } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    )).rejects.toMatchObject({
-      name: 'MessageElementValidationError',
-      code: 'UNSENDABLE_TYPE',
-      elementType: 'file',
+    // Regression for the `result=79` class: previously the element-builder
+    // emitted a `transElem(elemType=24, ...)` for `{type:'file'}` segments
+    // and the QQ-NT server rejected the outgoing PbSendMsg with that wire
+    // shape. The fix moves group-file publishing onto a dedicated OIDB
+    // call (`OidbSvcTrpcTcp.0x6d9_4`), driven from the OneBot layer in
+    // `modules/message-actions.ts::sendGroupMessage` after the file
+    // segment is split off. The element-builder therefore must NOT emit
+    // any element for `{type:'file'}` anymore — if it does, the message
+    // ships with a transElem(24) payload and result=79 returns.
+    it('fails fast when a live {type:"file"} reaches the element builder', async () => {
+        await expect(
+            buildSendElems(
+                [
+                    {
+                        type: 'file',
+                        fileId: 'fid-abc',
+                        fileName: 'doc.txt',
+                        fileSize: 123,
+                        md5Hex: 'aabbccddeeff00112233445566778899',
+                        sha1Hex: '0102030405060708090a0b0c0d0e0f1011121314',
+                    } as any,
+                ],
+                { bridge: fakeBridge, groupId: 12345 },
+            ),
+        ).rejects.toMatchObject({
+            name: 'MessageElementValidationError',
+            code: 'UNSENDABLE_TYPE',
+            elementType: 'file',
+        });
     });
-  });
 });
 
 describe('element-builder / forward preview', () => {
-  // Flat outer forwards use the serviceID=35 RichMsg shape accepted by NTQQ.
-  // Nested previews keep the modern LightApp JSON because their
-  // meta.detail.uniseq must match an actionCommand piggyback in the outer
-  // LongMsgResult.
-  function decodeLightApp(elem: any): unknown {
-    return JSON.parse(inflatePrefixedPayload(elem.lightApp.data));
-  }
-
-  it('emits a serviceID=35 richMsg XML for a flat outer forward', async () => {
-    const [elem] = await buildSendElems(
-      [{ type: 'forward', resId: 'res-XYZ' } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(elem.richMsg?.serviceId).toBe(35);
-    expect(elem.lightApp).toBeUndefined();
-    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
-    expect(xml).toContain('action="viewMultiMsg"');
-    expect(xml).toContain('m_resid="res-XYZ"');
-  });
-
-  it('places resid + uniseq inside meta.detail (and uniseq matches extra.filename)', async () => {
-    const [elem] = await buildSendElems(
-      [{ type: 'forward', resId: 'res-XYZ', forwardUuid: 'fixed-uuid-1234' } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    expect(elem.lightApp).toBeDefined();
-    expect(elem.richMsg).toBeUndefined();
-    const json = decodeLightApp(elem) as any;
-    expect(json.app).toBe('com.tencent.multimsg');
-    expect(json.meta.detail.resid).toBe('res-XYZ');
-    expect(json.meta.detail.uniseq).toBe('fixed-uuid-1234');
-    // `extra` is a JSON string holding {filename, tsum}; filename must
-    // round-trip the same uniseq so the QQ-NT client links them.
-    const extra = JSON.parse(json.extra);
-    expect(extra.filename).toBe('fixed-uuid-1234');
-  });
-
-  it('autogenerates m_fileName for a flat outer forward', async () => {
-    const [elem] = await buildSendElems(
-      [{ type: 'forward', resId: 'res-flat' } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
-    expect(xml).toContain('m_resid="res-flat"');
-    expect(xml).toMatch(/m_fileName="[0-9a-f-]{36}"/i);
-  });
-
-  it('escapes dynamic XML fields in a flat outer forward', async () => {
-    const [elem] = await buildSendElems(
-      [{
-        type: 'forward',
-        resId: 'res&<>"\'',
-        forwardSource: 'Alice & <Bob>',
-        forwardSummary: 'summary "quoted" & more',
-        forwardPrompt: '[A & B]',
-        forwardNews: [
-          { text: 'Alice: <hello>' },
-          { text: 'Bob: it\'s "ok"' },
-        ],
-        forwardTSum: 2,
-      } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
-    expect(xml).toContain('m_resid="res&amp;&lt;&gt;&quot;&apos;"');
-    expect(xml).toContain('brief="[A &amp; B]"');
-    expect(xml).toContain('Alice &amp; &lt;Bob&gt;');
-    expect(xml).toContain('summary &quot;quoted&quot; &amp; more');
-    expect(xml).toContain('Alice: &lt;hello&gt;');
-    expect(xml).toContain('Bob: it&apos;s &quot;ok&quot;');
-    expect(xml).toContain('tSum="2"');
-  });
-
-  it('normalizes only unsupported preview characters and records the affected fields', async () => {
-    const logs: LogEntry[] = [];
-    const unsubscribe = subscribeLogs(entry => logs.push(entry));
-    const element = {
-      type: 'forward' as const,
-      resId: 'preview-controls',
-      forwardSource: 'source\u0000',
-      forwardSummary: 'summary\uFFFE',
-      forwardPrompt: 'prompt\uFFFF',
-      forwardNews: [{ text: 'a\u0001b\u000Bc\u001Fd\uD800e\uDC00f😀中文\t\n\r' }],
-    };
-    const original = structuredClone(element);
-    try {
-      const [elem] = await buildSendElems([element], { bridge: fakeBridge, groupId: 12345 });
-      const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
-      expect(xml).toContain('brief="prompt�"');
-      expect(xml).toContain('source�</title>');
-      expect(xml).toContain('summary�</summary>');
-      expect(xml).toContain('a�b�c�d�e�f😀中文&#x9;&#xA;&#xD;</title>');
-      expect(element).toEqual(original);
-      expect(logs.filter(entry => entry.message.startsWith('forward preview characters normalized:'))
-        .map(entry => entry.message)).toEqual([
-        'forward preview characters normalized: field=source',
-        'forward preview characters normalized: field=news[0]',
-        'forward preview characters normalized: field=prompt',
-        'forward preview characters normalized: field=summary',
-      ]);
-    } finally {
-      unsubscribe();
+    // Flat outer forwards use the serviceID=35 RichMsg shape accepted by NTQQ.
+    // Nested previews keep the modern LightApp JSON because their
+    // meta.detail.uniseq must match an actionCommand piggyback in the outer
+    // LongMsgResult.
+    function decodeLightApp(elem: any): unknown {
+        return JSON.parse(inflatePrefixedPayload(elem.lightApp.data));
     }
-  });
 
-  it('rejects an unrepresentable resource reference instead of rewriting its identity', async () => {
-    await expect(buildSendElems([{ type: 'forward', resId: 'res\u0001id' }], {
-      bridge: fakeBridge, groupId: 12345,
-    })).rejects.toMatchObject({ code: 'INVALID_FIELD', elementType: 'forward', field: 'resId' });
-  });
-
-  it('preserves valid Unicode boundaries and whitespace in preview text', async () => {
-    const text = '\u0009\u000A\u000D\u0020\uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}';
-    const [elem] = await buildSendElems([{ type: 'forward', resId: 'valid-unicode', forwardNews: [{ text }] }], {
-      bridge: fakeBridge, groupId: 12345,
+    it('emits a serviceID=35 richMsg XML for a flat outer forward', async () => {
+        const [elem] = await buildSendElems([{ type: 'forward', resId: 'res-XYZ' } as any], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
+        expect(elem.richMsg?.serviceId).toBe(35);
+        expect(elem.lightApp).toBeUndefined();
+        const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+        expect(xml).toContain('action="viewMultiMsg"');
+        expect(xml).toContain('m_resid="res-XYZ"');
     });
-    expect(inflatePrefixedPayload(elem.richMsg!.template1!))
-      .toContain('&#x9;&#xA;&#xD; \uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}</title>');
-  });
 
-  it('threads forwardSource / forwardSummary / forwardPrompt / forwardNews / forwardTSum verbatim', async () => {
-    const [elem] = await buildSendElems(
-      [{
-        type: 'forward', resId: 'r1', forwardUuid: 'u1',
-        forwardSource: 'alice和bob的聊天记录',
-        forwardSummary: '查看3条转发消息',
-        forwardPrompt: '[聊天记录]',
-        forwardNews: [{ text: 'alice: hi' }, { text: 'bob: hey' }],
-        forwardTSum: 3,
-      } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    );
-    const json = decodeLightApp(elem) as any;
-    expect(json.meta.detail.source).toBe('alice和bob的聊天记录');
-    expect(json.meta.detail.summary).toBe('查看3条转发消息');
-    expect(json.meta.detail.news).toEqual([{ text: 'alice: hi' }, { text: 'bob: hey' }]);
-    expect(json.desc).toBe('[聊天记录]');
-    expect(json.prompt).toBe('[聊天记录]');
-    expect(JSON.parse(json.extra).tsum).toBe(3);
-  });
+    it('places resid + uniseq inside meta.detail (and uniseq matches extra.filename)', async () => {
+        const [elem] = await buildSendElems(
+            [{ type: 'forward', resId: 'res-XYZ', forwardUuid: 'fixed-uuid-1234' } as any],
+            { bridge: fakeBridge, groupId: 12345 },
+        );
+        expect(elem.lightApp).toBeDefined();
+        expect(elem.richMsg).toBeUndefined();
+        const json = decodeLightApp(elem) as any;
+        expect(json.app).toBe('com.tencent.multimsg');
+        expect(json.meta.detail.resid).toBe('res-XYZ');
+        expect(json.meta.detail.uniseq).toBe('fixed-uuid-1234');
+        // `extra` is a JSON string holding {filename, tsum}; filename must
+        // round-trip the same uniseq so the QQ-NT client links them.
+        const extra = JSON.parse(json.extra);
+        expect(extra.filename).toBe('fixed-uuid-1234');
+    });
 
-  it('rejects a forward element when resId is missing', async () => {
-    await expect(buildSendElems(
-      [{ type: 'forward' } as any],
-      { bridge: fakeBridge, groupId: 12345 },
-    )).rejects.toBeInstanceOf(MessageElementValidationError);
-  });
+    it('autogenerates m_fileName for a flat outer forward', async () => {
+        const [elem] = await buildSendElems([{ type: 'forward', resId: 'res-flat' } as any], {
+            bridge: fakeBridge,
+            groupId: 12345,
+        });
+        const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+        expect(xml).toContain('m_resid="res-flat"');
+        expect(xml).toMatch(/m_fileName="[0-9a-f-]{36}"/i);
+    });
+
+    it('escapes dynamic XML fields in a flat outer forward', async () => {
+        const [elem] = await buildSendElems(
+            [
+                {
+                    type: 'forward',
+                    resId: 'res&<>"\'',
+                    forwardSource: 'Alice & <Bob>',
+                    forwardSummary: 'summary "quoted" & more',
+                    forwardPrompt: '[A & B]',
+                    forwardNews: [{ text: 'Alice: <hello>' }, { text: 'Bob: it\'s "ok"' }],
+                    forwardTSum: 2,
+                } as any,
+            ],
+            { bridge: fakeBridge, groupId: 12345 },
+        );
+        const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+        expect(xml).toContain('m_resid="res&amp;&lt;&gt;&quot;&apos;"');
+        expect(xml).toContain('brief="[A &amp; B]"');
+        expect(xml).toContain('Alice &amp; &lt;Bob&gt;');
+        expect(xml).toContain('summary &quot;quoted&quot; &amp; more');
+        expect(xml).toContain('Alice: &lt;hello&gt;');
+        expect(xml).toContain('Bob: it&apos;s &quot;ok&quot;');
+        expect(xml).toContain('tSum="2"');
+    });
+
+    it('normalizes only unsupported preview characters and records the affected fields', async () => {
+        const logs: LogEntry[] = [];
+        const unsubscribe = subscribeLogs((entry) => logs.push(entry));
+        const element = {
+            type: 'forward' as const,
+            resId: 'preview-controls',
+            forwardSource: 'source\u0000',
+            forwardSummary: 'summary\uFFFE',
+            forwardPrompt: 'prompt\uFFFF',
+            forwardNews: [{ text: 'a\u0001b\u000Bc\u001Fd\uD800e\uDC00f😀中文\t\n\r' }],
+        };
+        const original = structuredClone(element);
+
+        try {
+            const [elem] = await buildSendElems([element], { bridge: fakeBridge, groupId: 12345 });
+            const xml = inflatePrefixedPayload(elem.richMsg!.template1!);
+            expect(xml).toContain('brief="prompt�"');
+            expect(xml).toContain('source�</title>');
+            expect(xml).toContain('summary�</summary>');
+            expect(xml).toContain('a�b�c�d�e�f😀中文&#x9;&#xA;&#xD;</title>');
+            expect(element).toEqual(original);
+            expect(
+                logs
+                    .filter((entry) =>
+                        entry.message.startsWith('forward preview characters normalized:'),
+                    )
+                    .map((entry) => entry.message),
+            ).toEqual([
+                'forward preview characters normalized: field=source',
+                'forward preview characters normalized: field=news[0]',
+                'forward preview characters normalized: field=prompt',
+                'forward preview characters normalized: field=summary',
+            ]);
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('rejects an unrepresentable resource reference instead of rewriting its identity', async () => {
+        await expect(
+            buildSendElems([{ type: 'forward', resId: 'res\u0001id' }], {
+                bridge: fakeBridge,
+                groupId: 12345,
+            }),
+        ).rejects.toMatchObject({ code: 'INVALID_FIELD', elementType: 'forward', field: 'resId' });
+    });
+
+    it('preserves valid Unicode boundaries and whitespace in preview text', async () => {
+        const text = '\u0009\u000A\u000D\u0020\uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}';
+        const [elem] = await buildSendElems(
+            [{ type: 'forward', resId: 'valid-unicode', forwardNews: [{ text }] }],
+            {
+                bridge: fakeBridge,
+                groupId: 12345,
+            },
+        );
+        expect(inflatePrefixedPayload(elem.richMsg!.template1!)).toContain(
+            '&#x9;&#xA;&#xD; \uD7FF\uE000\uFFFD\u{10000}\u{10FFFF}</title>',
+        );
+    });
+
+    it('threads forwardSource / forwardSummary / forwardPrompt / forwardNews / forwardTSum verbatim', async () => {
+        const [elem] = await buildSendElems(
+            [
+                {
+                    type: 'forward',
+                    resId: 'r1',
+                    forwardUuid: 'u1',
+                    forwardSource: 'alice和bob的聊天记录',
+                    forwardSummary: '查看3条转发消息',
+                    forwardPrompt: '[聊天记录]',
+                    forwardNews: [{ text: 'alice: hi' }, { text: 'bob: hey' }],
+                    forwardTSum: 3,
+                } as any,
+            ],
+            { bridge: fakeBridge, groupId: 12345 },
+        );
+        const json = decodeLightApp(elem) as any;
+        expect(json.meta.detail.source).toBe('alice和bob的聊天记录');
+        expect(json.meta.detail.summary).toBe('查看3条转发消息');
+        expect(json.meta.detail.news).toEqual([{ text: 'alice: hi' }, { text: 'bob: hey' }]);
+        expect(json.desc).toBe('[聊天记录]');
+        expect(json.prompt).toBe('[聊天记录]');
+        expect(JSON.parse(json.extra).tsum).toBe(3);
+    });
+
+    it('rejects a forward element when resId is missing', async () => {
+        await expect(
+            buildSendElems([{ type: 'forward' } as any], { bridge: fakeBridge, groupId: 12345 }),
+        ).rejects.toBeInstanceOf(MessageElementValidationError);
+    });
 });

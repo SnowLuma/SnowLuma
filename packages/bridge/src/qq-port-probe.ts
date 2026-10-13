@@ -9,11 +9,15 @@ const log = createLogger('LoginProbe');
 const probeNotes = new Map<number, string>();
 
 function noteProbe(pid: number, result: string, ports: number, processes: number | null): void {
-  const processText = processes === null ? '' : ` processes=${processes}`;
-  const message = `login probe: PID=${pid} result=${result} ports=${ports}${processText}`;
-  if (probeNotes.get(pid) === message) return;
-  probeNotes.set(pid, message);
-  log.info(message);
+    const processText = processes === null ? '' : ` processes=${processes}`;
+    const message = `login probe: PID=${pid} result=${result} ports=${ports}${processText}`;
+
+    if (probeNotes.get(pid) === message) {
+        return;
+    }
+
+    probeNotes.set(pid, message);
+    log.info(message);
 }
 
 const CONNECTION_TIMEOUT_MS = 500;
@@ -28,21 +32,21 @@ const EXEC_OPTIONS = { timeout: COMMAND_TIMEOUT_MS, killSignal: 'SIGKILL' as con
 const LOGGED_OUT_PROCESS_COUNT_MAX = 6;
 
 export interface QqPortLoginInfo {
-  port: number;
-  uin: string;
-  uid?: string;
-  nickName?: string;
-  /** The local QQ endpoint exposed an account identity. This does not prove
-   * the native protocol session is ready to send or receive packets. */
-  identityKnown: boolean;
+    port: number;
+    uin: string;
+    uid?: string;
+    nickName?: string;
+    /** The local QQ endpoint exposed an account identity. This does not prove
+     * the native protocol session is ready to send or receive packets. */
+    identityKnown: boolean;
 }
 
 /** One entry of the Ptlogin `pt_get_uins` JSONP array. Only the fields the
  *  probe reads are modelled; QQ sends more but they're irrelevant here. */
 interface PtloginUin {
-  uin?: string | number;
-  account?: string | number;
-  nickname?: string;
+    uin?: string | number;
+    account?: string | number;
+    nickname?: string;
 }
 
 /**
@@ -54,191 +58,236 @@ interface PtloginUin {
  * problem, no answer". Neither outcome triggers interactive probing.
  */
 async function fetchPtlogin(port: number, useHttps: boolean): Promise<PtloginUin[] | null> {
-  return new Promise((resolve) => {
-    const protocol = useHttps ? 'https' : 'http';
-    const url = `${protocol}://127.0.0.1:${port}/pt_get_uins?callback=ptui_getuins_CB&pt_local_tk=0`;
+    return new Promise((resolve) => {
+        const protocol = useHttps ? 'https' : 'http';
+        const url = `${protocol}://127.0.0.1:${port}/pt_get_uins?callback=ptui_getuins_CB&pt_local_tk=0`;
 
-    const headers = {
-      Host: 'localhost.ptlogin2.qq.com',
-      Referer: 'https://xui.ptlogin2.qq.com/',
-      Cookie: 'pt_local_token=0',
-    };
+        const headers = {
+            Host: 'localhost.ptlogin2.qq.com',
+            Referer: 'https://xui.ptlogin2.qq.com/',
+            Cookie: 'pt_local_token=0',
+        };
 
-    const handleResponse = (res: http.IncomingMessage) => {
-      let text = '';
-      res.on('data', (chunk) => { text += chunk.toString(); });
-      res.on('end', () => {
-        try {
-          const inner = text.split('[')[1].split(']')[0];
-          const data = JSON.parse('[' + inner + ']') as PtloginUin[];
-          resolve(data);
-        } catch {
-          resolve(null);
-        }
-      });
-    };
+        const handleResponse = (res: http.IncomingMessage) => {
+            let text = '';
+            res.on('data', (chunk) => {
+                text += chunk.toString();
+            });
+            res.on('end', () => {
+                try {
+                    const inner = text.split('[')[1].split(']')[0];
+                    const data = JSON.parse('[' + inner + ']') as PtloginUin[];
+                    resolve(data);
+                } catch {
+                    resolve(null);
+                }
+            });
+        };
 
-    const req = useHttps
-      ? https.get(url, { headers, timeout: CONNECTION_TIMEOUT_MS, rejectUnauthorized: false }, handleResponse)
-      : http.get(url, { headers, timeout: CONNECTION_TIMEOUT_MS }, handleResponse);
+        const req = useHttps
+            ? https.get(
+                  url,
+                  { headers, timeout: CONNECTION_TIMEOUT_MS, rejectUnauthorized: false },
+                  handleResponse,
+              )
+            : http.get(url, { headers, timeout: CONNECTION_TIMEOUT_MS }, handleResponse);
 
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(null);
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(null);
+        });
     });
-  });
 }
 
 async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | null> {
-  const useHttps = port % 2 !== 0;
+    const useHttps = port % 2 !== 0;
 
-  const res1 = await fetchPtlogin(port, useHttps);
-  const res2 = await fetchPtlogin(port, useHttps);
+    const res1 = await fetchPtlogin(port, useHttps);
+    const res2 = await fetchPtlogin(port, useHttps);
 
-  if (res1 === null && res2 === null) return null;
+    if (res1 === null && res2 === null) {
+        return null;
+    }
 
-  const usable = [res1, res2].filter((r): r is PtloginUin[] => r !== null);
-  const target = usable.reduce((a, b) => (a.length <= b.length ? a : b));
+    const usable = [res1, res2].filter((r): r is PtloginUin[] => r !== null);
+    const target = usable.reduce((a, b) => (a.length <= b.length ? a : b));
 
-  if (target.length === 1) {
-    const account = target[0];
-    return {
-      port,
-      uin: String(account.uin || account.account || ''),
-      nickName: account.nickname || '',
-      identityKnown: true,
-    };
-  }
+    if (target.length === 1) {
+        const account = target[0];
+        return {
+            port,
+            uin: String(account.uin || account.account || ''),
+            nickName: account.nickname || '',
+            identityKnown: true,
+        };
+    }
 
-  return null;
+    return null;
 }
 
 async function getQqProcessCount(): Promise<number> {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execAsync(
-        'tasklist /fi "imagename eq QQ.exe" /nh',
-        EXEC_OPTIONS,
-      );
-      return stdout.toLowerCase().split('\n').filter(line => line.includes('qq.exe')).length;
-    } else {
-      const { stdout } = await execAsync('pgrep -c qq', EXEC_OPTIONS);
-      return parseInt(stdout.trim(), 10) || 0;
+    try {
+        if (process.platform === 'win32') {
+            const { stdout } = await execAsync(
+                'tasklist /fi "imagename eq QQ.exe" /nh',
+                EXEC_OPTIONS,
+            );
+            return stdout
+                .toLowerCase()
+                .split('\n')
+                .filter((line) => line.includes('qq.exe')).length;
+        } else {
+            const { stdout } = await execAsync('pgrep -c qq', EXEC_OPTIONS);
+            return parseInt(stdout.trim(), 10) || 0;
+        }
+    } catch {
+        // On failure report the ambiguous threshold so we never falsely
+        // conclude "logged out".
+        return LOGGED_OUT_PROCESS_COUNT_MAX;
     }
-  } catch {
-    // On failure report the ambiguous threshold so we never falsely
-    // conclude "logged out".
-    return LOGGED_OUT_PROCESS_COUNT_MAX;
-  }
 }
 
 async function getProcessPorts(pid: number): Promise<number[] | null> {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execAsync('netstat -ano', EXEC_OPTIONS);
-      const ports = new Set<number>();
-      const lines = stdout.split('\n');
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 5) continue;
-        const owningPid = parts[parts.length - 1];
-        if (owningPid !== String(pid)) continue;
+    try {
+        if (process.platform === 'win32') {
+            const { stdout } = await execAsync('netstat -ano', EXEC_OPTIONS);
+            const ports = new Set<number>();
+            const lines = stdout.split('\n');
 
-        const localAddr = parts[1];
-        const portMatch = localAddr.match(/:(\d+)$/);
-        if (!portMatch) continue;
-        ports.add(Number(portMatch[1]));
-      }
-      return Array.from(ports);
-    } else {
-      const { stdout } = await execAsync('ss -tlnp', EXEC_OPTIONS);
-      const ports = new Set<number>();
-      const lines = stdout.split('\n');
-      for (const line of lines) {
-        if (!line.includes(`pid=${pid},`) && !line.includes(`pid=${pid})`)) continue;
-        const match = line.match(/:(\d+)\s/);
-        if (match) {
-          ports.add(Number(match[1]));
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+
+                if (parts.length < 5) {
+                    continue;
+                }
+
+                const owningPid = parts[parts.length - 1];
+
+                if (owningPid !== String(pid)) {
+                    continue;
+                }
+
+                const localAddr = parts[1];
+                const portMatch = localAddr.match(/:(\d+)$/);
+
+                if (!portMatch) {
+                    continue;
+                }
+
+                ports.add(Number(portMatch[1]));
+            }
+
+            return Array.from(ports);
+        } else {
+            const { stdout } = await execAsync('ss -tlnp', EXEC_OPTIONS);
+            const ports = new Set<number>();
+            const lines = stdout.split('\n');
+
+            for (const line of lines) {
+                if (!line.includes(`pid=${pid},`) && !line.includes(`pid=${pid})`)) {
+                    continue;
+                }
+
+                const match = line.match(/:(\d+)\s/);
+
+                if (match) {
+                    ports.add(Number(match[1]));
+                }
+            }
+
+            return Array.from(ports);
         }
-      }
-      return Array.from(ports);
+    } catch {
+        return null;
     }
-  } catch {
-    return null;
-  }
 }
 
 async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | null> {
-  const ports = await getProcessPorts(pid);
-  if (ports === null) {
-    noteProbe(pid, 'unavailable', 0, null);
-    return null;
-  }
+    const ports = await getProcessPorts(pid);
 
-  if (ports.length === 0) {
-    const totalPids = await getQqProcessCount();
-    if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
-      noteProbe(pid, 'no-ports', 0, totalPids);
-      return { port: 0, uin: '', identityKnown: false };
+    if (ports === null) {
+        noteProbe(pid, 'unavailable', 0, null);
+        return null;
     }
-    noteProbe(pid, 'inconclusive', 0, totalPids);
-    return null;
-  }
-  const ODD_PT_PORTS = [4301, 4303, 4305, 4307, 4309];
-  const EVEN_PT_PORTS = [4302, 4304, 4306, 4308, 4310];
 
-  const matchedOddPorts = ports.filter(p => ODD_PT_PORTS.includes(p));
-  const matchedEvenPorts = ports.filter(p => EVEN_PT_PORTS.includes(p));
+    if (ports.length === 0) {
+        const totalPids = await getQqProcessCount();
 
-  let ptPortsToTry: number[] = [];
-  if (matchedOddPorts.length > 0) {
-    ptPortsToTry = matchedOddPorts;
-  } else if (matchedEvenPorts.length > 0) {
-    ptPortsToTry = matchedEvenPorts;
-  }
+        if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
+            noteProbe(pid, 'no-ports', 0, totalPids);
+            return { port: 0, uin: '', identityKnown: false };
+        }
 
-  if (ptPortsToTry.length > 0) {
-    for (const port of ptPortsToTry) {
-      const ptResult = await tryPtloginMethod(port);
-      if (ptResult !== null) {
-        return ptResult;
-      }
+        noteProbe(pid, 'inconclusive', 0, totalPids);
+        return null;
     }
-  } else {
-    const totalPids = await getQqProcessCount();
-    if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
-      noteProbe(pid, 'no-ports', ports.length, totalPids);
-      return {
-        port: ports[0],
-        uin: '',
-        identityKnown: false,
-      };
-    }
-    noteProbe(pid, 'inconclusive', ports.length, totalPids);
-    return null;
-  }
 
-  // Background discovery must remain passive. Interactive application
-  // endpoints are deliberately excluded from automatic probing.
-  noteProbe(pid, 'no-match', ptPortsToTry.length, null);
-  return null;
+    const ODD_PT_PORTS = [4301, 4303, 4305, 4307, 4309];
+    const EVEN_PT_PORTS = [4302, 4304, 4306, 4308, 4310];
+
+    const matchedOddPorts = ports.filter((p) => ODD_PT_PORTS.includes(p));
+    const matchedEvenPorts = ports.filter((p) => EVEN_PT_PORTS.includes(p));
+
+    let ptPortsToTry: number[] = [];
+
+    if (matchedOddPorts.length > 0) {
+        ptPortsToTry = matchedOddPorts;
+    } else if (matchedEvenPorts.length > 0) {
+        ptPortsToTry = matchedEvenPorts;
+    }
+
+    if (ptPortsToTry.length > 0) {
+        for (const port of ptPortsToTry) {
+            const ptResult = await tryPtloginMethod(port);
+
+            if (ptResult !== null) {
+                return ptResult;
+            }
+        }
+    } else {
+        const totalPids = await getQqProcessCount();
+
+        if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
+            noteProbe(pid, 'no-ports', ports.length, totalPids);
+            return {
+                port: ports[0],
+                uin: '',
+                identityKnown: false,
+            };
+        }
+
+        noteProbe(pid, 'inconclusive', ports.length, totalPids);
+        return null;
+    }
+
+    // Background discovery must remain passive. Interactive application
+    // endpoints are deliberately excluded from automatic probing.
+    noteProbe(pid, 'no-match', ptPortsToTry.length, null);
+    return null;
 }
 
 export async function probeQqLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-  const timeout = new Promise<null>(resolve => {
-    timer = setTimeout(() => {
-      timedOut = true;
-      resolve(null);
-    }, OVERALL_PROBE_TIMEOUT_MS);
-  });
-  try {
-    const result = await Promise.race([probeQqLoginInfoInternal(pid), timeout]);
-    if (timedOut) log.warn('login check timed out: PID=%d', pid);
-    return result;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const timeout = new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+            timedOut = true;
+            resolve(null);
+        }, OVERALL_PROBE_TIMEOUT_MS);
+    });
+
+    try {
+        const result = await Promise.race([probeQqLoginInfoInternal(pid), timeout]);
+
+        if (timedOut) {
+            log.warn('login check timed out: PID=%d', pid);
+        }
+
+        return result;
+    } finally {
+        if (timer) {
+            clearTimeout(timer);
+        }
+    }
 }

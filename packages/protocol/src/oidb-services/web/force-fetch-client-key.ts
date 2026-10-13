@@ -11,33 +11,33 @@ import type { OidbClientKeyReq, OidbClientKeyResp } from '@snowluma/proto-defs/o
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export interface ClientKeyInfo {
-  clientKey: string;
-  keyIndex: string;
-  expireTime: string;
+    clientKey: string;
+    keyIndex: string;
+    expireTime: string;
 }
 
 export namespace ForceFetchClientKey {
-  export const command = 0x102A;
-  export const subCommand = 1;
+    export const command = 0x102a;
+    export const subCommand = 1;
 
-  export interface Params {}
+    export interface Params {}
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, _: Params): OidbClientKeyReq => ({});
+    export const serialize = (_ctx: Deps, _: Params): OidbClientKeyReq => ({});
 
-  export const deserialize = (_ctx: Deps, body: OidbClientKeyResp): ClientKeyInfo => ({
-    clientKey: body.clientKey || '',
-    keyIndex: String(body.keyIndex || '19'),
-    expireTime: String(body.expireTime || '1800'),
-  });
+    export const deserialize = (_ctx: Deps, body: OidbClientKeyResp): ClientKeyInfo => ({
+        clientKey: body.clientKey || '',
+        keyIndex: String(body.keyIndex || '19'),
+        expireTime: String(body.expireTime || '1800'),
+    });
 
-  export const encode = (env: OidbBase<OidbClientKeyReq>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbClientKeyReq>>(env);
+    export const encode = (env: OidbBase<OidbClientKeyReq>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbClientKeyReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbClientKeyResp> =>
-    protobuf_decode<OidbBase<OidbClientKeyResp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbClientKeyResp> =>
+        protobuf_decode<OidbBase<OidbClientKeyResp>>(bytes);
 
-  export const invoke = (deps: Deps): Promise<ClientKeyInfo> =>
-    invokeOidb(deps, ForceFetchClientKey, {});
+    export const invoke = (deps: Deps): Promise<ClientKeyInfo> =>
+        invokeOidb(deps, ForceFetchClientKey, {});
 }

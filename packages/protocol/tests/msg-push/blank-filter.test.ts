@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 import {
-  classifyMessageSurvival,
-  isBlankMessage,
-  isC2cControlPush,
+    classifyMessageSurvival,
+    isBlankMessage,
+    isC2cControlPush,
 } from '../../src/msg-push/blank-filter';
 
 const privateHead = { msgType: 166, c2cCmd: 0 };
@@ -12,56 +12,78 @@ const controlHead = { msgType: 166, c2cCmd: 75 };
 const groupHead = { msgType: 82, c2cCmd: 0 };
 
 describe('classifyMessageSurvival', () => {
-  it('drops C2C control even when elements decoded', () => {
-    expect(isC2cControlPush(controlHead)).toBe(true);
-    expect(classifyMessageSurvival(controlHead, [{ type: 'text' }], {
-      richText: { elems: [{ text: { str: 'noise' } }] },
-    })).toBe('drop-control');
-  });
+    it('drops C2C control even when elements decoded', () => {
+        expect(isC2cControlPush(controlHead)).toBe(true);
+        expect(
+            classifyMessageSurvival(controlHead, [{ type: 'text' }], {
+                richText: { elems: [{ text: { str: 'noise' } }] },
+            }),
+        ).toBe('drop-control');
+    });
 
-  it('drops a genuinely empty non-control body', () => {
-    expect(isBlankMessage([], { richText: { elems: [] } })).toBe(true);
-    expect(classifyMessageSurvival(privateHead, [], { richText: { elems: [] } })).toBe('drop-blank');
-    expect(classifyMessageSurvival(groupHead, [], { richText: { elems: [] } })).toBe('drop-blank');
-  });
+    it('drops a genuinely empty non-control body', () => {
+        expect(isBlankMessage([], { richText: { elems: [] } })).toBe(true);
+        expect(classifyMessageSurvival(privateHead, [], { richText: { elems: [] } })).toBe(
+            'drop-blank',
+        );
+        expect(classifyMessageSurvival(groupHead, [], { richText: { elems: [] } })).toBe(
+            'drop-blank',
+        );
+    });
 
-  it('keeps an empty decode when the body still carried content', () => {
-    const body = { richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] } };
-    expect(isBlankMessage([], body)).toBe(false);
-    expect(classifyMessageSurvival(privateHead, [], body)).toBe('keep-undecoded');
-  });
+    it('keeps an empty decode when the body still carried content', () => {
+        const body = {
+            richText: { elems: [{ commonElem: { serviceType: 999, businessType: 0 } }] },
+        };
+        expect(isBlankMessage([], body)).toBe(false);
+        expect(classifyMessageSurvival(privateHead, [], body)).toBe('keep-undecoded');
+    });
 
-  it('keeps a message that decoded to elements', () => {
-    expect(classifyMessageSurvival(privateHead, [{ type: 'text' }], {
-      richText: { elems: [{ text: { str: 'hi' } }] },
-    })).toBe('keep');
-  });
+    it('keeps a message that decoded to elements', () => {
+        expect(
+            classifyMessageSurvival(privateHead, [{ type: 'text' }], {
+                richText: { elems: [{ text: { str: 'hi' } }] },
+            }),
+        ).toBe('keep');
+    });
 
-  it('drops an offline-file download receipt even if a file element decoded (#442)', () => {
-    const body = {
-      msgContent: protobuf_encode<FileExtra>({
-        file: {
-          fileUuid: 'fid-sent-by-bot',
-          fileName: 'doc.bin',
-          fileSize: 6119608n,
-          subcmd: 1,
-          downloadFlag: 2,
-        },
-      }),
-    };
-    expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
-  });
+    it('drops an offline-file download receipt even if a file element decoded (#442)', () => {
+        const body = {
+            msgContent: protobuf_encode<FileExtra>({
+                file: {
+                    fileUuid: 'fid-sent-by-bot',
+                    fileName: 'doc.bin',
+                    fileSize: 6119608n,
+                    subcmd: 1,
+                    downloadFlag: 2,
+                },
+            }),
+        };
+        expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
+    });
 
-  it('classifies subcommand receipts consistently for history and push consumers (#477)', () => {
-    const file = { fileType: 1, subcmd: 2, fileUuid: 'already-sent', fileName: 'test.json', fileSize: 42n };
-    for (const body of [
-      { msgContent: protobuf_encode<FileExtra>({ file }) },
-      { richText: { notOnlineFile: file } },
-    ]) {
-      expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe('drop-receipt');
-    }
-    expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], {
-      richText: { notOnlineFile: { ...file, fileType: 3 } },
-    })).toBe('keep');
-  });
+    it('classifies subcommand receipts consistently for history and push consumers (#477)', () => {
+        const file = {
+            fileType: 1,
+            subcmd: 2,
+            fileUuid: 'already-sent',
+            fileName: 'test.json',
+            fileSize: 42n,
+        };
+
+        for (const body of [
+            { msgContent: protobuf_encode<FileExtra>({ file }) },
+            { richText: { notOnlineFile: file } },
+        ]) {
+            expect(classifyMessageSurvival(privateHead, [{ type: 'file' }], body)).toBe(
+                'drop-receipt',
+            );
+        }
+
+        expect(
+            classifyMessageSurvival(privateHead, [{ type: 'file' }], {
+                richText: { notOnlineFile: { ...file, fileType: 3 } },
+            }),
+        ).toBe('keep');
+    });
 });

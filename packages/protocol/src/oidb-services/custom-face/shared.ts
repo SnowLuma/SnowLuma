@@ -23,7 +23,11 @@ const LIST_QQ_VERSION = '9.9.28-46928';
  * 这不是随手写的，是 wire dump 里两者 inner 长度差 14 字节的直接来源。
  */
 export function makeInner(withQqVersion: boolean): FaceroamOpReqInner {
-  const inner: FaceroamOpReqInner = { field1: 1, osVersion: CLIENT_VERSION };
-  if (withQqVersion) inner.qqVersion = LIST_QQ_VERSION;
-  return inner;
+    const inner: FaceroamOpReqInner = { field1: 1, osVersion: CLIENT_VERSION };
+
+    if (withQqVersion) {
+        inner.qqVersion = LIST_QQ_VERSION;
+    }
+
+    return inner;
 }

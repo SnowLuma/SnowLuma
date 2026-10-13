@@ -10,18 +10,23 @@ type Timed = { time: number };
 
 /** notice envelope — `{ time, self_id, post_type: 'notice', ...fields }`. */
 export function notice(ctx: ConverterContext, event: Timed, fields: JsonObject): JsonObject {
-  return { time: event.time, self_id: ctx.selfId, post_type: 'notice', ...fields };
+    return { time: event.time, self_id: ctx.selfId, post_type: 'notice', ...fields };
 }
 
 /** request envelope — `{ time, self_id, post_type: 'request', ...fields }`. */
 export function request(ctx: ConverterContext, event: Timed, fields: JsonObject): JsonObject {
-  return { time: event.time, self_id: ctx.selfId, post_type: 'request', ...fields };
+    return { time: event.time, self_id: ctx.selfId, post_type: 'request', ...fields };
 }
 
 /**
  * message envelope — `{ time, self_id, post_type, ...fields }`. `postType` is
  * 'message' or 'message_sent' (self-echo), decided per-message by the caller.
  */
-export function message(ctx: ConverterContext, event: Timed, postType: string, fields: JsonObject): JsonObject {
-  return { time: event.time, self_id: ctx.selfId, post_type: postType, ...fields };
+export function message(
+    ctx: ConverterContext,
+    event: Timed,
+    postType: string,
+    fields: JsonObject,
+): JsonObject {
+    return { time: event.time, self_id: ctx.selfId, post_type: postType, ...fields };
 }

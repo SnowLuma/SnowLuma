@@ -23,34 +23,38 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SendLike {
-  export const command = 0x7E5;
-  export const subCommand = 104;
+    export const command = 0x7e5;
+    export const subCommand = 104;
 
-  export interface Params {
-    userId: number;
-    count: number;
-  }
+    export interface Params {
+        userId: number;
+        count: number;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = async (ctx: Deps, p: Params): Promise<OidbLike> => {
-    const targetUid = await ctx.resolveUserUid(p.userId);
-    if (!targetUid) throw new Error(`failed to resolve uid for ${p.userId}`);
-    return {
-      targetUid,
-      sourceId: 71,
-      count: p.count,
+    export const serialize = async (ctx: Deps, p: Params): Promise<OidbLike> => {
+        const targetUid = await ctx.resolveUserUid(p.userId);
+
+        if (!targetUid) {
+            throw new Error(`failed to resolve uid for ${p.userId}`);
+        }
+
+        return {
+            targetUid,
+            sourceId: 71,
+            count: p.count,
+        };
     };
-  };
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbLike>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbLike>>(env);
+    export const encode = (env: OidbBase<OidbLike>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbLike>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SendLike, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SendLike, params);
 }

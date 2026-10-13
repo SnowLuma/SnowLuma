@@ -11,6 +11,9 @@ trim_trailing_whitespace = true
 [*.{json,yml,yaml,md}]
 indent_size = 2
 
+[*.{ts,tsx,mts,cts}]
+indent_size = 4
+
 [*.py]
 indent_size = 4
 

@@ -2,28 +2,32 @@ import type { JsonObject, JsonValue } from '@snowluma/common/json';
 import { packetTimeoutMs } from '@snowluma/bridge/packet-timeout';
 import { createLogger } from '@snowluma/common/logger';
 import type {
-  AlbumCreator,
-  CommentReqBodyHeader,
-  CommentReqPhotoInfo,
-  CommentRespData,
-  DeleteMediasRequest,
-  DeleteMediasResponse,
-  DoQunCommentRequest,
-  DoQunCommentResponse,
-  DoQunLikeRequest,
-  DoQunLikeResponse,
-  GetAlbumListRequest,
-  GetAlbumListResponse,
-  GetQunFeedDetailRequest,
-  GetQunFeedDetailResponse,
-  GroupAlbumInfo as GroupAlbumInfoWire,
-  QunFeedCellCommon,
-  GetMediaListRequest,
-  GetMediaListResponse,
-  MediaInfo,
-  UrlInfo,
+    AlbumCreator,
+    CommentReqBodyHeader,
+    CommentReqBodyUserWrap,
+    CommentReqPhotoInfo,
+    CommentRespData,
+    DeleteMediasRequest,
+    DeleteMediasResponse,
+    DoQunCommentRequest,
+    DoQunCommentResponse,
+    DoQunLikeRequest,
+    DoQunLikeResponse,
+    GetAlbumListRequest,
+    GetAlbumListResponse,
+    GetQunFeedDetailRequest,
+    GetQunFeedDetailResponse,
+    GroupAlbumInfo as GroupAlbumInfoWire,
+    QunFeedCellCommon,
+    GetMediaListRequest,
+    GetMediaListResponse,
+    MediaInfo,
+    UrlInfo,
 } from '@snowluma/proto-defs/oidb-actions/group-album';
-import { uploadImageToGroupAlbum, uploadVideoToGroupAlbum } from '@snowluma/protocol/web/group-album';
+import {
+    uploadImageToGroupAlbum,
+    uploadVideoToGroupAlbum,
+} from '@snowluma/protocol/web/group-album';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { BridgeContext } from '../bridge-context';
 
@@ -36,819 +40,1085 @@ const GET_QUN_FEED_DETAIL_CMD = 'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReade
 const GET_QUN_FEED_DETAIL_COMMENT_COUNT = 20;
 
 function uint64ToString(value: bigint | undefined): string {
-  return (value ?? 0n).toString();
+    return (value ?? 0n).toString();
 }
 
 function uint64ToSafeNumber(value: bigint | undefined, fieldName: string): number {
-  const normalized = value ?? 0n;
-  if (normalized > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`group album ${fieldName} exceeds Number.MAX_SAFE_INTEGER: ${normalized}`);
-  }
-  return Number(normalized);
+    const normalized = value ?? 0n;
+
+    if (normalized > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error(`group album ${fieldName} exceeds Number.MAX_SAFE_INTEGER: ${normalized}`);
+    }
+
+    return Number(normalized);
 }
 
 function normalizeAlbumCreator(creator: AlbumCreator | undefined): QunAlbumCreator | undefined {
-  if (!creator) return undefined;
-  return {
-    uid: creator.uid ?? '',
-    nick: creator.nick ?? '',
-    is_sweet: creator.isSweet ?? false,
-    is_special: creator.isSpecial ?? false,
-    is_super_like: creator.isSuperLike ?? false,
-    custom_id: creator.customId ?? '',
-    poly_id: creator.polyId ?? '',
-    portrait: creator.portrait ?? '',
-    can_follow: creator.canFollow ?? 0,
-    isfollowed: creator.isFollowed ?? 0,
-    uin: creator.uin ?? '',
-    ditto_uin: creator.dittoUin ?? '',
-  };
+    if (!creator) {
+        return undefined;
+    }
+
+    return {
+        uid: creator.uid ?? '',
+        nick: creator.nick ?? '',
+        is_sweet: creator.isSweet ?? false,
+        is_special: creator.isSpecial ?? false,
+        is_super_like: creator.isSuperLike ?? false,
+        custom_id: creator.customId ?? '',
+        poly_id: creator.polyId ?? '',
+        portrait: creator.portrait ?? '',
+        can_follow: creator.canFollow ?? 0,
+        isfollowed: creator.isFollowed ?? 0,
+        uin: creator.uin ?? '',
+        ditto_uin: creator.dittoUin ?? '',
+    };
 }
 
 function normalizeCoverUrl(url: UrlInfo | null | undefined): QunAlbumCoverUrl | null {
-  if (!url) return null;
-  return {
-    url: url.url ?? '',
-    width: url.width ?? 0,
-    height: url.height ?? 0,
-  };
+    if (!url) {
+        return null;
+    }
+
+    return {
+        url: url.url ?? '',
+        width: url.width ?? 0,
+        height: url.height ?? 0,
+    };
 }
 
 function normalizeAlbumCover(cover: MediaInfo | undefined): QunAlbumCover | null {
-  if (!cover) return null;
-  const image = cover.image;
-  return {
-    type: cover.type ?? 0,
-    image: image ? {
-      name: image.name ?? '',
-      sloc: image.sloc ?? '',
-      lloc: image.lloc ?? '',
-      photoUrls: (image.photoUrls ?? []).map((photoUrl) => ({
-        spec: photoUrl.spec ?? 0,
-        url: normalizeCoverUrl(photoUrl.url),
-      })),
-      defaultUrl: normalizeCoverUrl(image.defaultUrl),
-      isGif: image.isGif ?? false,
-      hasRaw: image.hasRaw ?? false,
-    } : null,
-  };
+    if (!cover) {
+        return null;
+    }
+
+    const image = cover.image;
+    return {
+        type: cover.type ?? 0,
+        image: image
+            ? {
+                  name: image.name ?? '',
+                  sloc: image.sloc ?? '',
+                  lloc: image.lloc ?? '',
+                  photoUrls: (image.photoUrls ?? []).map((photoUrl) => ({
+                      spec: photoUrl.spec ?? 0,
+                      url: normalizeCoverUrl(photoUrl.url),
+                  })),
+                  defaultUrl: normalizeCoverUrl(image.defaultUrl),
+                  isGif: image.isGif ?? false,
+                  hasRaw: image.hasRaw ?? false,
+              }
+            : null,
+    };
 }
 
 function normalizeQunAlbum(album: GroupAlbumInfoWire): QunAlbumInfo {
-  const normalized: QunAlbumInfo = {
-    album_id: album.albumId ?? '',
-    owner: album.owner ?? '',
-    name: album.name ?? '',
-    desc: album.description ?? '',
-    create_time: uint64ToString(album.createTime),
-    modify_time: uint64ToString(album.modifyTime),
-    last_upload_time: uint64ToString(album.lastUploadTime),
-    upload_number: uint64ToString(album.uploadNumber),
-    cover: normalizeAlbumCover(album.cover),
-    top_flag: uint64ToString(album.topFlag),
-    busi_type: album.busiType ?? 0,
-    status: album.status ?? 0,
-    allow_share: album.allowShare ?? false,
-    is_subscribe: album.isSubscribe ?? false,
-    bitmap: album.bitmap ?? '',
-    is_share_album: album.isShareAlbum ?? false,
-    qz_album_type: album.qzAlbumType ?? 0,
-    cover_type: album.coverType ?? 0,
-    default_desc: album.defaultDesc ?? '',
-    sort_type: album.sortType ?? 0,
-  };
-  const creator = normalizeAlbumCreator(album.creator);
-  if (creator) normalized.creator = creator;
-  return normalized;
+    const normalized: QunAlbumInfo = {
+        album_id: album.albumId ?? '',
+        owner: album.owner ?? '',
+        name: album.name ?? '',
+        desc: album.description ?? '',
+        create_time: uint64ToString(album.createTime),
+        modify_time: uint64ToString(album.modifyTime),
+        last_upload_time: uint64ToString(album.lastUploadTime),
+        upload_number: uint64ToString(album.uploadNumber),
+        cover: normalizeAlbumCover(album.cover),
+        top_flag: uint64ToString(album.topFlag),
+        busi_type: album.busiType ?? 0,
+        status: album.status ?? 0,
+        allow_share: album.allowShare ?? false,
+        is_subscribe: album.isSubscribe ?? false,
+        bitmap: album.bitmap ?? '',
+        is_share_album: album.isShareAlbum ?? false,
+        qz_album_type: album.qzAlbumType ?? 0,
+        cover_type: album.coverType ?? 0,
+        default_desc: album.defaultDesc ?? '',
+        sort_type: album.sortType ?? 0,
+    };
+    const creator = normalizeAlbumCreator(album.creator);
+
+    if (creator) {
+        normalized.creator = creator;
+    }
+
+    return normalized;
 }
 
 function toLegacyAlbum(album: GroupAlbumInfoWire): GroupAlbumInfo {
-  const creator = normalizeAlbumCreator(album.creator);
-  return {
-    id: album.albumId ?? '',
-    name: album.name ?? '',
-    picNum: uint64ToSafeNumber(album.uploadNumber, 'upload_number'),
-    createTime: uint64ToSafeNumber(album.createTime, 'create_time'),
-    desc: album.description ?? '',
-    owner: album.owner ?? '',
-    createuin: creator?.uin || album.owner || creator?.uid || '',
-    // QQ NT's AlbumService returns this as a normal UTF-8 protobuf string.
-    // Unlike the legacy Qzone HTTP endpoint, it does not rewrite Unicode
-    // emoji into ambiguous [em]...[/em] tags.
-    createnickname: creator?.nick ?? '',
-    last_upload_time: uint64ToSafeNumber(album.lastUploadTime, 'last_upload_time'),
-    cover: normalizeAlbumCover(album.cover),
-  };
+    const creator = normalizeAlbumCreator(album.creator);
+    return {
+        id: album.albumId ?? '',
+        name: album.name ?? '',
+        picNum: uint64ToSafeNumber(album.uploadNumber, 'upload_number'),
+        createTime: uint64ToSafeNumber(album.createTime, 'create_time'),
+        desc: album.description ?? '',
+        owner: album.owner ?? '',
+        createuin: creator?.uin || album.owner || creator?.uid || '',
+        // QQ NT's AlbumService returns this as a normal UTF-8 protobuf string.
+        // Unlike the legacy Qzone HTTP endpoint, it does not rewrite Unicode
+        // emoji into ambiguous [em]...[/em] tags.
+        createnickname: creator?.nick ?? '',
+        last_upload_time: uint64ToSafeNumber(album.lastUploadTime, 'last_upload_time'),
+        cover: normalizeAlbumCover(album.cover),
+    };
 }
 
 function convertBigIntToString(obj: unknown): JsonValue {
-  if (obj === null || obj === undefined) return null;
-  if (typeof obj === 'bigint') return obj.toString();
-  if (Array.isArray(obj)) return obj.map(convertBigIntToString);
-  if (typeof obj === 'object') {
-    const result: JsonObject = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = convertBigIntToString(value);
+    if (obj === null || obj === undefined) {
+        return null;
     }
-    return result;
-  }
-  if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return obj;
-  return null;
+
+    if (typeof obj === 'bigint') {
+        return obj.toString();
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(convertBigIntToString);
+    }
+
+    if (typeof obj === 'object') {
+        const result: JsonObject = {};
+
+        for (const [key, value] of Object.entries(obj)) {
+            result[key] = convertBigIntToString(value);
+        }
+
+        return result;
+    }
+
+    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+        return obj;
+    }
+
+    return null;
 }
 
 export class GroupAlbumApi {
-  constructor(private readonly ctx: BridgeContext) { }
+    constructor(private readonly ctx: BridgeContext) {}
 
-  private async fetchAlbumList(groupId: number, attachInfo: string): Promise<GroupAlbumWireResult> {
-    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-    const body = protobuf_encode<GetAlbumListRequest>({
-      seq: GET_ALBUM_LIST_SEQ,
-      field2: new Uint8Array(0),
-      field3: new Uint8Array(0),
-      data: {
-        groupId: groupId.toString(),
-        attachInfo,
-      },
-      traceId,
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
+    private async fetchAlbumList(
+        groupId: number,
+        attachInfo: string,
+    ): Promise<GroupAlbumWireResult> {
+        const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const body = protobuf_encode<GetAlbumListRequest>({
+            seq: GET_ALBUM_LIST_SEQ,
+            field2: new Uint8Array(0),
+            field3: new Uint8Array(0),
+            data: {
+                groupId: groupId.toString(),
+                attachInfo,
+            },
+            traceId,
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
 
-    log.debug(
-      'get album list request: group=%d cursorChars=%d requestBytes=%d',
-      groupId,
-      attachInfo.length,
-      body.length,
-    );
-
-    const result = await this.ctx.sendRawPacket(GET_ALBUM_LIST_CMD, body, packetTimeoutMs());
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(
-        `get group album list transport failed: ${result.errorMessage || `code ${result.errorCode}`}`,
-      );
-    }
-
-    const response = protobuf_decode<GetAlbumListResponse>(result.responseData);
-    const resultCode = response.result ?? 0;
-    if (resultCode !== 0) {
-      throw new Error(
-        `get group album list failed: result=${resultCode}, error=${response.errorText || 'unknown'}`,
-      );
-    }
-
-    const normalized: GroupAlbumWireResult = {
-      albumList: response.data?.albumList ?? [],
-      attachInfo: response.data?.attachInfo ?? '',
-      hasMore: response.data?.hasMore ?? false,
-    };
-
-    log.debug(
-      'get album list response: group=%d albums=%d hasMore=%s cursorChars=%d responseBytes=%d',
-      groupId,
-      normalized.albumList.length,
-      String(normalized.hasMore),
-      normalized.attachInfo.length,
-      result.responseData.length,
-    );
-    return normalized;
-  }
-
-  /** QQ NT AlbumService-backed list, including its pagination cursor. */
-  async listQun(groupId: number, attachInfo = ''): Promise<QunAlbumListResult> {
-    const result = await this.fetchAlbumList(groupId, attachInfo);
-    return {
-      albumList: result.albumList.map(normalizeQunAlbum),
-      attachInfo: result.attachInfo,
-      hasMore: result.hasMore,
-    };
-  }
-
-  // OneBot compatibility shape used by get_group_album_list.
-  async list(groupId: number): Promise<GroupAlbumList> {
-    const albumList: GroupAlbumList = [];
-    const seenCursors = new Set<string>();
-    let attachInfo = '';
-    let page = 0;
-
-    while (true) {
-      const result = await this.fetchAlbumList(groupId, attachInfo);
-      page += 1;
-      albumList.push(...result.albumList.map(toLegacyAlbum));
-
-      if (!result.hasMore) {
         log.debug(
-          'get complete album list: group=%d pages=%d albums=%d',
-          groupId,
-          page,
-          albumList.length,
+            'get album list request: group=%d cursorChars=%d requestBytes=%d',
+            groupId,
+            attachInfo.length,
+            body.length,
         );
-        return albumList;
-      }
 
-      const nextAttachInfo = result.attachInfo;
-      if (!nextAttachInfo) {
-        throw new Error(
-          `get group album list pagination failed: group=${groupId} page=${page} `
-          + 'hasMore=true but cursor is empty',
-        );
-      }
-      if (seenCursors.has(nextAttachInfo)) {
-        throw new Error(
-          `get group album list pagination failed: group=${groupId} repeated cursor at page ${page}`,
-        );
-      }
+        const result = await this.ctx.sendRawPacket(GET_ALBUM_LIST_CMD, body, packetTimeoutMs());
 
-      seenCursors.add(nextAttachInfo);
-      attachInfo = nextAttachInfo;
-    }
-  }
-
-  // 上传图片到现有相册（HTTP 分片上传）。
-  async upload(groupId: number, albumId: string, albumName: string, filePath: string): Promise<void> {
-    const groupCode = groupId.toString();
-    const uin = this.ctx.identity.uin;
-    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    await uploadImageToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
-  }
-
-  async uploadVideo(groupId: number, albumId: string, albumName: string, filePath: string): Promise<{ id: string }> {
-    const groupCode = groupId.toString();
-    const uin = this.ctx.identity.uin;
-    const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-    return uploadVideoToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
-  }
-
-  async getMediaList(groupId: number, albumId: string, attachInfo = ''): Promise<GroupAlbumMediaResult> {
-    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-
-    const body = protobuf_encode<GetMediaListRequest>({
-      field1: 0,
-      field2: new Uint8Array(0),
-      field3: new Uint8Array(0),
-      reqInfo: {
-        groupId: groupId.toString(),
-        albumId,
-        field3: 0,
-        field4: '',
-        pageInfo: attachInfo,
-      },
-      traceId,
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
-
-    const result = await this.ctx.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
-      body,
-      packetTimeoutMs(),
-    );
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'failed to get album media list');
-    }
-
-    const resp = protobuf_decode<GetMediaListResponse>(result.responseData);
-
-    const retCode = resp.field1 ?? 0;
-    if (retCode !== 0) {
-      throw new Error(`fetch album media list error: retCode ${retCode}`);
-    }
-
-    const data = resp.data ?? {};
-    const mediaList = data.mediaList ?? [];
-    const nextAttachInfo = data.nextAttachInfo ?? '';
-
-    return convertBigIntToString({ mediaList, nextAttachInfo }) as unknown as GroupAlbumMediaResult;
-  }
-
-  async comment(groupId: number, albumId: string, lloc: string, content: string): Promise<GroupAlbumCommentResult> {
-    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-    const clientKey = Date.now().toString();
-    const uin = this.ctx.identity.uin;
-    const resolved = await this.resolveCommentMedia(groupId, albumId, lloc);
-    const batchId = optionalBatchId(resolved?.batchId);
-    if (batchId === undefined) {
-      throw new Error('comment album media error: media not found');
-    }
-    const mediaLloc = commentMediaLloc(resolved, lloc);
-    const feed = await this.getQunFeedDetail(groupId, albumId, batchId, mediaLloc);
-    const ownerUin = feed.ownerUin || resolved?.uploader || '';
-    const photoInfo = commentPhotoInfo(
-      feed.media,
-      mediaInfoForComment(resolved, mediaLloc),
-      albumId,
-      batchId,
-    );
-
-    const body = protobuf_encode<DoQunCommentRequest>({
-      field1: DO_QUN_COMMENT_SEQ,
-      field2: new Uint8Array(0),
-      field3: new Uint8Array(0),
-      body: {
-        groupId: groupId.toString(),
-        field3: 2,
-        reqBody: {
-          field1: commentReqHeader(feed.cellCommon),
-          ...(ownerUin ? { field2: { field1: { uin: ownerUin } } } : {}),
-          field5: photoInfo,
-        },
-        field5: {
-          user: { uin },
-          contents: [{ type: 0, content }],
-          clientKey,
-        },
-      },
-      traceId,
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
-
-    const result = await this.ctx.sendRawPacket(DO_QUN_COMMENT_CMD, body, packetTimeoutMs());
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'failed to comment on album media');
-    }
-
-    const resp = protobuf_decode<DoQunCommentResponse>(result.responseData);
-    const resultCode = resp.result ?? 0;
-    if (resultCode !== 0) {
-      throw new Error(
-        `comment album media error: retCode ${resultCode}`
-        + (resp.errorText ? `, ${resp.errorText}` : ''),
-      );
-    }
-
-    const commentData = commentFromResponse(resp);
-    if (!commentData.id) {
-      throw new Error('comment album media error: empty comment');
-    }
-
-    return convertBigIntToString({
-      id: commentData.id,
-      user: { uin: commentData.user?.uin || uin },
-      content: (commentData.content ?? [{ type: 0, content }]).map((item) => ({
-        type: item.type ?? 0,
-        content: item.content ?? '',
-      })),
-      time: commentData.time ?? '0',
-      clientKey: commentData.clientKey || clientKey,
-    }) as unknown as GroupAlbumCommentResult;
-  }
-
-  async like(groupId: number, albumId: string, batchId: string, lloc: string | undefined, isLike: boolean): Promise<JsonValue> {
-    const uin = this.ctx.identity.uin;
-    const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-
-    const type = isLike ? 2 : 1;
-    const status = isLike ? 0 : 1;
-
-    const id = qunFeedCellId(groupId, albumId, batchId, lloc);
-
-    const body = protobuf_encode<DoQunLikeRequest>({
-      field1: 5495,
-      field2: 'h5_test',
-      field3: 'h5_test',
-      body: {
-        type,
-        like: { id, status },
-        publish: {
-          cellCommon: {
-            time: BigInt(Date.now()),
-            feedId: `422_0_${batchId}`,
-          },
-          cellUserInfo: {
-            user: { uin },
-          },
-          cellMedia: {
-            albumId,
-            batchId: BigInt(batchId),
-          },
-          cellQunInfo: {
-            qunId: groupId.toString(),
-          },
-        },
-        clientKey,
-      },
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
-
-    const result = await this.ctx.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
-      body,
-      packetTimeoutMs(),
-    );
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'failed to like album media');
-    }
-
-    const resp = protobuf_decode<DoQunLikeResponse>(result.responseData);
-    const resCode = resp.field1;
-
-    if (resCode !== 5495) {
-      throw new Error(`like album media error: retCode ${resCode ?? 'unknown'}`);
-    }
-
-    return convertBigIntToString(resp.body?.like ?? {});
-  }
-
-  async delete(groupId: number, albumId: string, lloc: string): Promise<{ success: true }> {
-    const target = await this.resolveDeleteTarget(groupId, albumId, lloc);
-    const uin = this.ctx.identity.uin;
-    const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-
-    const body = protobuf_encode<DeleteMediasRequest>({
-      field1: 8694,
-      field2: 'h5_test',
-      field3: 'h5_test',
-      body: {
-        groupId: groupId.toString(),
-        albumId,
-        mediaIds: [target.mediaId],
-        ...(target.batchId ? { batchIds: [target.batchId] } : {}),
-      },
-      traceId: clientKey,
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
-
-    const result = await this.ctx.sendRawPacket(
-      'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
-      body,
-      packetTimeoutMs(),
-    );
-
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'failed to delete album media');
-    }
-
-    const resp = protobuf_decode<DeleteMediasResponse>(result.responseData);
-    const resCode = resp.field1;
-    const errCode = resp.field2;
-    const errMsg = resp.field3;
-
-    if (resCode !== 8694 || errCode) {
-      throw new Error(`delete album media error [${errCode ?? 'unknown'}]: ${errMsg ?? 'unknown'}`);
-    }
-
-    return { success: true };
-  }
-
-  /**
-   * Official delete uses a photo lloc, or a video's cover lloc plus batch id.
-   * Callers may pass either an image lloc or a video id; resolve the latter.
-   */
-  private async resolveDeleteTarget(
-    groupId: number,
-    albumId: string,
-    mediaKey: string,
-  ): Promise<{ mediaId: string; batchId?: string }> {
-    try {
-      const seenCursors = new Set<string>();
-      let attachInfo = '';
-      while (true) {
-        const page = await this.getMediaList(groupId, albumId, attachInfo);
-        const hit = findDeleteTarget(page.mediaList, mediaKey);
-        if (hit) return hit;
-
-        const next = page.nextAttachInfo ?? '';
-        if (!next || seenCursors.has(next)) {
-          return { mediaId: mediaKey };
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(
+                `get group album list transport failed: ${result.errorMessage || `code ${result.errorCode}`}`,
+            );
         }
-        seenCursors.add(next);
-        attachInfo = next;
-      }
-    } catch (err) {
-      log.debug(
-        'resolve album delete target failed, using raw id: group=%d album=%s err=%s',
-        groupId,
-        albumId,
-        err instanceof Error ? err.message : String(err),
-      );
-      return { mediaId: mediaKey };
-    }
-  }
 
-  /**
-   * Page the album when the caller only has a lloc / video id, so the
-   * comment can carry the official batch id and media kind.
-   */
-  private async resolveCommentMedia(
-    groupId: number,
-    albumId: string,
-    mediaKey: string,
-  ): Promise<AlbumCommentMediaItem | undefined> {
-    const seenCursors = new Set<string>();
-    let attachInfo = '';
-    while (true) {
-      const page = await this.getMediaList(groupId, albumId, attachInfo);
-      const hit = findCommentMedia(page.mediaList, mediaKey);
-      if (hit) return hit;
+        const response = protobuf_decode<GetAlbumListResponse>(result.responseData);
+        const resultCode = response.result ?? 0;
 
-      const next = page.nextAttachInfo ?? '';
-      if (!next || seenCursors.has(next)) return undefined;
-      seenCursors.add(next);
-      attachInfo = next;
-    }
-  }
+        if (resultCode !== 0) {
+            throw new Error(
+                `get group album list failed: result=${resultCode}, error=${response.errorText || 'unknown'}`,
+            );
+        }
 
-  private async getQunFeedDetail(
-    groupId: number,
-    albumId: string,
-    batchId: bigint,
-    lloc: string,
-  ): Promise<{ cellCommon: QunFeedCellCommon; ownerUin: string; media?: CommentReqPhotoInfo }> {
-    const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-    const body = protobuf_encode<GetQunFeedDetailRequest>({
-      seq: 0,
-      field2: new Uint8Array(0),
-      field3: new Uint8Array(0),
-      data: {
-        groupId: groupId.toString(),
-        feedId: '',
-        commentCount: GET_QUN_FEED_DETAIL_COMMENT_COUNT,
-        attachInfo: '',
-        albumId,
-        batchId: batchId.toString(),
-        lloc,
-      },
-      traceId,
-      extMap: [{ key: 'fc-appid', value: '100' }],
-    });
+        const normalized: GroupAlbumWireResult = {
+            albumList: response.data?.albumList ?? [],
+            attachInfo: response.data?.attachInfo ?? '',
+            hasMore: response.data?.hasMore ?? false,
+        };
 
-    const result = await this.ctx.sendRawPacket(GET_QUN_FEED_DETAIL_CMD, body, packetTimeoutMs());
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'failed to fetch album feed');
+        log.debug(
+            'get album list response: group=%d albums=%d hasMore=%s cursorChars=%d responseBytes=%d',
+            groupId,
+            normalized.albumList.length,
+            String(normalized.hasMore),
+            normalized.attachInfo.length,
+            result.responseData.length,
+        );
+        return normalized;
     }
 
-    const resp = protobuf_decode<GetQunFeedDetailResponse>(result.responseData);
-    const resultCode = resp.result ?? 0;
-    if (resultCode !== 0) {
-      throw new Error(
-        `fetch album feed error: retCode ${resultCode}`
-        + (resp.errorText ? `, ${resp.errorText}` : ''),
-      );
+    /** QQ NT AlbumService-backed list, including its pagination cursor. */
+    async listQun(groupId: number, attachInfo = ''): Promise<QunAlbumListResult> {
+        const result = await this.fetchAlbumList(groupId, attachInfo);
+        return {
+            albumList: result.albumList.map(normalizeQunAlbum),
+            attachInfo: result.attachInfo,
+            hasMore: result.hasMore,
+        };
     }
 
-    const feed = resp.data?.feed?.feed;
-    const cell = feed?.cellCommon;
-    const feedId = cell?.feedId ?? '';
-    if (!feedId) {
-      throw new Error('comment album media error: empty feed');
+    // OneBot compatibility shape used by get_group_album_list.
+    async list(groupId: number): Promise<GroupAlbumList> {
+        const albumList: GroupAlbumList = [];
+        const seenCursors = new Set<string>();
+        let attachInfo = '';
+        let page = 0;
+
+        while (true) {
+            const result = await this.fetchAlbumList(groupId, attachInfo);
+            page += 1;
+            albumList.push(...result.albumList.map(toLegacyAlbum));
+
+            if (!result.hasMore) {
+                log.debug(
+                    'get complete album list: group=%d pages=%d albums=%d',
+                    groupId,
+                    page,
+                    albumList.length,
+                );
+                return albumList;
+            }
+
+            const nextAttachInfo = result.attachInfo;
+
+            if (!nextAttachInfo) {
+                throw new Error(
+                    `get group album list pagination failed: group=${groupId} page=${page} ` +
+                        'hasMore=true but cursor is empty',
+                );
+            }
+
+            if (seenCursors.has(nextAttachInfo)) {
+                throw new Error(
+                    `get group album list pagination failed: group=${groupId} repeated cursor at page ${page}`,
+                );
+            }
+
+            seenCursors.add(nextAttachInfo);
+            attachInfo = nextAttachInfo;
+        }
     }
-    return {
-      cellCommon: cell ?? { feedId },
-      ownerUin: feed?.cellUserInfo?.user?.uin ?? '',
-      media: feed?.cellMedia,
-    };
-  }
+
+    // 上传图片到现有相册（HTTP 分片上传）。
+    async upload(
+        groupId: number,
+        albumId: string,
+        albumName: string,
+        filePath: string,
+    ): Promise<void> {
+        const groupCode = groupId.toString();
+        const uin = this.ctx.identity.uin;
+        const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        await uploadImageToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
+    }
+
+    async uploadVideo(
+        groupId: number,
+        albumId: string,
+        albumName: string,
+        filePath: string,
+    ): Promise<{ id: string }> {
+        const groupCode = groupId.toString();
+        const uin = this.ctx.identity.uin;
+        const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return uploadVideoToGroupAlbum(cookieObject, groupCode, albumId, albumName, filePath, uin);
+    }
+
+    async getMediaList(
+        groupId: number,
+        albumId: string,
+        attachInfo = '',
+    ): Promise<GroupAlbumMediaResult> {
+        const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+
+        const body = protobuf_encode<GetMediaListRequest>({
+            field1: 0,
+            field2: new Uint8Array(0),
+            field3: new Uint8Array(0),
+            reqInfo: {
+                groupId: groupId.toString(),
+                albumId,
+                field3: 0,
+                field4: '',
+                pageInfo: attachInfo,
+            },
+            traceId,
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
+
+        const result = await this.ctx.sendRawPacket(
+            'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
+            body,
+            packetTimeoutMs(),
+        );
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'failed to get album media list');
+        }
+
+        const resp = protobuf_decode<GetMediaListResponse>(result.responseData);
+
+        const retCode = resp.field1 ?? 0;
+
+        if (retCode !== 0) {
+            throw new Error(`fetch album media list error: retCode ${retCode}`);
+        }
+
+        const data = resp.data ?? {};
+        const mediaList = data.mediaList ?? [];
+        const nextAttachInfo = data.nextAttachInfo ?? '';
+
+        return convertBigIntToString({
+            mediaList,
+            nextAttachInfo,
+        }) as unknown as GroupAlbumMediaResult;
+    }
+
+    async comment(
+        groupId: number,
+        albumId: string,
+        lloc: string,
+        content: string,
+    ): Promise<GroupAlbumCommentResult> {
+        const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const clientKey = Date.now().toString();
+        const uin = this.ctx.identity.uin;
+        const resolved = await this.resolveCommentMedia(groupId, albumId, lloc);
+        const batchId = optionalBatchId(resolved?.batchId);
+
+        if (batchId === undefined) {
+            throw new Error('comment album media error: media not found');
+        }
+
+        const mediaLloc = commentMediaLloc(resolved, lloc);
+        const feed = await this.getQunFeedDetail(groupId, albumId, batchId, mediaLloc);
+        const ownerUin = feed.ownerUin || resolved?.uploader || '';
+        const photoInfo = commentPhotoInfo(
+            feed.media,
+            mediaInfoForComment(resolved, mediaLloc),
+            albumId,
+            batchId,
+        );
+        const headerBytes =
+            feed.rawCellCommon ??
+            protobuf_encode<CommentReqBodyHeader>(commentReqHeader(feed.cellCommon));
+        const userBytes =
+            feed.rawCellUser ??
+            (ownerUin
+                ? protobuf_encode<CommentReqBodyUserWrap>({ field1: { uin: ownerUin } })
+                : undefined);
+        const mediaBytes = feed.rawCellMedia ?? protobuf_encode<CommentReqPhotoInfo>(photoInfo);
+        const commenterUinNum = numericUin(uin);
+
+        const body = protobuf_encode<DoQunCommentRequest>({
+            field1: DO_QUN_COMMENT_SEQ,
+            field2: new Uint8Array(0),
+            field3: new Uint8Array(0),
+            body: {
+                groupId: groupId.toString(),
+                field3: 2,
+                reqBody: {
+                    field1: headerBytes,
+                    ...(userBytes ? { field2: userBytes } : {}),
+                    field5: mediaBytes,
+                },
+                field5: {
+                    user: {
+                        uin,
+                        ...(commenterUinNum !== undefined ? { uinNum: commenterUinNum } : {}),
+                    },
+                    contents: [{ type: 0, content }],
+                    clientKey,
+                },
+            },
+            traceId,
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
+
+        const result = await this.ctx.sendRawPacket(DO_QUN_COMMENT_CMD, body, packetTimeoutMs());
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'failed to comment on album media');
+        }
+
+        const resp = protobuf_decode<DoQunCommentResponse>(result.responseData);
+        const resultCode = resp.result ?? 0;
+
+        if (resultCode !== 0) {
+            throw new Error(
+                `comment album media error: retCode ${resultCode}` +
+                    (resp.errorText ? `, ${resp.errorText}` : ''),
+            );
+        }
+
+        const commentData = commentFromResponse(resp);
+
+        if (!commentData.id) {
+            throw new Error('comment album media error: empty comment');
+        }
+
+        return convertBigIntToString({
+            id: commentData.id,
+            user: { uin: commentData.user?.uin || uin },
+            content: (commentData.content ?? [{ type: 0, content }]).map((item) => ({
+                type: item.type ?? 0,
+                content: item.content ?? '',
+            })),
+            time: commentData.time ?? '0',
+            clientKey: commentData.clientKey || clientKey,
+        }) as unknown as GroupAlbumCommentResult;
+    }
+
+    async like(
+        groupId: number,
+        albumId: string,
+        batchId: string,
+        lloc: string | undefined,
+        isLike: boolean,
+    ): Promise<JsonValue> {
+        const uin = this.ctx.identity.uin;
+        const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+
+        const type = isLike ? 2 : 1;
+        const status = isLike ? 0 : 1;
+
+        const id = qunFeedCellId(groupId, albumId, batchId, lloc);
+
+        const body = protobuf_encode<DoQunLikeRequest>({
+            field1: 5495,
+            field2: 'h5_test',
+            field3: 'h5_test',
+            body: {
+                type,
+                like: { id, status },
+                publish: {
+                    cellCommon: {
+                        time: BigInt(Date.now()),
+                        feedId: `422_0_${batchId}`,
+                    },
+                    cellUserInfo: {
+                        user: { uin },
+                    },
+                    cellMedia: {
+                        albumId,
+                        batchId: BigInt(batchId),
+                    },
+                    cellQunInfo: {
+                        qunId: groupId.toString(),
+                    },
+                },
+                clientKey,
+            },
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
+
+        const result = await this.ctx.sendRawPacket(
+            'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
+            body,
+            packetTimeoutMs(),
+        );
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'failed to like album media');
+        }
+
+        const resp = protobuf_decode<DoQunLikeResponse>(result.responseData);
+        const resCode = resp.field1;
+
+        if (resCode !== 5495) {
+            throw new Error(`like album media error: retCode ${resCode ?? 'unknown'}`);
+        }
+
+        return convertBigIntToString(resp.body?.like ?? {});
+    }
+
+    async delete(groupId: number, albumId: string, lloc: string): Promise<{ success: true }> {
+        const target = await this.resolveDeleteTarget(groupId, albumId, lloc);
+        const uin = this.ctx.identity.uin;
+        const clientKey = `${uin}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+
+        const body = protobuf_encode<DeleteMediasRequest>({
+            field1: 8694,
+            field2: 'h5_test',
+            field3: 'h5_test',
+            body: {
+                groupId: groupId.toString(),
+                albumId,
+                mediaIds: [target.mediaId],
+                ...(target.batchId ? { batchIds: [target.batchId] } : {}),
+            },
+            traceId: clientKey,
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
+
+        const result = await this.ctx.sendRawPacket(
+            'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
+            body,
+            packetTimeoutMs(),
+        );
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'failed to delete album media');
+        }
+
+        const resp = protobuf_decode<DeleteMediasResponse>(result.responseData);
+        const resCode = resp.field1;
+        const errCode = resp.field2;
+        const errMsg = resp.field3;
+
+        if (resCode !== 8694 || errCode) {
+            throw new Error(
+                `delete album media error [${errCode ?? 'unknown'}]: ${errMsg ?? 'unknown'}`,
+            );
+        }
+
+        return { success: true };
+    }
+
+    /**
+     * Official delete uses a photo lloc, or a video's cover lloc plus batch id.
+     * Callers may pass either an image lloc or a video id; resolve the latter.
+     */
+    private async resolveDeleteTarget(
+        groupId: number,
+        albumId: string,
+        mediaKey: string,
+    ): Promise<{ mediaId: string; batchId?: string }> {
+        try {
+            const seenCursors = new Set<string>();
+            let attachInfo = '';
+
+            while (true) {
+                const page = await this.getMediaList(groupId, albumId, attachInfo);
+                const hit = findDeleteTarget(page.mediaList, mediaKey);
+
+                if (hit) {
+                    return hit;
+                }
+
+                const next = page.nextAttachInfo ?? '';
+
+                if (!next || seenCursors.has(next)) {
+                    return { mediaId: mediaKey };
+                }
+
+                seenCursors.add(next);
+                attachInfo = next;
+            }
+        } catch (err) {
+            log.debug(
+                'resolve album delete target failed, using raw id: group=%d album=%s err=%s',
+                groupId,
+                albumId,
+                err instanceof Error ? err.message : String(err),
+            );
+            return { mediaId: mediaKey };
+        }
+    }
+
+    /**
+     * Page the album when the caller only has a lloc / video id, so the
+     * comment can carry the official batch id and media kind.
+     */
+    private async resolveCommentMedia(
+        groupId: number,
+        albumId: string,
+        mediaKey: string,
+    ): Promise<AlbumCommentMediaItem | undefined> {
+        const seenCursors = new Set<string>();
+        let attachInfo = '';
+
+        while (true) {
+            const page = await this.getMediaList(groupId, albumId, attachInfo);
+            const hit = findCommentMedia(page.mediaList, mediaKey);
+
+            if (hit) {
+                return hit;
+            }
+
+            const next = page.nextAttachInfo ?? '';
+
+            if (!next || seenCursors.has(next)) {
+                return undefined;
+            }
+
+            seenCursors.add(next);
+            attachInfo = next;
+        }
+    }
+
+    private async getQunFeedDetail(
+        groupId: number,
+        albumId: string,
+        batchId: bigint,
+        lloc: string,
+    ): Promise<{
+        cellCommon: QunFeedCellCommon;
+        ownerUin: string;
+        media?: CommentReqPhotoInfo;
+        rawCellCommon?: Uint8Array;
+        rawCellUser?: Uint8Array;
+        rawCellMedia?: Uint8Array;
+    }> {
+        const traceId = `_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const body = protobuf_encode<GetQunFeedDetailRequest>({
+            seq: 0,
+            field2: new Uint8Array(0),
+            field3: new Uint8Array(0),
+            data: {
+                groupId: groupId.toString(),
+                feedId: '',
+                commentCount: GET_QUN_FEED_DETAIL_COMMENT_COUNT,
+                attachInfo: '',
+                albumId,
+                batchId: batchId.toString(),
+                lloc,
+            },
+            traceId,
+            extMap: [{ key: 'fc-appid', value: '100' }],
+        });
+
+        const result = await this.ctx.sendRawPacket(
+            GET_QUN_FEED_DETAIL_CMD,
+            body,
+            packetTimeoutMs(),
+        );
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'failed to fetch album feed');
+        }
+
+        const resp = protobuf_decode<GetQunFeedDetailResponse>(result.responseData);
+        const resultCode = resp.result ?? 0;
+
+        if (resultCode !== 0) {
+            throw new Error(
+                `fetch album feed error: retCode ${resultCode}` +
+                    (resp.errorText ? `, ${resp.errorText}` : ''),
+            );
+        }
+
+        const feed = resp.data?.feed?.feed;
+        const cell = feed?.cellCommon;
+        const feedId = cell?.feedId ?? '';
+
+        if (!feedId) {
+            throw new Error('comment album media error: empty feed');
+        }
+
+        const responseBytes = toBytes(result.responseData);
+        return {
+            cellCommon: cell ?? { feedId },
+            ownerUin: feed?.cellUserInfo?.user?.uin ?? '',
+            media: feed?.cellMedia,
+            rawCellCommon: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 1])),
+            rawCellUser: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 2])),
+            rawCellMedia: nonemptyBytes(protobufSubmessage(responseBytes, [4, 2, 1, 5])),
+        };
+    }
 }
 
 interface AlbumDeleteMediaItem {
-  image?: { lloc?: string } | null;
-  video?: { id?: string; cover?: { lloc?: string } | null } | null;
-  batchId?: string | number;
+    image?: { lloc?: string } | null;
+    video?: { id?: string; cover?: { lloc?: string } | null } | null;
+    batchId?: string | number;
 }
 
 function findDeleteTarget(
-  mediaList: ReadonlyArray<unknown>,
-  mediaKey: string,
+    mediaList: ReadonlyArray<unknown>,
+    mediaKey: string,
 ): { mediaId: string; batchId?: string } | undefined {
-  for (const raw of mediaList) {
-    if (!raw || typeof raw !== 'object') continue;
-    const item = raw as AlbumDeleteMediaItem;
-    const batchId = item.batchId === undefined || item.batchId === ''
-      ? undefined
-      : String(item.batchId);
-    if (item.image?.lloc === mediaKey) {
-      return { mediaId: mediaKey, batchId };
+    for (const raw of mediaList) {
+        if (!raw || typeof raw !== 'object') {
+            continue;
+        }
+
+        const item = raw as AlbumDeleteMediaItem;
+        const batchId =
+            item.batchId === undefined || item.batchId === '' ? undefined : String(item.batchId);
+
+        if (item.image?.lloc === mediaKey) {
+            return { mediaId: mediaKey, batchId };
+        }
+
+        const coverLloc = item.video?.cover?.lloc;
+
+        if (item.video?.id === mediaKey || coverLloc === mediaKey) {
+            return { mediaId: coverLloc || mediaKey, batchId };
+        }
     }
-    const coverLloc = item.video?.cover?.lloc;
-    if (item.video?.id === mediaKey || coverLloc === mediaKey) {
-      return { mediaId: coverLloc || mediaKey, batchId };
-    }
-  }
-  return undefined;
+
+    return undefined;
 }
 
 interface AlbumCommentMediaItem {
-  type?: number;
-  image?: {
-    name?: string;
-    sloc?: string;
-    lloc?: string;
-    isGif?: boolean;
-    hasRaw?: boolean;
-  } | null;
-  video?: {
-    id?: string;
-    cover?: {
-      name?: string;
-      sloc?: string;
-      lloc?: string;
+    type?: number;
+    image?: {
+        name?: string;
+        sloc?: string;
+        lloc?: string;
+        isGif?: boolean;
+        hasRaw?: boolean;
     } | null;
-  } | null;
-  uploader?: string;
-  batchId?: string | number | bigint;
+    video?: {
+        id?: string;
+        cover?: {
+            name?: string;
+            sloc?: string;
+            lloc?: string;
+        } | null;
+    } | null;
+    uploader?: string;
+    batchId?: string | number | bigint;
 }
 
 function optionalBatchId(value: unknown): bigint | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  try {
-    const batchId = BigInt(value as string | number | bigint);
-    return batchId === 0n ? undefined : batchId;
-  } catch {
-    return undefined;
-  }
+    if (value === undefined || value === null || value === '') {
+        return undefined;
+    }
+
+    try {
+        const batchId = BigInt(value as string | number | bigint);
+        return batchId === 0n ? undefined : batchId;
+    } catch {
+        return undefined;
+    }
 }
 
 function commentMediaLloc(item: AlbumCommentMediaItem | undefined, lloc: string): string {
-  if (item?.video?.cover?.lloc) return item.video.cover.lloc;
-  if (item?.image?.lloc) return item.image.lloc;
-  return lloc;
+    if (item?.video?.cover?.lloc) {
+        return item.video.cover.lloc;
+    }
+
+    if (item?.image?.lloc) {
+        return item.image.lloc;
+    }
+
+    return lloc;
 }
 
 function mediaInfoForComment(item: AlbumCommentMediaItem | undefined, lloc: string): MediaInfo {
-  const batchId = optionalBatchId(item?.batchId);
-  const shared: MediaInfo = {
-    ...(item?.uploader ? { uploader: item.uploader } : {}),
-    ...(batchId !== undefined ? { batchId } : {}),
-  };
-  if (item?.video) {
-    return {
-      ...shared,
-      type: 1,
-      video: { cover: { lloc: item.video.cover?.lloc || lloc } },
+    const batchId = optionalBatchId(item?.batchId);
+    const shared: MediaInfo = {
+        ...(item?.uploader ? { uploader: item.uploader } : {}),
+        ...(batchId !== undefined ? { batchId } : {}),
     };
-  }
-  return {
-    ...shared,
-    type: 0,
-    image: { lloc: item?.image?.lloc || lloc },
-  };
+
+    if (item?.video) {
+        return {
+            ...shared,
+            type: 1,
+            video: { cover: { lloc: item.video.cover?.lloc || lloc } },
+        };
+    }
+
+    return {
+        ...shared,
+        type: 0,
+        image: { lloc: item?.image?.lloc || lloc },
+    };
 }
 
 function qunFeedCellId(
-  groupId: number,
-  albumId: string,
-  batchId: string | number | bigint,
-  lloc?: string,
+    groupId: number,
+    albumId: string,
+    batchId: string | number | bigint,
+    lloc?: string,
 ): string {
-  const head = `421_1_0_${groupId}|${albumId}|${batchId}`;
-  if (!lloc) return head;
-  return `${head}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
+    const head = `421_1_0_${groupId}|${albumId}|${batchId}`;
+
+    if (!lloc) {
+        return head;
+    }
+
+    return `${head}^||^421_1_0_${groupId}|${albumId}|${lloc}^||^0`;
+}
+
+function toBytes(value: Uint8Array): Uint8Array {
+    return value instanceof Uint8Array ? value : new Uint8Array(value);
+}
+
+function nonemptyBytes(value: Uint8Array | undefined): Uint8Array | undefined {
+    return value && value.byteLength > 0 ? value : undefined;
+}
+
+function numericUin(uin: string): bigint | undefined {
+    if (!/^\d+$/.test(uin)) {
+        return undefined;
+    }
+
+    try {
+        return BigInt(uin);
+    } catch {
+        return undefined;
+    }
+}
+
+function readProtobufVarint(buf: Uint8Array, offset: number): { value: number; next: number } {
+    let value = 0;
+    let shift = 0;
+    let next = offset;
+
+    while (next < buf.length && shift <= 28) {
+        const byte = buf[next++];
+        value += (byte & 0x7f) * 2 ** shift;
+
+        if ((byte & 0x80) === 0) {
+            return { value, next };
+        }
+
+        shift += 7;
+    }
+
+    throw new Error('truncated protobuf varint');
+}
+
+function skipProtobufVarint(buf: Uint8Array, offset: number): number {
+    for (let index = 0; index < 10 && offset < buf.length; index++) {
+        const byte = buf[offset++];
+
+        if (index === 9 && byte > 1) {
+            throw new Error('protobuf varint exceeds 64 bits');
+        }
+
+        if ((byte & 0x80) === 0) {
+            return offset;
+        }
+    }
+
+    throw new Error('truncated protobuf varint');
+}
+
+function protobufSubmessage(buf: Uint8Array, path: readonly number[]): Uint8Array | undefined {
+    let current: Uint8Array | undefined = buf;
+
+    for (const fieldNo of path) {
+        if (!current) {
+            return undefined;
+        }
+
+        current = firstLengthDelimitedField(current, fieldNo);
+    }
+
+    return current;
+}
+
+function firstLengthDelimitedField(buf: Uint8Array, fieldNo: number): Uint8Array | undefined {
+    let offset = 0;
+
+    while (offset < buf.length) {
+        const key = readProtobufVarint(buf, offset);
+        offset = key.next;
+        const field = Math.floor(key.value / 8);
+        const wire = key.value % 8;
+
+        if (wire === 0) {
+            offset = skipProtobufVarint(buf, offset);
+        } else if (wire === 1) {
+            offset += 8;
+        } else if (wire === 5) {
+            offset += 4;
+        } else if (wire === 2) {
+            const len = readProtobufVarint(buf, offset);
+            offset = len.next;
+            const end = offset + len.value;
+
+            if (end > buf.length) {
+                return undefined;
+            }
+
+            if (field === fieldNo) {
+                return buf.slice(offset, end);
+            }
+
+            offset = end;
+        } else {
+            return undefined;
+        }
+    }
+
+    return undefined;
 }
 
 function commentReqHeader(cell: QunFeedCellCommon): CommentReqBodyHeader {
-  return {
-    ...(cell.time !== undefined ? { time: cell.time } : {}),
-    ...(cell.feedId ? { feedId: cell.feedId } : {}),
-  };
+    return {
+        ...(cell.time !== undefined ? { time: cell.time } : {}),
+        ...(cell.feedId ? { feedId: cell.feedId } : {}),
+    };
 }
 
 function commentPhotoInfo(
-  feedMedia: CommentReqPhotoInfo | undefined,
-  fallback: MediaInfo,
-  albumId: string,
-  batchId: bigint,
+    feedMedia: CommentReqPhotoInfo | undefined,
+    fallback: MediaInfo,
+    albumId: string,
+    batchId: bigint,
 ): CommentReqPhotoInfo {
-  if (feedMedia?.medias?.length) {
-    return {
-      medias: feedMedia.medias,
-      albumId: feedMedia.albumId || albumId,
-      batchId: feedMedia.batchId ?? batchId,
-    };
-  }
-  return { medias: [fallback], albumId, batchId };
+    if (feedMedia?.medias?.length) {
+        return {
+            medias: feedMedia.medias,
+            albumId: feedMedia.albumId || albumId,
+            batchId: feedMedia.batchId ?? batchId,
+        };
+    }
+
+    return { medias: [fallback], albumId, batchId };
 }
 
 function findCommentMedia(
-  mediaList: ReadonlyArray<unknown>,
-  mediaKey: string,
+    mediaList: ReadonlyArray<unknown>,
+    mediaKey: string,
 ): AlbumCommentMediaItem | undefined {
-  for (const raw of mediaList) {
-    if (!raw || typeof raw !== 'object') continue;
-    const item = raw as AlbumCommentMediaItem;
-    if (item.image?.lloc === mediaKey) return item;
-    if (item.video?.id === mediaKey || item.video?.cover?.lloc === mediaKey) return item;
-  }
-  return undefined;
+    for (const raw of mediaList) {
+        if (!raw || typeof raw !== 'object') {
+            continue;
+        }
+
+        const item = raw as AlbumCommentMediaItem;
+
+        if (item.image?.lloc === mediaKey) {
+            return item;
+        }
+
+        if (item.video?.id === mediaKey || item.video?.cover?.lloc === mediaKey) {
+            return item;
+        }
+    }
+
+    return undefined;
 }
 
 function commentFromResponse(resp: DoQunCommentResponse): CommentRespData {
-  const wrapped = resp.comment;
-  if (!wrapped) return {};
-  if (wrapped.data?.id) return wrapped.data;
-  if (wrapped.id) {
-    return {
-      id: wrapped.id,
-      content: wrapped.content,
-      time: wrapped.time,
-      clientKey: wrapped.clientKey,
-      user: wrapped.data?.user,
-    };
-  }
-  return wrapped.data ?? {};
+    const wrapped = resp.comment;
+
+    if (!wrapped) {
+        return {};
+    }
+
+    if (wrapped.data?.id) {
+        return wrapped.data;
+    }
+
+    if (wrapped.id) {
+        return {
+            id: wrapped.id,
+            content: wrapped.content,
+            time: wrapped.time,
+            clientKey: wrapped.clientKey,
+            user: wrapped.data?.user,
+        };
+    }
+
+    return wrapped.data ?? {};
 }
 
 export interface GroupAlbumMediaResult {
-  mediaList: Array<JsonValue & Partial<MediaInfo>>;
-  nextAttachInfo: string;
+    mediaList: Array<JsonValue & Partial<MediaInfo>>;
+    nextAttachInfo: string;
 }
 
 interface GroupAlbumWireResult {
-  albumList: GroupAlbumInfoWire[];
-  attachInfo: string;
-  hasMore: boolean;
+    albumList: GroupAlbumInfoWire[];
+    attachInfo: string;
+    hasMore: boolean;
 }
 
 export interface GroupAlbumInfo {
-  id: string;
-  name: string;
-  picNum: number;
-  createTime: number;
-  desc: string;
-  owner: string;
-  createuin: string;
-  createnickname: string;
-  last_upload_time: number;
-  cover: QunAlbumCover | null;
-  [key: string]: JsonValue;
+    id: string;
+    name: string;
+    picNum: number;
+    createTime: number;
+    desc: string;
+    owner: string;
+    createuin: string;
+    createnickname: string;
+    last_upload_time: number;
+    cover: QunAlbumCover | null;
+    [key: string]: JsonValue;
 }
 
 export type GroupAlbumList = GroupAlbumInfo[];
 
 export interface QunAlbumCreator {
-  uid: string;
-  nick: string;
-  is_sweet: boolean;
-  is_special: boolean;
-  is_super_like: boolean;
-  custom_id: string;
-  poly_id: string;
-  portrait: string;
-  can_follow: number;
-  isfollowed: number;
-  uin: string;
-  ditto_uin: string;
+    uid: string;
+    nick: string;
+    is_sweet: boolean;
+    is_special: boolean;
+    is_super_like: boolean;
+    custom_id: string;
+    poly_id: string;
+    portrait: string;
+    can_follow: number;
+    isfollowed: number;
+    uin: string;
+    ditto_uin: string;
 }
 
 export interface QunAlbumCoverUrl extends JsonObject {
-  url: string;
-  width: number;
-  height: number;
+    url: string;
+    width: number;
+    height: number;
 }
 
 export interface QunAlbumCoverPhotoUrl extends JsonObject {
-  spec: number;
-  url: QunAlbumCoverUrl | null;
+    spec: number;
+    url: QunAlbumCoverUrl | null;
 }
 
 export interface QunAlbumCoverImage extends JsonObject {
-  name: string;
-  sloc: string;
-  lloc: string;
-  photoUrls: QunAlbumCoverPhotoUrl[];
-  defaultUrl: QunAlbumCoverUrl | null;
-  isGif: boolean;
-  hasRaw: boolean;
+    name: string;
+    sloc: string;
+    lloc: string;
+    photoUrls: QunAlbumCoverPhotoUrl[];
+    defaultUrl: QunAlbumCoverUrl | null;
+    isGif: boolean;
+    hasRaw: boolean;
 }
 
 export interface QunAlbumCover extends JsonObject {
-  type: number;
-  image: QunAlbumCoverImage | null;
+    type: number;
+    image: QunAlbumCoverImage | null;
 }
 
 export interface QunAlbumInfo {
-  album_id: string;
-  owner: string;
-  name: string;
-  desc: string;
-  create_time: string;
-  modify_time: string;
-  last_upload_time: string;
-  upload_number: string;
-  cover: QunAlbumCover | null;
-  creator?: QunAlbumCreator;
-  top_flag: string;
-  busi_type: number;
-  status: number;
-  allow_share: boolean;
-  is_subscribe: boolean;
-  bitmap: string;
-  is_share_album: boolean;
-  qz_album_type: number;
-  cover_type: number;
-  default_desc: string;
-  sort_type: number;
+    album_id: string;
+    owner: string;
+    name: string;
+    desc: string;
+    create_time: string;
+    modify_time: string;
+    last_upload_time: string;
+    upload_number: string;
+    cover: QunAlbumCover | null;
+    creator?: QunAlbumCreator;
+    top_flag: string;
+    busi_type: number;
+    status: number;
+    allow_share: boolean;
+    is_subscribe: boolean;
+    bitmap: string;
+    is_share_album: boolean;
+    qz_album_type: number;
+    cover_type: number;
+    default_desc: string;
+    sort_type: number;
 }
 
 export interface QunAlbumListResult {
-  albumList: QunAlbumInfo[];
-  attachInfo: string;
-  hasMore: boolean;
+    albumList: QunAlbumInfo[];
+    attachInfo: string;
+    hasMore: boolean;
 }
 
 export interface GroupAlbumCommentResult {
-  id: string;
-  user: { uin: string };
-  content: Array<{ type: number; content: string }>;
-  time: string;
-  clientKey: string;
+    id: string;
+    user: { uin: string };
+    content: Array<{ type: number; content: string }>;
+    time: string;
+    clientKey: string;
 }

@@ -13,22 +13,22 @@ import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
 import { FetchGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/get-group-ext-info';
 import {
-  decodeMemberInvitePolicy,
-  MEMBER_INVITE_PRIVILEGE_MASK,
-  mergeMemberInvitePrivilegeFlag,
-  SetMemberInvitePolicy,
-  type GroupMemberInvitePolicy,
+    decodeMemberInvitePolicy,
+    MEMBER_INVITE_PRIVILEGE_MASK,
+    mergeMemberInvitePrivilegeFlag,
+    SetMemberInvitePolicy,
+    type GroupMemberInvitePolicy,
 } from '@snowluma/protocol/oidb-services/group-admin/set-member-invite-policy';
 import {
-  decodeGroupHistoryVisibility,
-  SetNewMemberHistoryVisibility,
+    decodeGroupHistoryVisibility,
+    SetNewMemberHistoryVisibility,
 } from '@snowluma/protocol/oidb-services/group-admin/set-new-member-history-visibility';
 import {
-  decodeGroupMemberPermissions,
-  GROUP_MEMBER_PERMISSION_MASKS,
-  mergeGroupMemberPermission,
-  SetMemberPermission,
-  type GroupMemberPermission,
+    decodeGroupMemberPermissions,
+    GROUP_MEMBER_PERMISSION_MASKS,
+    mergeGroupMemberPermission,
+    SetMemberPermission,
+    type GroupMemberPermission,
 } from '@snowluma/protocol/oidb-services/group-admin/set-member-permission';
 import { SetSearch } from '@snowluma/protocol/oidb-services/group-admin/set-search';
 import { GetGroupCategoryTags } from '@snowluma/protocol/oidb-services/group-admin/get-group-category-tags';
@@ -41,282 +41,334 @@ import type { BridgeContext } from '../bridge-context';
 
 /** QQ only accepts this write from the group owner (#411). */
 export const MEMBER_PERMISSIONS_OWNER_ONLY =
-  'only the group owner can change group member permissions';
+    'only the group owner can change group member permissions';
 
 export type GroupAdminSettings = {
-  add_type: number;
-  group_question: string;
-  group_answer: string;
-  robot_member_switch: number;
-  robot_member_examine: number;
-  member_invite_policy: GroupMemberInvitePolicy;
-  allow_member_upload_album: boolean;
-  allow_member_temporary_session: boolean;
-  allow_member_create_group: boolean;
-  new_member_history_visible: boolean;
-  no_finger_open: number;
-  no_code_finger_open: number;
+    add_type: number;
+    group_question: string;
+    group_answer: string;
+    robot_member_switch: number;
+    robot_member_examine: number;
+    member_invite_policy: GroupMemberInvitePolicy;
+    allow_member_upload_album: boolean;
+    allow_member_temporary_session: boolean;
+    allow_member_create_group: boolean;
+    new_member_history_visible: boolean;
+    no_finger_open: number;
+    no_code_finger_open: number;
 };
 
 export interface GroupMemberPermissions {
-  allowMemberUploadAlbum?: boolean;
-  allowMemberTemporarySession?: boolean;
-  allowMemberCreateGroup?: boolean;
+    allowMemberUploadAlbum?: boolean;
+    allowMemberTemporarySession?: boolean;
+    allowMemberCreateGroup?: boolean;
 }
 
 export class GroupAdminApi {
-  constructor(private readonly ctx: BridgeContext) { }
+    constructor(private readonly ctx: BridgeContext) {}
 
-  /** Set the group's robot-add option (switch / examine) via group ext-info. */
-  setRobotAddOption(groupId: number, robotMemberSwitch?: number, robotMemberExamine?: number): Promise<void> {
-    return ModifyGroupExtInfo.invoke(this.ctx, { groupId, robotMemberSwitch, robotMemberExamine });
-  }
-
-  async getAdminSettings(groupId: number): Promise<GroupAdminSettings> {
-    const [detail, robot] = await Promise.all([
-      FetchGroupDetail.invoke(this.ctx, { groupUin: groupId }),
-      FetchGroupExtInfo.invoke(this.ctx, { groupId }),
-    ]);
-    const results = detail.groupInfo?.results;
-    if (!results) {
-      throw new Error(`unable to read group admin settings for group ${groupId}`);
-    }
-    const privilegeFlag = results.privilegeFlag ?? 0;
-    const permissions = decodeGroupMemberPermissions(privilegeFlag);
-    return {
-      add_type: results.addType ?? 0,
-      group_question: results.question ?? '',
-      group_answer: results.answer ?? '',
-      robot_member_switch: robot.robotMemberSwitch,
-      robot_member_examine: robot.robotMemberExamine,
-      member_invite_policy: decodeMemberInvitePolicy(privilegeFlag),
-      allow_member_upload_album: permissions.allowMemberUploadAlbum,
-      allow_member_temporary_session: permissions.allowMemberTemporarySession,
-      allow_member_create_group: permissions.allowMemberCreateGroup,
-      new_member_history_visible: decodeGroupHistoryVisibility(results.groupFlagExt4 ?? 0),
-      no_finger_open: results.noFingerOpen ?? 0,
-      no_code_finger_open: results.noCodeFingerOpen ?? 0,
-    };
-  }
-
-  muteMember(groupId: number, userId: number, duration: number): Promise<void> {
-    return MuteMember.invoke(this.ctx, { groupId, userId, duration });
-  }
-
-  muteAll(groupId: number, enable: boolean): Promise<void> {
-    return MuteAll.invoke(this.ctx, { groupId, enable });
-  }
-
-  setAddOption(
-    groupId: number,
-    addType: number,
-    groupQuestion?: string,
-    groupAnswer?: string,
-  ): Promise<void> {
-    return SetAddOption.invoke(this.ctx, { groupId, addType, groupQuestion, groupAnswer });
-  }
-
-  setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {
-    return SetSearch.invoke(this.ctx, { groupId, noFingerOpen, noCodeFingerOpen });
-  }
-
-  listCategoryTags(groupClass: number): Promise<{ tags: { id: number; name: string; type: number }[] }> {
-    return GetGroupCategoryTags.invoke(this.ctx, { groupClass });
-  }
-
-  addCategoryTag(groupClass: number, name: string): Promise<void> {
-    return AddGroupCategoryTag.invoke(this.ctx, { groupClass, name });
-  }
-
-  removeCategoryTag(groupClass: number, name: string): Promise<void> {
-    return DeleteGroupCategoryTag.invoke(this.ctx, { groupClass, name });
-  }
-
-  async setMemberInvitePolicy(groupId: number, policy: GroupMemberInvitePolicy): Promise<void> {
-    const currentPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
-      groupId,
-      'group member invite policy',
-      'before update',
-    );
-    const expectedPrivilegeFlag = mergeMemberInvitePrivilegeFlag(currentPrivilegeFlag, policy);
-
-    await SetMemberInvitePolicy.invoke(this.ctx, {
-      groupId,
-      currentPrivilegeFlag,
-      policy,
-    });
-
-    const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
-      groupId,
-      'group member invite policy',
-      'after update',
-    );
-    const mask = BigInt(MEMBER_INVITE_PRIVILEGE_MASK);
-    if ((BigInt(actualPrivilegeFlag) & mask) !== (BigInt(expectedPrivilegeFlag) & mask)) {
-      throw new Error(`group member invite policy was not applied for group ${groupId}`);
-    }
-  }
-
-  private async fetchGroupPrivilegeFlag(groupId: number, setting: string, phase: string): Promise<number> {
-    return (await this.fetchGroupPrivilegeState(groupId, setting, phase)).privilegeFlag;
-  }
-
-  private async fetchGroupPrivilegeState(
-    groupId: number,
-    setting: string,
-    phase: string,
-  ): Promise<{ privilegeFlag: number; ownerUid?: string }> {
-    const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
-    const results = detail.groupInfo?.results;
-    if (!results) {
-      throw new Error(`unable to read ${setting} ${phase} for group ${groupId}`);
-    }
-    return {
-      privilegeFlag: results.privilegeFlag ?? 0,
-      ownerUid: results.ownerUid,
-    };
-  }
-
-  async setMemberPermissions(groupId: number, permissions: GroupMemberPermissions): Promise<void> {
-    const updates: ReadonlyArray<readonly [GroupMemberPermission, boolean | undefined]> = [
-      ['upload_album', permissions.allowMemberUploadAlbum],
-      ['temporary_session', permissions.allowMemberTemporarySession],
-      ['create_group', permissions.allowMemberCreateGroup],
-    ];
-    if (!updates.some(([, allow]) => allow !== undefined)) {
-      throw new Error('at least one member permission must be specified');
-    }
-
-    const before = await this.fetchGroupPrivilegeState(
-      groupId,
-      'group member permissions',
-      'before update',
-    );
-    const selfUid = this.ctx.identity.selfUid;
-    if (selfUid && before.ownerUid && selfUid !== before.ownerUid) {
-      throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
-    }
-
-    let expectedPrivilegeFlag = before.privilegeFlag;
-    let combinedMask = 0n;
-
-    for (const [permission, allow] of updates) {
-      if (allow === undefined) continue;
-      try {
-        await SetMemberPermission.invoke(this.ctx, {
-          groupId,
-          currentPrivilegeFlag: expectedPrivilegeFlag,
-          permission,
-          allow,
+    /** Set the group's robot-add option (switch / examine) via group ext-info. */
+    setRobotAddOption(
+        groupId: number,
+        robotMemberSwitch?: number,
+        robotMemberExamine?: number,
+    ): Promise<void> {
+        return ModifyGroupExtInfo.invoke(this.ctx, {
+            groupId,
+            robotMemberSwitch,
+            robotMemberExamine,
         });
-      } catch (error) {
-        if (error instanceof OidbError && error.code === 1287) {
-          throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
+    }
+
+    async getAdminSettings(groupId: number): Promise<GroupAdminSettings> {
+        const [detail, robot] = await Promise.all([
+            FetchGroupDetail.invoke(this.ctx, { groupUin: groupId }),
+            FetchGroupExtInfo.invoke(this.ctx, { groupId }),
+        ]);
+        const results = detail.groupInfo?.results;
+
+        if (!results) {
+            throw new Error(`unable to read group admin settings for group ${groupId}`);
         }
-        throw error;
-      }
-      expectedPrivilegeFlag = mergeGroupMemberPermission(expectedPrivilegeFlag, permission, allow);
-      combinedMask |= BigInt(GROUP_MEMBER_PERMISSION_MASKS[permission]);
+
+        const privilegeFlag = results.privilegeFlag ?? 0;
+        const permissions = decodeGroupMemberPermissions(privilegeFlag);
+        return {
+            add_type: results.addType ?? 0,
+            group_question: results.question ?? '',
+            group_answer: results.answer ?? '',
+            robot_member_switch: robot.robotMemberSwitch,
+            robot_member_examine: robot.robotMemberExamine,
+            member_invite_policy: decodeMemberInvitePolicy(privilegeFlag),
+            allow_member_upload_album: permissions.allowMemberUploadAlbum,
+            allow_member_temporary_session: permissions.allowMemberTemporarySession,
+            allow_member_create_group: permissions.allowMemberCreateGroup,
+            new_member_history_visible: decodeGroupHistoryVisibility(results.groupFlagExt4 ?? 0),
+            no_finger_open: results.noFingerOpen ?? 0,
+            no_code_finger_open: results.noCodeFingerOpen ?? 0,
+        };
     }
 
-    const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
-      groupId,
-      'group member permissions',
-      'after update',
-    );
-    if ((BigInt(actualPrivilegeFlag) & combinedMask) !== (BigInt(expectedPrivilegeFlag) & combinedMask)) {
-      throw new Error(`group member permissions were not applied for group ${groupId}`);
+    muteMember(groupId: number, userId: number, duration: number): Promise<void> {
+        return MuteMember.invoke(this.ctx, { groupId, userId, duration });
     }
-  }
 
-  async setNewMemberHistoryVisibility(groupId: number, visible: boolean): Promise<void> {
-    await SetNewMemberHistoryVisibility.invoke(this.ctx, { groupId, visible });
-
-    const actualGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'after update');
-    if (decodeGroupHistoryVisibility(actualGroupFlagExt4) !== visible) {
-      throw new Error(`new-member history visibility was not applied for group ${groupId}`);
+    muteAll(groupId: number, enable: boolean): Promise<void> {
+        return MuteAll.invoke(this.ctx, { groupId, enable });
     }
-  }
 
-  private async fetchGroupFlagExt4(groupId: number, phase: string): Promise<number> {
-    const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
-    const results = detail.groupInfo?.results;
-    if (!results) {
-      throw new Error(`unable to read new-member history visibility ${phase} for group ${groupId}`);
+    setAddOption(
+        groupId: number,
+        addType: number,
+        groupQuestion?: string,
+        groupAnswer?: string,
+    ): Promise<void> {
+        return SetAddOption.invoke(this.ctx, { groupId, addType, groupQuestion, groupAnswer });
     }
-    return results.groupFlagExt4 ?? 0;
-  }
 
-  setAddRequest(
-    groupId: number, sequence: number, eventType: number,
-    approve: boolean, reason = '', filtered = false,
-    operateTransInfo?: Uint8Array,
-  ): Promise<void> {
-    return SetAddRequest.invoke(this.ctx, {
-      groupId, sequence, eventType, approve, reason, filtered, operateTransInfo,
-    });
-  }
+    setSearch(groupId: number, noFingerOpen?: number, noCodeFingerOpen?: number): Promise<void> {
+        return SetSearch.invoke(this.ctx, { groupId, noFingerOpen, noCodeFingerOpen });
+    }
 
-  kickMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> {
-    return KickMember.invoke(this.ctx, { groupId, userId, reject, reason });
-  }
+    listCategoryTags(
+        groupClass: number,
+    ): Promise<{ tags: { id: number; name: string; type: number }[] }> {
+        return GetGroupCategoryTags.invoke(this.ctx, { groupClass });
+    }
 
-  kickMembers(groupId: number, userIds: number[], reject: boolean): Promise<void> {
-    return KickMembers.invoke(this.ctx, { groupId, userIds, reject });
-  }
+    addCategoryTag(groupClass: number, name: string): Promise<void> {
+        return AddGroupCategoryTag.invoke(this.ctx, { groupClass, name });
+    }
 
-  async leave(groupId: number): Promise<void> {
-    await LeaveGroup.invoke(this.ctx, { groupId });
-    // The server doesn't push a member-decrease back to the member who left of
-    // its own accord, so synthesize the self group_member_leave here — otherwise
-    // downstream never sees notice.group_decrease and keeps a "zombie" group in
-    // its cache (#133). Also drop the group from our own roster.
-    const selfUin = Number(this.ctx.identity.uin) || 0;
-    const selfUid = this.ctx.identity.selfUid ?? '';
-    await this.ctx.events.emit({
-      kind: 'group_member_leave',
-      time: Math.floor(Date.now() / 1000),
-      selfUin,
-      groupId,
-      userUin: selfUin,
-      operatorUin: selfUin,
-      userUid: selfUid,
-      operatorUid: selfUid,
-      leaveType: 'leave',
-    });
-    this.ctx.identity.forgetGroup(groupId);
-  }
+    removeCategoryTag(groupClass: number, name: string): Promise<void> {
+        return DeleteGroupCategoryTag.invoke(this.ctx, { groupClass, name });
+    }
 
-  setAdmin(groupId: number, userId: number, enable: boolean): Promise<void> {
-    return SetAdmin.invoke(this.ctx, { groupId, userId, enable });
-  }
+    async setMemberInvitePolicy(groupId: number, policy: GroupMemberInvitePolicy): Promise<void> {
+        const currentPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+            groupId,
+            'group member invite policy',
+            'before update',
+        );
+        const expectedPrivilegeFlag = mergeMemberInvitePrivilegeFlag(currentPrivilegeFlag, policy);
 
-  setCard(groupId: number, userId: number, card: string): Promise<void> {
-    return SetMemberCard.invoke(this.ctx, { groupId, userId, card });
-  }
+        await SetMemberInvitePolicy.invoke(this.ctx, {
+            groupId,
+            currentPrivilegeFlag,
+            policy,
+        });
 
-  setName(groupId: number, name: string): Promise<void> {
-    return SetGroupName.invoke(this.ctx, { groupId, name });
-  }
+        const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+            groupId,
+            'group member invite policy',
+            'after update',
+        );
+        const mask = BigInt(MEMBER_INVITE_PRIVILEGE_MASK);
 
-  setSpecialTitle(groupId: number, userId: number, title: string): Promise<void> {
-    return SetSpecialTitle.invoke(this.ctx, { groupId, userId, title });
-  }
+        if ((BigInt(actualPrivilegeFlag) & mask) !== (BigInt(expectedPrivilegeFlag) & mask)) {
+            throw new Error(`group member invite policy was not applied for group ${groupId}`);
+        }
+    }
 
-  /**
-   * The bot's local-only label for a group. Lives here rather than
-   * `FriendApi` because the semantic is "operate on a group" rather
-   * than "operate on a contact list".
-   */
-  setRemark(groupId: number, remark: string): Promise<void> {
-    return SetGroupRemark.invoke(this.ctx, { groupId, remark });
-  }
+    private async fetchGroupPrivilegeFlag(
+        groupId: number,
+        setting: string,
+        phase: string,
+    ): Promise<number> {
+        return (await this.fetchGroupPrivilegeState(groupId, setting, phase)).privilegeFlag;
+    }
 
-  getAtAllRemain(groupId: number): Promise<{
-    can_at_all: boolean;
-    remain_at_all_count_for_group: number;
-    remain_at_all_count_for_uin: number;
-  }> {
-    return GetAtAllRemain.invoke(this.ctx, { groupId });
-  }
+    private async fetchGroupPrivilegeState(
+        groupId: number,
+        setting: string,
+        phase: string,
+    ): Promise<{ privilegeFlag: number; ownerUid?: string }> {
+        const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+        const results = detail.groupInfo?.results;
+
+        if (!results) {
+            throw new Error(`unable to read ${setting} ${phase} for group ${groupId}`);
+        }
+
+        return {
+            privilegeFlag: results.privilegeFlag ?? 0,
+            ownerUid: results.ownerUid,
+        };
+    }
+
+    async setMemberPermissions(
+        groupId: number,
+        permissions: GroupMemberPermissions,
+    ): Promise<void> {
+        const updates: ReadonlyArray<readonly [GroupMemberPermission, boolean | undefined]> = [
+            ['upload_album', permissions.allowMemberUploadAlbum],
+            ['temporary_session', permissions.allowMemberTemporarySession],
+            ['create_group', permissions.allowMemberCreateGroup],
+        ];
+
+        if (!updates.some(([, allow]) => allow !== undefined)) {
+            throw new Error('at least one member permission must be specified');
+        }
+
+        const before = await this.fetchGroupPrivilegeState(
+            groupId,
+            'group member permissions',
+            'before update',
+        );
+        const selfUid = this.ctx.identity.selfUid;
+
+        if (selfUid && before.ownerUid && selfUid !== before.ownerUid) {
+            throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
+        }
+
+        let expectedPrivilegeFlag = before.privilegeFlag;
+        let combinedMask = 0n;
+
+        for (const [permission, allow] of updates) {
+            if (allow === undefined) {
+                continue;
+            }
+
+            try {
+                await SetMemberPermission.invoke(this.ctx, {
+                    groupId,
+                    currentPrivilegeFlag: expectedPrivilegeFlag,
+                    permission,
+                    allow,
+                });
+            } catch (error) {
+                if (error instanceof OidbError && error.code === 1287) {
+                    throw new Error(MEMBER_PERMISSIONS_OWNER_ONLY);
+                }
+
+                throw error;
+            }
+
+            expectedPrivilegeFlag = mergeGroupMemberPermission(
+                expectedPrivilegeFlag,
+                permission,
+                allow,
+            );
+            combinedMask |= BigInt(GROUP_MEMBER_PERMISSION_MASKS[permission]);
+        }
+
+        const actualPrivilegeFlag = await this.fetchGroupPrivilegeFlag(
+            groupId,
+            'group member permissions',
+            'after update',
+        );
+
+        if (
+            (BigInt(actualPrivilegeFlag) & combinedMask) !==
+            (BigInt(expectedPrivilegeFlag) & combinedMask)
+        ) {
+            throw new Error(`group member permissions were not applied for group ${groupId}`);
+        }
+    }
+
+    async setNewMemberHistoryVisibility(groupId: number, visible: boolean): Promise<void> {
+        await SetNewMemberHistoryVisibility.invoke(this.ctx, { groupId, visible });
+
+        const actualGroupFlagExt4 = await this.fetchGroupFlagExt4(groupId, 'after update');
+
+        if (decodeGroupHistoryVisibility(actualGroupFlagExt4) !== visible) {
+            throw new Error(`new-member history visibility was not applied for group ${groupId}`);
+        }
+    }
+
+    private async fetchGroupFlagExt4(groupId: number, phase: string): Promise<number> {
+        const detail = await FetchGroupDetail.invoke(this.ctx, { groupUin: groupId });
+        const results = detail.groupInfo?.results;
+
+        if (!results) {
+            throw new Error(
+                `unable to read new-member history visibility ${phase} for group ${groupId}`,
+            );
+        }
+
+        return results.groupFlagExt4 ?? 0;
+    }
+
+    setAddRequest(
+        groupId: number,
+        sequence: number,
+        eventType: number,
+        approve: boolean,
+        reason = '',
+        filtered = false,
+        operateTransInfo?: Uint8Array,
+    ): Promise<void> {
+        return SetAddRequest.invoke(this.ctx, {
+            groupId,
+            sequence,
+            eventType,
+            approve,
+            reason,
+            filtered,
+            operateTransInfo,
+        });
+    }
+
+    kickMember(groupId: number, userId: number, reject: boolean, reason = ''): Promise<void> {
+        return KickMember.invoke(this.ctx, { groupId, userId, reject, reason });
+    }
+
+    kickMembers(groupId: number, userIds: number[], reject: boolean): Promise<void> {
+        return KickMembers.invoke(this.ctx, { groupId, userIds, reject });
+    }
+
+    async leave(groupId: number): Promise<void> {
+        await LeaveGroup.invoke(this.ctx, { groupId });
+        // The server doesn't push a member-decrease back to the member who left of
+        // its own accord, so synthesize the self group_member_leave here — otherwise
+        // downstream never sees notice.group_decrease and keeps a "zombie" group in
+        // its cache (#133). Also drop the group from our own roster.
+        const selfUin = Number(this.ctx.identity.uin) || 0;
+        const selfUid = this.ctx.identity.selfUid ?? '';
+        await this.ctx.events.emit({
+            kind: 'group_member_leave',
+            time: Math.floor(Date.now() / 1000),
+            selfUin,
+            groupId,
+            userUin: selfUin,
+            operatorUin: selfUin,
+            userUid: selfUid,
+            operatorUid: selfUid,
+            leaveType: 'leave',
+        });
+        this.ctx.identity.forgetGroup(groupId);
+    }
+
+    setAdmin(groupId: number, userId: number, enable: boolean): Promise<void> {
+        return SetAdmin.invoke(this.ctx, { groupId, userId, enable });
+    }
+
+    setCard(groupId: number, userId: number, card: string): Promise<void> {
+        return SetMemberCard.invoke(this.ctx, { groupId, userId, card });
+    }
+
+    setName(groupId: number, name: string): Promise<void> {
+        return SetGroupName.invoke(this.ctx, { groupId, name });
+    }
+
+    setSpecialTitle(groupId: number, userId: number, title: string): Promise<void> {
+        return SetSpecialTitle.invoke(this.ctx, { groupId, userId, title });
+    }
+
+    /**
+     * The bot's local-only label for a group. Lives here rather than
+     * `FriendApi` because the semantic is "operate on a group" rather
+     * than "operate on a contact list".
+     */
+    setRemark(groupId: number, remark: string): Promise<void> {
+        return SetGroupRemark.invoke(this.ctx, { groupId, remark });
+    }
+
+    getAtAllRemain(groupId: number): Promise<{
+        can_at_all: boolean;
+        remain_at_all_count_for_group: number;
+        remain_at_all_count_for_uin: number;
+    }> {
+        return GetAtAllRemain.invoke(this.ctx, { groupId });
+    }
 }

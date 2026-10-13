@@ -22,46 +22,57 @@ export type StateResource = 'processes' | 'qq-list' | 'connections';
 export type StateListener = (resource: StateResource) => void;
 
 export class StateBus {
-  private readonly listeners = new Set<StateListener>();
-  private disposed = false;
+    private readonly listeners = new Set<StateListener>();
+    private disposed = false;
 
-  /** Subscribe to every publish; returns an unsubscribe handle. Calling
-   *  the handle more than once is a no-op. */
-  subscribe(listener: StateListener): () => void {
-    if (this.disposed) return () => undefined;
-    this.listeners.add(listener);
-    let active = true;
-    return () => {
-      if (!active) return;
-      active = false;
-      this.listeners.delete(listener);
-    };
-  }
+    /** Subscribe to every publish; returns an unsubscribe handle. Calling
+     *  the handle more than once is a no-op. */
+    subscribe(listener: StateListener): () => void {
+        if (this.disposed) {
+            return () => undefined;
+        }
 
-  /** Notify every CURRENTLY-subscribed listener that `resource` is stale.
-   *  Iterates a frozen snapshot of the subscriber set so add/remove during
-   *  the emit don't change which listeners see THIS publish; subscriber
-   *  exceptions are isolated and do not abort the fan-out. */
-  publish(resource: StateResource): void {
-    if (this.disposed) return;
-    // Snapshot the current subscribers — any subscribe()/unsubscribe()
-    // called by a listener during the fan-out takes effect only for the
-    // NEXT publish, not this one.
-    const snapshot = [...this.listeners];
-    for (const fn of snapshot) {
-      try {
-        fn(resource);
-      } catch {
-        // Subscriber-internal failure is its own problem. The bus's job
-        // is to keep delivery moving — surfacing an error here would
-        // partially abort the fan-out and create skip-the-listener bugs.
-      }
+        this.listeners.add(listener);
+        let active = true;
+
+        return () => {
+            if (!active) {
+                return;
+            }
+
+            active = false;
+            this.listeners.delete(listener);
+        };
     }
-  }
 
-  /** Drop every subscriber and refuse future subscribes / publishes. */
-  dispose(): void {
-    this.disposed = true;
-    this.listeners.clear();
-  }
+    /** Notify every CURRENTLY-subscribed listener that `resource` is stale.
+     *  Iterates a frozen snapshot of the subscriber set so add/remove during
+     *  the emit don't change which listeners see THIS publish; subscriber
+     *  exceptions are isolated and do not abort the fan-out. */
+    publish(resource: StateResource): void {
+        if (this.disposed) {
+            return;
+        }
+
+        // Snapshot the current subscribers — any subscribe()/unsubscribe()
+        // called by a listener during the fan-out takes effect only for the
+        // NEXT publish, not this one.
+        const snapshot = [...this.listeners];
+
+        for (const fn of snapshot) {
+            try {
+                fn(resource);
+            } catch {
+                // Subscriber-internal failure is its own problem. The bus's job
+                // is to keep delivery moving — surfacing an error here would
+                // partially abort the fan-out and create skip-the-listener bugs.
+            }
+        }
+    }
+
+    /** Drop every subscriber and refuse future subscribes / publishes. */
+    dispose(): void {
+        this.disposed = true;
+        this.listeners.clear();
+    }
 }

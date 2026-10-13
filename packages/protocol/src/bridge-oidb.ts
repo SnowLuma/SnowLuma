@@ -11,18 +11,17 @@ import type { OidbBase } from '@snowluma/proto-defs/oidb';
  * (default false) for genuinely UID-keyed calls.
  */
 export function makeOidbEnvelope<T>(
-  oidbCmd: number,
-  subCmd: number,
-  body: T,
-  isUid: boolean = false,
+    oidbCmd: number,
+    subCmd: number,
+    body: T,
+    isUid: boolean = false,
 ): OidbBase<T> {
-  return {
-    command: oidbCmd,
-    subCommand: subCmd,
-    errorCode: 0,
-    body,
-    errorMsg: '',
-    reserved: isUid ? 1 : 0,
-  };
+    return {
+        command: oidbCmd,
+        subCommand: subCmd,
+        errorCode: 0,
+        body,
+        errorMsg: '',
+        reserved: isUid ? 1 : 0,
+    };
 }
-

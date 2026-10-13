@@ -7,65 +7,73 @@ import { OidbError } from '../../../src/oidb-service';
 import { Ntv2UploadRequest } from '../../../src/oidb-services/highway/ntv2-upload-request';
 
 function packet(body: NTV2UploadRichMediaResp, errorCode = 0): SendPacketResult {
-  return {
-    success: true,
-    gotResponse: true,
-    errorCode: 0,
-    errorMessage: '',
-    responseData: Buffer.from(protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
-      command: 0x11C5,
-      subCommand: 100,
-      errorCode,
-      errorMsg: errorCode ? 'denied' : '',
-      body,
-    })),
-  };
+    return {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(
+            protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
+                command: 0x11c5,
+                subCommand: 100,
+                errorCode,
+                errorMsg: errorCode ? 'denied' : '',
+                body,
+            }),
+        ),
+    };
 }
 
 const params: Ntv2UploadRequest.Params = {
-  oidbCmd: 0x11C5,
-  isGroup: false,
-  targetIdOrUid: 'u_peer',
-  requestId: 1,
-  businessType: 1,
-  uploadInfo: [],
-  compatQmsgSceneType: 1,
-  extBizInfo: {},
-  tryFast: true,
-  clientRandomId: 1n,
+    oidbCmd: 0x11c5,
+    isGroup: false,
+    targetIdOrUid: 'u_peer',
+    requestId: 1,
+    businessType: 1,
+    uploadInfo: [],
+    compatQmsgSceneType: 1,
+    extBizInfo: {},
+    tryFast: true,
+    clientRandomId: 1n,
 };
 
 describe('Ntv2UploadRequest', () => {
-  it.each([
-    { tempGroupId: 0 },
-    { tempGroupId: -1 },
-    { tempGroupId: 1.5 },
-    { tempGroupId: 700, isGroup: true },
-    { tempGroupId: 700, targetIdOrUid: '' },
-    { tempGroupId: 700, targetIdOrUid: 1001 },
-  ])('rejects invalid temp context before sending: %j', async (invalid) => {
-    const sendRawPacket = vi.fn();
-    await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, { ...params, ...invalid }))
-      .rejects.toThrow('invalid temp-session image upload context');
-    expect(sendRawPacket).not.toHaveBeenCalled();
-  });
+    it.each([
+        { tempGroupId: 0 },
+        { tempGroupId: -1 },
+        { tempGroupId: 1.5 },
+        { tempGroupId: 700, isGroup: true },
+        { tempGroupId: 700, targetIdOrUid: '' },
+        { tempGroupId: 700, targetIdOrUid: 1001 },
+    ])('rejects invalid temp context before sending: %j', async (invalid) => {
+        const sendRawPacket = vi.fn();
+        await expect(
+            Ntv2UploadRequest.invoke({ sendRawPacket }, { ...params, ...invalid }),
+        ).rejects.toThrow('invalid temp-session image upload context');
+        expect(sendRawPacket).not.toHaveBeenCalled();
+    });
 
-  it('sends the resolved command on the default OIDB wire name', async () => {
-    const sendRawPacket = vi.fn(async () => packet({
-      upload: { msgInfo: { msgInfoBody: [] } },
-    }));
-    await Ntv2UploadRequest.invoke({ sendRawPacket }, params);
-    expect(sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x11c5_100');
-  });
+    it('sends the resolved command on the default OIDB wire name', async () => {
+        const sendRawPacket = vi.fn(async () =>
+            packet({
+                upload: { msgInfo: { msgInfoBody: [] } },
+            }),
+        );
+        await Ntv2UploadRequest.invoke({ sendRawPacket }, params);
+        expect(sendRawPacket.mock.calls[0]![0]).toBe('OidbSvcTrpcTcp.0x11c5_100');
+    });
 
-  it('raises OidbError when the envelope is rejected', async () => {
-    const sendRawPacket = vi.fn(async () => packet({ upload: { msgInfo: {} } }, 42));
-    await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, params)).rejects.toBeInstanceOf(OidbError);
-  });
+    it('raises OidbError when the envelope is rejected', async () => {
+        const sendRawPacket = vi.fn(async () => packet({ upload: { msgInfo: {} } }, 42));
+        await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, params)).rejects.toBeInstanceOf(
+            OidbError,
+        );
+    });
 
-  it('fails in deserialize when msgInfo is missing', async () => {
-    const sendRawPacket = vi.fn(async () => packet({ upload: { uKey: 'k' } }));
-    await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, params))
-      .rejects.toThrow('upload response missing msgInfo');
-  });
+    it('fails in deserialize when msgInfo is missing', async () => {
+        const sendRawPacket = vi.fn(async () => packet({ upload: { uKey: 'k' } }));
+        await expect(Ntv2UploadRequest.invoke({ sendRawPacket }, params)).rejects.toThrow(
+            'upload response missing msgInfo',
+        );
+    });
 });

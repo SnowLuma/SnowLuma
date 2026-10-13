@@ -4,13 +4,17 @@ import { actions } from '../src/actions/message';
 import type { JsonObject, MessageMeta } from '../src/types';
 
 function requireAction(name: string) {
-  const action = actions.find((entry) => entry.names[0] === name);
-  if (!action) throw new Error(`${name} action missing`);
-  return action;
+    const action = actions.find((entry) => entry.names[0] === name);
+
+    if (!action) {
+        throw new Error(`${name} action missing`);
+    }
+
+    return action;
 }
 
 function asCtx(partial: Partial<ApiActionContext>): ApiActionContext {
-  return { refreshMessageMedia: vi.fn(async () => {}), ...partial } as ApiActionContext;
+    return { refreshMessageMedia: vi.fn(async () => {}), ...partial } as ApiActionContext;
 }
 
 const sendMsg = requireAction('send_msg');
@@ -20,502 +24,530 @@ const getMsg = requireAction('get_msg');
 const deleteMsg = requireAction('delete_msg');
 
 describe('message actions catalog', () => {
-  it('exports the public message actions in source order', () => {
-    expect(actions.map((entry) => entry.names[0])).toEqual([
-      'send_custom_face',
-      'send_msg',
-      'send_private_msg',
-      'send_group_msg',
-      'get_msg',
-      'delete_msg',
-    ]);
-  });
+    it('exports the public message actions in source order', () => {
+        expect(actions.map((entry) => entry.names[0])).toEqual([
+            'send_custom_face',
+            'send_msg',
+            'send_private_msg',
+            'send_group_msg',
+            'get_msg',
+            'delete_msg',
+        ]);
+    });
 
-  it('marks only get_msg as read-only', () => {
-    expect(sendMsg.describe().readOnly).toBe(false);
-    expect(sendPrivateMsg.describe().readOnly).toBe(false);
-    expect(sendGroupMsg.describe().readOnly).toBe(false);
-    expect(getMsg.describe().readOnly).toBe(true);
-    expect(deleteMsg.describe().readOnly).toBe(false);
-  });
+    it('marks only get_msg as read-only', () => {
+        expect(sendMsg.describe().readOnly).toBe(false);
+        expect(sendPrivateMsg.describe().readOnly).toBe(false);
+        expect(sendGroupMsg.describe().readOnly).toBe(false);
+        expect(getMsg.describe().readOnly).toBe(true);
+        expect(deleteMsg.describe().readOnly).toBe(false);
+    });
 });
 
 describe('send_custom_face', () => {
-  const action = requireAction('send_custom_face');
-  const url = 'https://p.qpic.cn/qq_expression/10001/saved-sticker/0';
-  const image = { type: 'image', data: { file: url, sub_type: 1, summary: '[动画表情]' } };
+    const action = requireAction('send_custom_face');
+    const url = 'https://p.qpic.cn/qq_expression/10001/saved-sticker/0';
+    const image = { type: 'image', data: { file: url, sub_type: 1, summary: '[动画表情]' } };
 
-  function context() {
-    const resolveCustomFace = vi.fn(async () => ({ emojiId: 'saved-sticker', url, md5: 'a'.repeat(32) }));
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 7 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 8 }));
-    const ctx = asCtx({
-      bridge: { apis: { profile: { resolveCustomFace } } } as unknown as ApiActionContext['bridge'],
-      sendGroupMessage, sendPrivateMessage,
+    function context() {
+        const resolveCustomFace = vi.fn(async () => ({
+            emojiId: 'saved-sticker',
+            url,
+            md5: 'a'.repeat(32),
+        }));
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 7 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 8 }));
+        const ctx = asCtx({
+            bridge: {
+                apis: { profile: { resolveCustomFace } },
+            } as unknown as ApiActionContext['bridge'],
+            sendGroupMessage,
+            sendPrivateMessage,
+        });
+        return { ctx, resolveCustomFace, sendGroupMessage, sendPrivateMessage };
+    }
+
+    it('resolves the saved id and sends a sticker with an optional reply', async () => {
+        const { ctx, resolveCustomFace, sendGroupMessage } = context();
+        expect(
+            await action.toHandler(ctx)({
+                emoji_id: 'saved-sticker',
+                group_id: 123,
+                reply_to: -42,
+            }),
+        ).toMatchObject({ status: 'ok', data: { message_id: 7 } });
+        expect(resolveCustomFace).toHaveBeenCalledWith('saved-sticker');
+        expect(sendGroupMessage).toHaveBeenCalledWith(
+            123,
+            [{ type: 'reply', data: { id: '-42' } }, image],
+            false,
+        );
     });
-    return { ctx, resolveCustomFace, sendGroupMessage, sendPrivateMessage };
-  }
 
-  it('resolves the saved id and sends a sticker with an optional reply', async () => {
-    const { ctx, resolveCustomFace, sendGroupMessage } = context();
-    expect(await action.toHandler(ctx)({ emoji_id: 'saved-sticker', group_id: 123, reply_to: -42 }))
-      .toMatchObject({ status: 'ok', data: { message_id: 7 } });
-    expect(resolveCustomFace).toHaveBeenCalledWith('saved-sticker');
-    expect(sendGroupMessage).toHaveBeenCalledWith(123, [{ type: 'reply', data: { id: '-42' } }, image], false);
-  });
+    it('supports a private destination and propagates lookup failures', async () => {
+        const { ctx, resolveCustomFace, sendPrivateMessage } = context();
+        expect(
+            await action.toHandler(ctx)({ emoji_id: 'a'.repeat(32), user_id: 456 }),
+        ).toMatchObject({ status: 'ok', data: { message_id: 8 } });
+        expect(sendPrivateMessage).toHaveBeenCalledWith(456, [image], false);
+        resolveCustomFace.mockRejectedValueOnce(new Error('sticker missing'));
+        await expect(action.toHandler(ctx)({ emoji_id: 'missing', user_id: 456 })).rejects.toThrow(
+            'sticker missing',
+        );
+        expect(sendPrivateMessage).toHaveBeenCalledTimes(1);
+    });
 
-  it('supports a private destination and propagates lookup failures', async () => {
-    const { ctx, resolveCustomFace, sendPrivateMessage } = context();
-    expect(await action.toHandler(ctx)({ emoji_id: 'a'.repeat(32), user_id: 456 }))
-      .toMatchObject({ status: 'ok', data: { message_id: 8 } });
-    expect(sendPrivateMessage).toHaveBeenCalledWith(456, [image], false);
-    resolveCustomFace.mockRejectedValueOnce(new Error('sticker missing'));
-    await expect(action.toHandler(ctx)({ emoji_id: 'missing', user_id: 456 })).rejects.toThrow('sticker missing');
-    expect(sendPrivateMessage).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([{}, { group_id: 123, user_id: 456 }])('rejects an ambiguous destination before lookup', async (target) => {
-    const { ctx, resolveCustomFace } = context();
-    expect(await action.toHandler(ctx)({ emoji_id: 'saved-sticker', ...target })).toMatchObject({ retcode: 1400 });
-    expect(resolveCustomFace).not.toHaveBeenCalled();
-  });
+    it.each([{}, { group_id: 123, user_id: 456 }])(
+        'rejects an ambiguous destination before lookup',
+        async (target) => {
+            const { ctx, resolveCustomFace } = context();
+            expect(
+                await action.toHandler(ctx)({ emoji_id: 'saved-sticker', ...target }),
+            ).toMatchObject({ retcode: 1400 });
+            expect(resolveCustomFace).not.toHaveBeenCalled();
+        },
+    );
 });
 
 describe('send_msg parse', () => {
-  it('defaults auto_escape to false and leaves optional ids unset', () => {
-    expect(sendMsg.parse({ message: 'hello route' })).toEqual({
-      ok: true,
-      value: {
-        message: 'hello route',
-        message_type: undefined,
-        group_id: undefined,
-        user_id: undefined,
-        auto_escape: false,
-      },
+    it('defaults auto_escape to false and leaves optional ids unset', () => {
+        expect(sendMsg.parse({ message: 'hello route' })).toEqual({
+            ok: true,
+            value: {
+                message: 'hello route',
+                message_type: undefined,
+                group_id: undefined,
+                user_id: undefined,
+                auto_escape: false,
+            },
+        });
     });
-  });
 
-  it('parses a JSON-array message string and numeric ids', () => {
-    expect(sendMsg.parse({
-      message: '[{"type":"text","data":{"text":"hi"}}]',
-      message_type: 'group',
-      group_id: '314159',
-      user_id: '271828',
-      auto_escape: 'on',
-    })).toEqual({
-      ok: true,
-      value: {
-        message: [{ type: 'text', data: { text: 'hi' } }],
-        message_type: 'group',
-        group_id: 314159,
-        user_id: 271828,
-        auto_escape: true,
-      },
+    it('parses a JSON-array message string and numeric ids', () => {
+        expect(
+            sendMsg.parse({
+                message: '[{"type":"text","data":{"text":"hi"}}]',
+                message_type: 'group',
+                group_id: '314159',
+                user_id: '271828',
+                auto_escape: 'on',
+            }),
+        ).toEqual({
+            ok: true,
+            value: {
+                message: [{ type: 'text', data: { text: 'hi' } }],
+                message_type: 'group',
+                group_id: 314159,
+                user_id: 271828,
+                auto_escape: true,
+            },
+        });
     });
-  });
 
-  it('requires message and rejects group_id 0', () => {
-    expect(sendMsg.parse({})).toEqual({
-      ok: false,
-      field: 'message',
-      reason: 'is required',
+    it('requires message and rejects group_id 0', () => {
+        expect(sendMsg.parse({})).toEqual({
+            ok: false,
+            field: 'message',
+            reason: 'is required',
+        });
+        expect(sendMsg.parse({ message: 'x', group_id: 0 })).toEqual({
+            ok: false,
+            field: 'group_id',
+            reason: 'must be >= 1',
+        });
     });
-    expect(sendMsg.parse({ message: 'x', group_id: 0 })).toEqual({
-      ok: false,
-      field: 'group_id',
-      reason: 'must be >= 1',
-    });
-  });
 
-  it('treats an empty group_id string as absent', () => {
-    expect(sendMsg.parse({
-      message_type: 'private',
-      user_id: 1316864423,
-      group_id: '',
-      message: 'hi',
-    })).toEqual({
-      ok: true,
-      value: {
-        message: 'hi',
-        message_type: 'private',
-        group_id: undefined,
-        user_id: 1316864423,
-        auto_escape: false,
-      },
+    it('treats an empty group_id string as absent', () => {
+        expect(
+            sendMsg.parse({
+                message_type: 'private',
+                user_id: 1316864423,
+                group_id: '',
+                message: 'hi',
+            }),
+        ).toEqual({
+            ok: true,
+            value: {
+                message: 'hi',
+                message_type: 'private',
+                group_id: undefined,
+                user_id: 1316864423,
+                auto_escape: false,
+            },
+        });
     });
-  });
 });
 
 describe('send_msg run', () => {
-  it('sends a group message when message_type is group', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 9001 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'group',
-      group_id: 314159,
-      message: 'group hello',
+    it('sends a group message when message_type is group', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 9001 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'group',
+            group_id: 314159,
+            message: 'group hello',
+        });
+
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9001 } });
+        expect(sendGroupMessage.mock.calls).toEqual([[314159, 'group hello', false]]);
+        expect(sendPrivateMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9001 } });
-    expect(sendGroupMessage.mock.calls).toEqual([[314159, 'group hello', false]]);
-    expect(sendPrivateMessage).not.toHaveBeenCalled();
-  });
+    it('sends a group message when only group_id is present', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 9002 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            group_id: 80001,
+            user_id: 271828,
+            message: [{ type: 'text', data: { text: 'by group_id' } }],
+            auto_escape: true,
+        });
 
-  it('sends a group message when only group_id is present', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 9002 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      group_id: 80001,
-      user_id: 271828,
-      message: [{ type: 'text', data: { text: 'by group_id' } }],
-      auto_escape: true,
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9002 } });
+        expect(sendGroupMessage.mock.calls).toEqual([
+            [80001, [{ type: 'text', data: { text: 'by group_id' } }], true],
+        ]);
+        expect(sendPrivateMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9002 } });
-    expect(sendGroupMessage.mock.calls).toEqual([[
-      80001,
-      [{ type: 'text', data: { text: 'by group_id' } }],
-      true,
-    ]]);
-    expect(sendPrivateMessage).not.toHaveBeenCalled();
-  });
+    it('sends a private message when group_id is an empty string', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9006 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'private',
+            user_id: 1316864423,
+            group_id: '',
+            message: [{ type: 'image', data: { file: 'base64://x' } }],
+        });
 
-  it('sends a private message when group_id is an empty string', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9006 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'private',
-      user_id: 1316864423,
-      group_id: '',
-      message: [{ type: 'image', data: { file: 'base64://x' } }],
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9006 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([
+            [1316864423, [{ type: 'image', data: { file: 'base64://x' } }], false, undefined],
+        ]);
+        expect(sendGroupMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9006 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[
-      1316864423,
-      [{ type: 'image', data: { file: 'base64://x' } }],
-      false,
-      undefined,
-    ]]);
-    expect(sendGroupMessage).not.toHaveBeenCalled();
-  });
+    it('sends a private message when only user_id is present', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9003 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            user_id: 271828,
+            message: 'private hello',
+        });
 
-  it('sends a private message when only user_id is present', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9003 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      user_id: 271828,
-      message: 'private hello',
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9003 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([
+            [271828, 'private hello', false, undefined],
+        ]);
+        expect(sendGroupMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9003 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[271828, 'private hello', false, undefined]]);
-    expect(sendGroupMessage).not.toHaveBeenCalled();
-  });
+    it('routes private + both ids into a temp-session reply', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9004 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'private',
+            user_id: 13579,
+            group_id: 70001,
+            message: 'temp hi',
+            auto_escape: false,
+        });
 
-  it('routes private + both ids into a temp-session reply', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9004 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'private',
-      user_id: 13579,
-      group_id: 70001,
-      message: 'temp hi',
-      auto_escape: false,
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9004 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([[13579, 'temp hi', false, 70001]]);
+        expect(sendGroupMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9004 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[13579, 'temp hi', false, 70001]]);
-    expect(sendGroupMessage).not.toHaveBeenCalled();
-  });
+    it('still sends a group message when message_type is group and user_id is also set', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 9005 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'group',
+            group_id: 80002,
+            user_id: 30003,
+            message: 'not temp',
+        });
 
-  it('still sends a group message when message_type is group and user_id is also set', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 9005 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'group',
-      group_id: 80002,
-      user_id: 30003,
-      message: 'not temp',
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9005 } });
+        expect(sendGroupMessage.mock.calls).toEqual([[80002, 'not temp', false]]);
+        expect(sendPrivateMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9005 } });
-    expect(sendGroupMessage.mock.calls).toEqual([[80002, 'not temp', false]]);
-    expect(sendPrivateMessage).not.toHaveBeenCalled();
-  });
+    it('returns BAD_REQUEST when message_type is group without group_id', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'group',
+            message: 'missing group',
+        });
 
-  it('returns BAD_REQUEST when message_type is group without group_id', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'group',
-      message: 'missing group',
+        expect(response).toEqual({
+            status: 'failed',
+            retcode: 1400,
+            data: null,
+            wording: 'group_id is required',
+        });
+        expect(sendGroupMessage).not.toHaveBeenCalled();
+        expect(sendPrivateMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({
-      status: 'failed',
-      retcode: 1400,
-      data: null,
-      wording: 'group_id is required',
-    });
-    expect(sendGroupMessage).not.toHaveBeenCalled();
-    expect(sendPrivateMessage).not.toHaveBeenCalled();
-  });
+    it('returns BAD_REQUEST when neither a group route nor user_id is present', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
+        const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
+            message_type: 'private',
+            message: 'missing user',
+        });
 
-  it('returns BAD_REQUEST when neither a group route nor user_id is present', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 0 }));
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 0 }));
-    const response = await sendMsg.toHandler(asCtx({ sendGroupMessage, sendPrivateMessage }))({
-      message_type: 'private',
-      message: 'missing user',
+        expect(response).toEqual({
+            status: 'failed',
+            retcode: 1400,
+            data: null,
+            wording: 'user_id is required',
+        });
+        expect(sendGroupMessage).not.toHaveBeenCalled();
+        expect(sendPrivateMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({
-      status: 'failed',
-      retcode: 1400,
-      data: null,
-      wording: 'user_id is required',
-    });
-    expect(sendGroupMessage).not.toHaveBeenCalled();
-    expect(sendPrivateMessage).not.toHaveBeenCalled();
-  });
+    it('shapes a parse failure as BAD_REQUEST wording', async () => {
+        const response = await sendMsg.toHandler(asCtx({}))({});
 
-  it('shapes a parse failure as BAD_REQUEST wording', async () => {
-    const response = await sendMsg.toHandler(asCtx({}))({});
-
-    expect(response).toEqual({
-      status: 'failed',
-      retcode: 1400,
-      data: null,
-      wording: 'message: is required',
+        expect(response).toEqual({
+            status: 'failed',
+            retcode: 1400,
+            data: null,
+            wording: 'message: is required',
+        });
     });
-  });
 });
 
 describe('send_private_msg', () => {
-  it('parses group_id 0 and defaults auto_escape', () => {
-    expect(sendPrivateMsg.parse({
-      user_id: 24680,
-      message: 'plain private',
-      group_id: 0,
-    })).toEqual({
-      ok: true,
-      value: {
-        user_id: 24680,
-        message: 'plain private',
-        group_id: 0,
-        auto_escape: false,
-      },
-    });
-  });
-
-  it('rejects a negative group_id before sending', () => {
-    expect(sendPrivateMsg.parse({
-      user_id: 24680,
-      message: 'x',
-      group_id: -1,
-    })).toEqual({
-      ok: false,
-      field: 'group_id',
-      reason: 'must be >= 0',
-    });
-  });
-
-  it('sends a friend private message when group_id is absent', async () => {
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9101 }));
-    const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
-      user_id: 24680,
-      message: 'friend hi',
+    it('parses group_id 0 and defaults auto_escape', () => {
+        expect(
+            sendPrivateMsg.parse({
+                user_id: 24680,
+                message: 'plain private',
+                group_id: 0,
+            }),
+        ).toEqual({
+            ok: true,
+            value: {
+                user_id: 24680,
+                message: 'plain private',
+                group_id: 0,
+                auto_escape: false,
+            },
+        });
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9101 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[24680, 'friend hi', false, undefined]]);
-  });
-
-  it('treats group_id 0 as no temp session', async () => {
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9102 }));
-    const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
-      user_id: 24682,
-      group_id: 0,
-      message: 'zero group',
-      auto_escape: true,
+    it('rejects a negative group_id before sending', () => {
+        expect(
+            sendPrivateMsg.parse({
+                user_id: 24680,
+                message: 'x',
+                group_id: -1,
+            }),
+        ).toEqual({
+            ok: false,
+            field: 'group_id',
+            reason: 'must be >= 0',
+        });
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9102 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[24682, 'zero group', true, undefined]]);
-  });
+    it('sends a friend private message when group_id is absent', async () => {
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9101 }));
+        const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
+            user_id: 24680,
+            message: 'friend hi',
+        });
 
-  it('forwards a positive group_id as the temp-session source', async () => {
-    const sendPrivateMessage = vi.fn(async () => ({ messageId: 9103 }));
-    const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
-      user_id: 24681,
-      group_id: 70002,
-      message: 'temp from group',
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9101 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([[24680, 'friend hi', false, undefined]]);
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9103 } });
-    expect(sendPrivateMessage.mock.calls).toEqual([[24681, 'temp from group', false, 70002]]);
-  });
+    it('treats group_id 0 as no temp session', async () => {
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9102 }));
+        const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
+            user_id: 24682,
+            group_id: 0,
+            message: 'zero group',
+            auto_escape: true,
+        });
+
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9102 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([[24682, 'zero group', true, undefined]]);
+    });
+
+    it('forwards a positive group_id as the temp-session source', async () => {
+        const sendPrivateMessage = vi.fn(async () => ({ messageId: 9103 }));
+        const response = await sendPrivateMsg.toHandler(asCtx({ sendPrivateMessage }))({
+            user_id: 24681,
+            group_id: 70002,
+            message: 'temp from group',
+        });
+
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9103 } });
+        expect(sendPrivateMessage.mock.calls).toEqual([[24681, 'temp from group', false, 70002]]);
+    });
 });
 
 describe('send_group_msg', () => {
-  it('requires group_id from the groupAction preset', () => {
-    expect(sendGroupMsg.parse({ message: 'need group' })).toEqual({
-      ok: false,
-      field: 'group_id',
-      reason: 'is required',
-    });
-    expect(sendGroupMsg.parse({ group_id: 888001, message: 'ok' })).toEqual({
-      ok: true,
-      value: {
-        group_id: 888001,
-        message: 'ok',
-        auto_escape: false,
-      },
-    });
-  });
-
-  it('sends the group message and returns the receipt id', async () => {
-    const sendGroupMessage = vi.fn(async () => ({ messageId: 9201 }));
-    const response = await sendGroupMsg.toHandler(asCtx({ sendGroupMessage }))({
-      group_id: 888001,
-      message: 'group body',
-      auto_escape: true,
+    it('requires group_id from the groupAction preset', () => {
+        expect(sendGroupMsg.parse({ message: 'need group' })).toEqual({
+            ok: false,
+            field: 'group_id',
+            reason: 'is required',
+        });
+        expect(sendGroupMsg.parse({ group_id: 888001, message: 'ok' })).toEqual({
+            ok: true,
+            value: {
+                group_id: 888001,
+                message: 'ok',
+                auto_escape: false,
+            },
+        });
     });
 
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9201 } });
-    expect(sendGroupMessage.mock.calls).toEqual([[888001, 'group body', true]]);
-  });
+    it('sends the group message and returns the receipt id', async () => {
+        const sendGroupMessage = vi.fn(async () => ({ messageId: 9201 }));
+        const response = await sendGroupMsg.toHandler(asCtx({ sendGroupMessage }))({
+            group_id: 888001,
+            message: 'group body',
+            auto_escape: true,
+        });
+
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: { message_id: 9201 } });
+        expect(sendGroupMessage.mock.calls).toEqual([[888001, 'group body', true]]);
+    });
 });
 
 describe('get_msg', () => {
-  it('accepts a negative message_id and rejects 0', () => {
-    expect(getMsg.parse({ message_id: -2147483648 })).toEqual({
-      ok: true,
-      value: { message_id: -2147483648 },
-    });
-    expect(getMsg.parse({ message_id: 0 })).toEqual({
-      ok: false,
-      field: 'message_id',
-      reason: 'must not be 0',
-    });
-  });
-
-  it('returns ACTION_FAILED when the store has no event', async () => {
-    const getMessage = vi.fn(() => null);
-    const response = await getMsg.toHandler(asCtx({ getMessage }))({ message_id: 424243 });
-
-    expect(response).toEqual({
-      status: 'failed',
-      retcode: 100,
-      data: null,
-      wording: 'message not found',
-    });
-    expect(getMessage.mock.calls).toEqual([[424243]]);
-  });
-
-  it('strips post_type/self_id and sets real_id from the stored message_id', async () => {
-    const stored: JsonObject = {
-      post_type: 'message',
-      self_id: 10001,
-      message_id: 424242,
-      message_type: 'group',
-      group_id: 314159,
-      user_id: 271828,
-      message: 'plain stored text',
-      time: 1700000000,
-    };
-    const getMessage = vi.fn(() => stored);
-    const getImageInfo = vi.fn(async () => ({ url: 'https://unused.example/img' }));
-    const response = await getMsg.toHandler(asCtx({ getMessage, getImageInfo }))({
-      message_id: 424242,
+    it('accepts a negative message_id and rejects 0', () => {
+        expect(getMsg.parse({ message_id: -2147483648 })).toEqual({
+            ok: true,
+            value: { message_id: -2147483648 },
+        });
+        expect(getMsg.parse({ message_id: 0 })).toEqual({
+            ok: false,
+            field: 'message_id',
+            reason: 'must not be 0',
+        });
     });
 
-    expect(response).toEqual({
-      status: 'ok',
-      retcode: 0,
-      data: {
-        message_id: 424242,
-        message_type: 'group',
-        group_id: 314159,
-        user_id: 271828,
-        message: 'plain stored text',
-        time: 1700000000,
-        real_id: 424242,
-      },
-    });
-    expect(stored).toEqual({
-      post_type: 'message',
-      self_id: 10001,
-      message_id: 424242,
-      message_type: 'group',
-      group_id: 314159,
-      user_id: 271828,
-      message: 'plain stored text',
-      time: 1700000000,
-    });
-    expect(getImageInfo).not.toHaveBeenCalled();
-  });
+    it('returns ACTION_FAILED when the store has no event', async () => {
+        const getMessage = vi.fn(() => null);
+        const response = await getMsg.toHandler(asCtx({ getMessage }))({ message_id: 424243 });
 
-  it('falls back to the request message_id when the stored event has none', async () => {
-    const getMessage = vi.fn(() => ({
-      message_type: 'private',
-      user_id: 13579,
-      message: 'no stored id',
-    }));
-    const response = await getMsg.toHandler(asCtx({ getMessage }))({ message_id: 555001 });
-
-    expect(response).toEqual({
-      status: 'ok',
-      retcode: 0,
-      data: {
-        message_type: 'private',
-        user_id: 13579,
-        message: 'no stored id',
-        real_id: 555001,
-      },
+        expect(response).toEqual({
+            status: 'failed',
+            retcode: 100,
+            data: null,
+            wording: 'message not found',
+        });
+        expect(getMessage.mock.calls).toEqual([[424243]]);
     });
-  });
 
+    it('strips post_type/self_id and sets real_id from the stored message_id', async () => {
+        const stored: JsonObject = {
+            post_type: 'message',
+            self_id: 10001,
+            message_id: 424242,
+            message_type: 'group',
+            group_id: 314159,
+            user_id: 271828,
+            message: 'plain stored text',
+            time: 1700000000,
+        };
+        const getMessage = vi.fn(() => stored);
+        const getImageInfo = vi.fn(async () => ({ url: 'https://unused.example/img' }));
+        const response = await getMsg.toHandler(asCtx({ getMessage, getImageInfo }))({
+            message_id: 424242,
+        });
+
+        expect(response).toEqual({
+            status: 'ok',
+            retcode: 0,
+            data: {
+                message_id: 424242,
+                message_type: 'group',
+                group_id: 314159,
+                user_id: 271828,
+                message: 'plain stored text',
+                time: 1700000000,
+                real_id: 424242,
+            },
+        });
+        expect(stored).toEqual({
+            post_type: 'message',
+            self_id: 10001,
+            message_id: 424242,
+            message_type: 'group',
+            group_id: 314159,
+            user_id: 271828,
+            message: 'plain stored text',
+            time: 1700000000,
+        });
+        expect(getImageInfo).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the request message_id when the stored event has none', async () => {
+        const getMessage = vi.fn(() => ({
+            message_type: 'private',
+            user_id: 13579,
+            message: 'no stored id',
+        }));
+        const response = await getMsg.toHandler(asCtx({ getMessage }))({ message_id: 555001 });
+
+        expect(response).toEqual({
+            status: 'ok',
+            retcode: 0,
+            data: {
+                message_type: 'private',
+                user_id: 13579,
+                message: 'no stored id',
+                real_id: 555001,
+            },
+        });
+    });
 });
 
 describe('delete_msg', () => {
-  it('returns ACTION_FAILED when no retractable meta exists', async () => {
-    const getMessageMeta = vi.fn(() => null);
-    const deleteMessage = vi.fn(async () => {});
-    const response = await deleteMsg.toHandler(asCtx({ getMessageMeta, deleteMessage }))({
-      message_id: 424245,
+    it('returns ACTION_FAILED when no retractable meta exists', async () => {
+        const getMessageMeta = vi.fn(() => null);
+        const deleteMessage = vi.fn(async () => {});
+        const response = await deleteMsg.toHandler(asCtx({ getMessageMeta, deleteMessage }))({
+            message_id: 424245,
+        });
+
+        expect(response).toEqual({
+            status: 'failed',
+            retcode: 100,
+            data: null,
+            wording: 'message not found or not retractable',
+        });
+        expect(getMessageMeta.mock.calls).toEqual([[424245]]);
+        expect(deleteMessage).not.toHaveBeenCalled();
     });
 
-    expect(response).toEqual({
-      status: 'failed',
-      retcode: 100,
-      data: null,
-      wording: 'message not found or not retractable',
-    });
-    expect(getMessageMeta.mock.calls).toEqual([[424245]]);
-    expect(deleteMessage).not.toHaveBeenCalled();
-  });
+    it('deletes with the stored meta and returns an empty ok payload', async () => {
+        const meta: MessageMeta = {
+            isGroup: true,
+            targetId: 314159,
+            sequence: 77,
+            sequenceAuthoritative: true,
+            eventName: 'group_message',
+            clientSequence: 0,
+            random: 123,
+            timestamp: 1700000000,
+        };
+        const getMessageMeta = vi.fn(() => meta);
+        const deleteMessage = vi.fn(async () => {});
+        const response = await deleteMsg.toHandler(asCtx({ getMessageMeta, deleteMessage }))({
+            message_id: -424244,
+        });
 
-  it('deletes with the stored meta and returns an empty ok payload', async () => {
-    const meta: MessageMeta = {
-      isGroup: true,
-      targetId: 314159,
-      sequence: 77,
-      sequenceAuthoritative: true,
-      eventName: 'group_message',
-      clientSequence: 0,
-      random: 123,
-      timestamp: 1700000000,
-    };
-    const getMessageMeta = vi.fn(() => meta);
-    const deleteMessage = vi.fn(async () => {});
-    const response = await deleteMsg.toHandler(asCtx({ getMessageMeta, deleteMessage }))({
-      message_id: -424244,
+        expect(response).toEqual({ status: 'ok', retcode: 0, data: null });
+        expect(getMessageMeta.mock.calls).toEqual([[-424244]]);
+        expect(deleteMessage.mock.calls).toEqual([[-424244, meta]]);
     });
-
-    expect(response).toEqual({ status: 'ok', retcode: 0, data: null });
-    expect(getMessageMeta.mock.calls).toEqual([[-424244]]);
-    expect(deleteMessage.mock.calls).toEqual([[-424244, meta]]);
-  });
 });

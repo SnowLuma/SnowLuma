@@ -15,33 +15,36 @@ import type { OidbGroupSendFileReq } from '@snowluma/proto-defs/oidb-actions/gro
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace PublishGroupFile {
-  export const command = 0x6D9;
-  export const subCommand = 4;
+    export const command = 0x6d9;
+    export const subCommand = 4;
 
-  export interface Params { groupId: number; fileId: string; }
-  export type Deps = OidbSender;
+    export interface Params {
+        groupId: number;
+        fileId: string;
+    }
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbGroupSendFileReq => ({
-    body: {
-      groupUin: p.groupId,
-      type: 2,
-      info: {
-        busiType: 102,
-        fileId: p.fileId,
-        field3: Math.floor(Math.random() * 0x7fffffff) >>> 0,
-        field5: true,
-      },
-    },
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbGroupSendFileReq => ({
+        body: {
+            groupUin: p.groupId,
+            type: 2,
+            info: {
+                busiType: 102,
+                fileId: p.fileId,
+                field3: Math.floor(Math.random() * 0x7fffffff) >>> 0,
+                field5: true,
+            },
+        },
+    });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbGroupSendFileReq>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbGroupSendFileReq>>(env);
+    export const encode = (env: OidbBase<OidbGroupSendFileReq>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbGroupSendFileReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, PublishGroupFile, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, PublishGroupFile, params);
 }

@@ -11,22 +11,22 @@
 import type { pb, pb_optional, uint_32 } from '@snowluma/proton';
 
 export interface OidbBuddyRecommendArkReq {
-  uin?:         pb<1, uint_32>;
-  phoneNumber?: pb<2, string>;
-  jumpUrl?:     pb<3, string>;
+    uin?: pb<1, uint_32>;
+    phoneNumber?: pb<2, string>;
+    jumpUrl?: pb<3, string>;
 }
 export interface OidbBuddyRecommendArkResp {
-  ark?: pb<1, string>;
+    ark?: pb<1, string>;
 }
 
 export interface OidbGroupRecommendArkReq {
-  reqType?:   pb<1, uint_32>;
-  groupCode?: pb<2, uint_32>;
-  flag?:      pb<5, uint_32>;
+    reqType?: pb<1, uint_32>;
+    groupCode?: pb<2, uint_32>;
+    flag?: pb<5, uint_32>;
 }
 export interface OidbGroupRecommendArkResp {
-  errCode?: pb<1, uint_32>;
-  arkJson?: pb<5, string>;
+    errCode?: pb<1, uint_32>;
+    arkJson?: pb<5, string>;
 }
 
 // 0xdc2_34 — send a custom 图文 (URL-share) ark card to a C2C peer or group.
@@ -36,35 +36,35 @@ export interface OidbGroupRecommendArkResp {
 // Meta.peerType: 0 = C2C, 1 = group.
 // peerType, field3, and previewUrl are pb_optional — proton preserves 0/empty on wire.
 export interface Oidb0xdc2CardField5 {
-  field1?: pb<1, uint_32>;
+    field1?: pb<1, uint_32>;
 }
 
 export interface Oidb0xdc2CardContent {
-  flag?:       pb<1,  uint_32>;
-  title?:      pb<10, string>;
-  desc?:       pb<11, string>;
-  summary?:    pb<12, string>;
-  jumpUrl?:    pb<13, string>;
-  previewUrl?: pb_optional<14, string>;
+    flag?: pb<1, uint_32>;
+    title?: pb<10, string>;
+    desc?: pb<11, string>;
+    summary?: pb<12, string>;
+    jumpUrl?: pb<13, string>;
+    previewUrl?: pb_optional<14, string>;
 }
 
 export interface Oidb0xdc2AppInfo {
-  appId?:    pb<1,  uint_32>;
-  field2?:   pb<2,  uint_32>;
-  field3?:   pb_optional<3,  uint_32>;
-  field5?:   pb<5,  Oidb0xdc2CardField5>;
-  targetId?: pb<11, uint_32>;
-  content?:  pb<12, Oidb0xdc2CardContent>;
+    appId?: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    field3?: pb_optional<3, uint_32>;
+    field5?: pb<5, Oidb0xdc2CardField5>;
+    targetId?: pb<11, uint_32>;
+    content?: pb<12, Oidb0xdc2CardContent>;
 }
 
 export interface Oidb0xdc2Meta {
-  peerType?: pb_optional<1, uint_32>;
-  targetId?: pb<2, uint_32>;
+    peerType?: pb_optional<1, uint_32>;
+    targetId?: pb<2, uint_32>;
 }
 
 export interface Oidb0xdc2_34Req {
-  appInfo?: pb<1, Oidb0xdc2AppInfo>;
-  meta?:    pb<2, Oidb0xdc2Meta>;
+    appInfo?: pb<1, Oidb0xdc2AppInfo>;
+    meta?: pb<2, Oidb0xdc2Meta>;
 }
 
 export interface Oidb0xdc2_34Resp {}

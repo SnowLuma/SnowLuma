@@ -1,8 +1,13 @@
+import type { MarkdownData, MentionExtraSend } from '@snowluma/proto-defs/action';
 import type {
-  MarkdownData,
-  MentionExtraSend,
-} from '@snowluma/proto-defs/action';
-import type { Elem, GroupFileExtra, MarketFacePbReserve, MsgInfo, PokeExtra, QFaceExtra, QSmallFaceExtra } from '@snowluma/proto-defs/element';
+    Elem,
+    GroupFileExtra,
+    MarketFacePbReserve,
+    MsgInfo,
+    PokeExtra,
+    QFaceExtra,
+    QSmallFaceExtra,
+} from '@snowluma/proto-defs/element';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { createLogger } from '@snowluma/common/logger';
 import { randomUUID } from 'crypto';
@@ -11,11 +16,11 @@ import type { BridgeContext } from './bridge-context';
 import { sysFaceStore, type FaceWire } from './sys-face-store';
 import type { MessageElement } from './events';
 import {
-  assertVideoSendPolicy,
-  assertWindowShakeSendPolicy,
-  assertValidMessageElements,
-  MessageElementValidationError,
-  type OutboundMessageScene,
+    assertVideoSendPolicy,
+    assertWindowShakeSendPolicy,
+    assertValidMessageElements,
+    MessageElementValidationError,
+    type OutboundMessageScene,
 } from './element-manifest';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
@@ -26,31 +31,31 @@ type ProtoElem = Partial<Elem>;
 const log = createLogger('Protocol.Elements');
 
 export interface SendContext {
-  bridge: BridgeContext;
-  groupId?: number;
-  userUid?: string;
-  /** Source group of an already authorized passive temp-session reply. */
-  tempGroupId?: number;
-  /** Explicit transport scene used by scene-limited message elements. */
-  scene?: OutboundMessageScene;
-  /**
-   * Set by the forward-message upload path. When `true`, file segments
-   * are encoded as receive-side wire shapes (group → `transElem(24)`,
-   * c2c → caller writes `body.msgContent` separately) instead of being
-   * dropped. The QQ-NT server rejects outgoing PbSendMsg with
-   * `transElem(24)` (result=79), but the long-msg upload service does
-   * NOT — it stores the gzipped protobuf verbatim, so the receiver
-   * can walk it back through the regular decoder. Mirrors NapCat's
-   * `PacketMsgFileElement.buildElement` + `buildContent` split (see
-   * `dev/napcatQQ/.../packet/message/element.ts:530-610`).
-   */
-  forwardFake?: boolean;
+    bridge: BridgeContext;
+    groupId?: number;
+    userUid?: string;
+    /** Source group of an already authorized passive temp-session reply. */
+    tempGroupId?: number;
+    /** Explicit transport scene used by scene-limited message elements. */
+    scene?: OutboundMessageScene;
+    /**
+     * Set by the forward-message upload path. When `true`, file segments
+     * are encoded as receive-side wire shapes (group → `transElem(24)`,
+     * c2c → caller writes `body.msgContent` separately) instead of being
+     * dropped. The QQ-NT server rejects outgoing PbSendMsg with
+     * `transElem(24)` (result=79), but the long-msg upload service does
+     * NOT — it stores the gzipped protobuf verbatim, so the receiver
+     * can walk it back through the regular decoder. Mirrors NapCat's
+     * `PacketMsgFileElement.buildElement` + `buildContent` split (see
+     * `dev/napcatQQ/.../packet/message/element.ts:530-610`).
+     */
+    forwardFake?: boolean;
 }
 
 function makeTextElem(text: string): ProtoElem {
-  return {
-    text: { str: text },
-  };
+    return {
+        text: { str: text },
+    };
 }
 
 // QQ-NT splits face ids across three wire encodings. The legacy FaceElem only
@@ -60,184 +65,210 @@ function makeTextElem(text: string): ProtoElem {
 //   animated (unless large=false)              → CommonElem 37 + QFaceExtra
 //   other id ≥ 260                              → CommonElem 33 + QSmallFaceExtra
 //   classic id < 260                            → legacy FaceElem
-async function makeFaceElem(faceId: number, large: boolean, resultId: string | undefined, ctx?: SendContext): Promise<ProtoElem> {
-  // With a live bridge, wait for the authoritative catalog. Login normally
-  // preloads it, while this await closes the reconnect / first-send race.
-  const resolved = ctx
-    ? await sysFaceStore.resolveWire(ctx.bridge, faceId)
-    : sysFaceStore.classify(faceId);
-  const wire: FaceWire = large ? resolved : { kind: faceId < 260 ? 'classic' : 'small' };
-  if (wire.kind === 'super') {
-    return {
-      commonElem: {
-        serviceType: 37,
-        pbElem: protobuf_encode<QFaceExtra>({
-          packId: wire.packId,
-          stickerId: wire.stickerId,
-          qsid: faceId,
-          sourceType: 1,
-          stickerType: wire.stickerType,
-          resultId,
-          randomType: 1,
-        }),
-        businessType: wire.stickerType < 4 ? wire.stickerType : 1,
-      },
-    };
-  }
-  if (resultId !== undefined) {
-    throw new MessageElementValidationError(
-      'INVALID_FIELD',
-      `face.resultId requires animation metadata for face ${faceId}`,
-      'face',
-      'resultId',
-    );
-  }
-  if (wire.kind === 'small') {
-    return {
-      commonElem: {
-        serviceType: 33,
-        pbElem: protobuf_encode<QSmallFaceExtra>({ faceId, preview: '', preview2: '' }),
-        businessType: 1,
-      },
-    };
-  }
-  return { face: { index: faceId } };
+async function makeFaceElem(
+    faceId: number,
+    large: boolean,
+    resultId: string | undefined,
+    ctx?: SendContext,
+): Promise<ProtoElem> {
+    // With a live bridge, wait for the authoritative catalog. Login normally
+    // preloads it, while this await closes the reconnect / first-send race.
+    const resolved = ctx
+        ? await sysFaceStore.resolveWire(ctx.bridge, faceId)
+        : sysFaceStore.classify(faceId);
+    const wire: FaceWire = large ? resolved : { kind: faceId < 260 ? 'classic' : 'small' };
+
+    if (wire.kind === 'super') {
+        return {
+            commonElem: {
+                serviceType: 37,
+                pbElem: protobuf_encode<QFaceExtra>({
+                    packId: wire.packId,
+                    stickerId: wire.stickerId,
+                    qsid: faceId,
+                    sourceType: 1,
+                    stickerType: wire.stickerType,
+                    resultId,
+                    randomType: 1,
+                }),
+                businessType: wire.stickerType < 4 ? wire.stickerType : 1,
+            },
+        };
+    }
+
+    if (resultId !== undefined) {
+        throw new MessageElementValidationError(
+            'INVALID_FIELD',
+            `face.resultId requires animation metadata for face ${faceId}`,
+            'face',
+            'resultId',
+        );
+    }
+
+    if (wire.kind === 'small') {
+        return {
+            commonElem: {
+                serviceType: 33,
+                pbElem: protobuf_encode<QSmallFaceExtra>({ faceId, preview: '', preview2: '' }),
+                businessType: 1,
+            },
+        };
+    }
+
+    return { face: { index: faceId } };
 }
 
 function resolveMentionDisplay(ctx: SendContext | undefined, targetUin: number): string {
-  if (!ctx || !targetUin) return '';
-  if (ctx.groupId !== undefined) {
-    const member = ctx.bridge.identity.findGroupMember(ctx.groupId, targetUin);
-    return member?.card?.trim() || member?.nickname?.trim() || '';
-  }
-  const friend = ctx.bridge.identity.findFriend(targetUin);
-  return friend?.remark?.trim() || friend?.nickname?.trim() || '';
+    if (!ctx || !targetUin) {
+        return '';
+    }
+
+    if (ctx.groupId !== undefined) {
+        const member = ctx.bridge.identity.findGroupMember(ctx.groupId, targetUin);
+        return member?.card?.trim() || member?.nickname?.trim() || '';
+    }
+
+    const friend = ctx.bridge.identity.findFriend(targetUin);
+    return friend?.remark?.trim() || friend?.nickname?.trim() || '';
 }
 
 function makeMentionElem(element: MessageElement, ctx?: SendContext): ProtoElem {
-  const mentionAll = element.uid === 'all' || element.targetUin === 0;
-  const targetUin = element.targetUin ?? 0;
+    const mentionAll = element.uid === 'all' || element.targetUin === 0;
+    const targetUin = element.targetUin ?? 0;
 
-  const extra = protobuf_encode<MentionExtraSend>({
-    type: mentionAll ? 1 : 2,
-    uin: mentionAll ? 0 : targetUin,
-    field5: 0,
-    uid: mentionAll ? 'all' : (element.uid ?? ''),
-  });
+    const extra = protobuf_encode<MentionExtraSend>({
+        type: mentionAll ? 1 : 2,
+        uin: mentionAll ? 0 : targetUin,
+        field5: 0,
+        uid: mentionAll ? 'all' : (element.uid ?? ''),
+    });
 
-  // Prefer an explicit display string from the caller; otherwise look the
-  // target up in the roster so QQ renders `@昵称` instead of `@QQ号`.
-  // Falls back to the bare uin when the roster doesn't know them yet.
-  let str = element.text;
-  if (!str) {
-    if (mentionAll) {
-      str = '@全体成员 ';
-    } else {
-      const name = resolveMentionDisplay(ctx, targetUin);
-      str = name ? `@${name} ` : `@${targetUin} `;
+    // Prefer an explicit display string from the caller; otherwise look the
+    // target up in the roster so QQ renders `@昵称` instead of `@QQ号`.
+    // Falls back to the bare uin when the roster doesn't know them yet.
+    let str = element.text;
+
+    if (!str) {
+        if (mentionAll) {
+            str = '@全体成员 ';
+        } else {
+            const name = resolveMentionDisplay(ctx, targetUin);
+            str = name ? `@${name} ` : `@${targetUin} `;
+        }
     }
-  }
 
-  return {
-    text: {
-      str,
-      pbReserve: extra,
-    },
-  };
+    return {
+        text: {
+            str,
+            pbReserve: extra,
+        },
+    };
 }
 
 function makeReplyElem(element: MessageElement): ProtoElem {
-  const seq = element.replySeq! & 0xFFFFFFFF;
+    const seq = element.replySeq! & 0xffffffff;
 
-  const srcMsg: NonNullable<Elem['srcMsg']> = {
-    origSeqs: [seq],
-  };
+    const srcMsg: NonNullable<Elem['srcMsg']> = {
+        origSeqs: [seq],
+    };
 
-  // Add additional fields if available for better reply display
-  if (element.replySenderUin) {
-    srcMsg.senderUin = BigInt(element.replySenderUin);
-  }
-  if (element.replyTime) {
-    srcMsg.time = element.replyTime;
-  }
+    // Add additional fields if available for better reply display
+    if (element.replySenderUin) {
+        srcMsg.senderUin = BigInt(element.replySenderUin);
+    }
 
-  const previews = (element.replyElements ?? []).filter(e => e.type === 'text' && e.text);
-  if (previews.length) {
-    srcMsg.elemsRaw = previews.map(e => protobuf_encode<Elem>({ text: { str: e.text! } }));
-  }
-  return { srcMsg };
+    if (element.replyTime) {
+        srcMsg.time = element.replyTime;
+    }
+
+    const previews = (element.replyElements ?? []).filter((e) => e.type === 'text' && e.text);
+
+    if (previews.length) {
+        srcMsg.elemsRaw = previews.map((e) => protobuf_encode<Elem>({ text: { str: e.text! } }));
+    }
+
+    return { srcMsg };
 }
 
 // The replied sender, encoded as a mention element placed right after srcMsg.
 // QQ NT's group reply wire shape expects this; without it a following
 // user-supplied @ is silently not honored by the server (issue #129).
 async function makeReplyMentionElem(ctx: SendContext, uin: number): Promise<ProtoElem | null> {
-  if (ctx.groupId === undefined || uin <= 0) return null;
-  const member = ctx.bridge.identity.findGroupMember(ctx.groupId, uin);
-  let uid = member?.uid ?? '';
-  if (!uid) uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
-  if (!uid) return null;
-  const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
-  // uin=0 matches QQ NT's native reply auto-mention (the real uid lives in
-  // `uid`). It does not itself notify — the user's own @ does — and the receive
-  // side strips a type=2/uin=0 mention as structural (#127), so the bot's own
-  // replies don't surface a spurious @ either.
-  const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin: 0, field5: 0, uid });
-  return { text: { str: `@${name} `, pbReserve: extra } };
+    if (ctx.groupId === undefined || uin <= 0) {
+        return null;
+    }
+
+    const member = ctx.bridge.identity.findGroupMember(ctx.groupId, uin);
+    let uid = member?.uid ?? '';
+
+    if (!uid) {
+        uid = await ctx.bridge.identity.resolveUid(uin, ctx.groupId).catch(() => '');
+    }
+
+    if (!uid) {
+        return null;
+    }
+
+    const name = member?.card?.trim() || member?.nickname?.trim() || String(uin);
+    // uin=0 matches QQ NT's native reply auto-mention (the real uid lives in
+    // `uid`). It does not itself notify — the user's own @ does — and the receive
+    // side strips a type=2/uin=0 mention as structural (#127), so the bot's own
+    // replies don't surface a spurious @ either.
+    const extra = protobuf_encode<MentionExtraSend>({ type: 2, uin: 0, field5: 0, uid });
+    return { text: { str: `@${name} `, pbReserve: extra } };
 }
 
 function makeDeflatedPayload(content: string): Uint8Array {
-  const deflated = deflateSync(Buffer.from(content, 'utf8'));
-  const payload = new Uint8Array(deflated.length + 1);
-  payload[0] = 0x01;
-  payload.set(deflated, 1);
-  return payload;
+    const deflated = deflateSync(Buffer.from(content, 'utf8'));
+    const payload = new Uint8Array(deflated.length + 1);
+    payload[0] = 0x01;
+    payload.set(deflated, 1);
+    return payload;
 }
 
 function makeJsonElem(element: MessageElement): ProtoElem {
-  const content = element.text ?? '';
+    const content = element.text ?? '';
 
-  return {
-    lightApp: {
-      data: makeDeflatedPayload(content),
-    },
-  };
+    return {
+        lightApp: {
+            data: makeDeflatedPayload(content),
+        },
+    };
 }
 
 function makeXmlElem(element: MessageElement): ProtoElem {
-  const content = element.text ?? '';
+    const content = element.text ?? '';
 
-  return {
-    richMsg: {
-      serviceId: element.subType === 0 ? 35 : (element.subType ?? 35),
-      template1: makeDeflatedPayload(content),
-    },
-  };
+    return {
+        richMsg: {
+            serviceId: element.subType === 0 ? 35 : (element.subType ?? 35),
+            template1: makeDeflatedPayload(content),
+        },
+    };
 }
 
 function makeMarkdownElem(element: MessageElement): ProtoElem {
-  const data = protobuf_encode<MarkdownData>({ content: element.text ?? '' });
+    const data = protobuf_encode<MarkdownData>({ content: element.text ?? '' });
 
-  return {
-    commonElem: {
-      serviceType: 45,
-      pbElem: data,
-      businessType: 1,
-    },
-  };
+    return {
+        commonElem: {
+            serviceType: 45,
+            pbElem: data,
+            businessType: 1,
+        },
+    };
 }
 
 function makePokeElem(element: MessageElement): ProtoElem {
-  const pokeType = element.subType;
-  return {
-    commonElem: {
-      serviceType: 2,
-      pbElem: protobuf_encode<PokeExtra>({ type: pokeType }),
-      businessType: pokeType,
-    },
-  };
+    const pokeType = element.subType;
+    return {
+        commonElem: {
+            serviceType: 2,
+            pbElem: protobuf_encode<PokeExtra>({ type: pokeType }),
+            businessType: pokeType,
+        },
+    };
 }
-
 
 /**
  * Build a market-face (商城表情) wire element from the markers carried on the
@@ -250,167 +281,210 @@ function makePokeElem(element: MessageElement): ProtoElem {
  * raw GUID bytes, recovered from the hex `emojiId`.
  */
 function makeMarketFaceElem(element: MessageElement): ProtoElem {
-  const emojiId = (element.emojiId ?? '').trim();
-  return {
-    marketFace: {
-      faceName: element.text ?? '',
-      itemType: 6,
-      faceInfo: 1,
-      faceId: hexToBytes(emojiId),
-      tabId: element.emojiPackageId ?? 0,
-      subType: 3,
-      key: element.emojiKey ?? '',
-      imageWidth: 300,
-      imageHeight: 300,
-      pbReserve: protobuf_encode<MarketFacePbReserve>({ field8: 1 }),
-    },
-  };
+    const emojiId = (element.emojiId ?? '').trim();
+    return {
+        marketFace: {
+            faceName: element.text ?? '',
+            itemType: 6,
+            faceInfo: 1,
+            faceId: hexToBytes(emojiId),
+            tabId: element.emojiPackageId ?? 0,
+            subType: 3,
+            key: element.emojiKey ?? '',
+            imageWidth: 300,
+            imageHeight: 300,
+            pbReserve: protobuf_encode<MarketFacePbReserve>({ field8: 1 }),
+        },
+    };
 }
 
 function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-    .replace(/\t/g, '&#x9;')
-    .replace(/\n/g, '&#xA;')
-    .replace(/\r/g, '&#xD;');
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;')
+        .replace(/\t/g, '&#x9;')
+        .replace(/\n/g, '&#xA;')
+        .replace(/\r/g, '&#xD;');
 }
 
 function xmlPreviewText(value: string): string {
-  // Unicode mode preserves supplementary characters and replaces lone surrogates.
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu, '\uFFFD');
+    // Unicode mode preserves supplementary characters and replaces lone surrogates.
+    return value.replace(
+        // eslint-disable-next-line no-control-regex
+        /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu,
+        '\uFFFD',
+    );
 }
 
 function escapeForwardPreview(value: string, field: string): string {
-  const normalized = xmlPreviewText(value);
-  if (normalized !== value) {
-    log.debug('forward preview characters normalized: field=%s', field);
-  }
-  return escapeXml(normalized);
+    const normalized = xmlPreviewText(value);
+
+    if (normalized !== value) {
+        log.debug('forward preview characters normalized: field=%s', field);
+    }
+
+    return escapeXml(normalized);
 }
 
 function makeForwardElem(element: MessageElement): ProtoElem {
-  const resId = (element.resId ?? '').trim();
-  if (!resId) {
-    throw new Error('forward resId is required');
-  }
+    const resId = (element.resId ?? '').trim();
 
-  // Nested forwards must round-trip this value between the LightApp preview
-  // and the outer upload's piggyback `actionCommand`. Flat forwards have no
-  // piggyback entry and use the generated value as the RichMsg `m_fileName`.
-  const uniseq = (element.forwardUuid ?? '').trim() || randomUUID();
-
-  const source = element.forwardSource && element.forwardSource.length > 0
-    ? element.forwardSource
-    : '聊天记录';
-  const summary = element.forwardSummary && element.forwardSummary.length > 0
-    ? element.forwardSummary
-    : '查看转发消息';
-  const prompt = element.forwardPrompt && element.forwardPrompt.length > 0
-    ? element.forwardPrompt
-    : '[聊天记录]';
-  const news = Array.isArray(element.forwardNews) ? element.forwardNews : [];
-  const tSum = element.forwardTSum && element.forwardTSum > 0
-    ? element.forwardTSum
-    : Math.max(news.length, 1);
-
-  // Flat outer forwards use serviceID=35 RichMsg. Nested previews keep
-  // LightApp because their forwardUuid must match a piggyback actionCommand
-  // in the outer long-message body.
-  if (!element.forwardUuid) {
-    if (xmlPreviewText(resId) !== resId) {
-      throw new MessageElementValidationError(
-        'INVALID_FIELD', 'forward resId contains invalid characters', 'forward', 'resId',
-      );
+    if (!resId) {
+        throw new Error('forward resId is required');
     }
-    const escapedSource = escapeForwardPreview(source, 'source');
-    const titles = news.map((item, index) =>
-      '<title color="#777777" size="26">' + escapeForwardPreview(item.text ?? '', `news[${index}]`) + '</title>',
-    ).join('');
-    const xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?> "
-      + '<msg serviceID="35" templateID="1" action="viewMultiMsg"'
-      + ' brief="' + escapeForwardPreview(prompt, 'prompt') + '"'
-      + ' m_fileName="' + escapeXml(uniseq) + '"'
-      + ' m_resid="' + escapeXml(resId) + '"'
-      + ' tSum="' + tSum + '" flag="3">'
-      + '<item layout="1"> '
-      + '<title color="#000000" size="34">' + escapedSource + '</title>'
-      + titles
-      + ' <hr></hr> <summary color="#808080">' + escapeForwardPreview(summary, 'summary') + '</summary>'
-      + '</item> <source name="' + escapedSource + '"></source> </msg>';
-    return {
-      richMsg: {
-        template1: makeDeflatedPayload(xml),
-        serviceId: 35,
-      },
+
+    // Nested forwards must round-trip this value between the LightApp preview
+    // and the outer upload's piggyback `actionCommand`. Flat forwards have no
+    // piggyback entry and use the generated value as the RichMsg `m_fileName`.
+    const uniseq = (element.forwardUuid ?? '').trim() || randomUUID();
+
+    const source =
+        element.forwardSource && element.forwardSource.length > 0
+            ? element.forwardSource
+            : '聊天记录';
+    const summary =
+        element.forwardSummary && element.forwardSummary.length > 0
+            ? element.forwardSummary
+            : '查看转发消息';
+    const prompt =
+        element.forwardPrompt && element.forwardPrompt.length > 0
+            ? element.forwardPrompt
+            : '[聊天记录]';
+    const news = Array.isArray(element.forwardNews) ? element.forwardNews : [];
+    const tSum =
+        element.forwardTSum && element.forwardTSum > 0
+            ? element.forwardTSum
+            : Math.max(news.length, 1);
+
+    // Flat outer forwards use serviceID=35 RichMsg. Nested previews keep
+    // LightApp because their forwardUuid must match a piggyback actionCommand
+    // in the outer long-message body.
+    if (!element.forwardUuid) {
+        if (xmlPreviewText(resId) !== resId) {
+            throw new MessageElementValidationError(
+                'INVALID_FIELD',
+                'forward resId contains invalid characters',
+                'forward',
+                'resId',
+            );
+        }
+
+        const escapedSource = escapeForwardPreview(source, 'source');
+        const titles = news
+            .map(
+                (item, index) =>
+                    '<title color="#777777" size="26">' +
+                    escapeForwardPreview(item.text ?? '', `news[${index}]`) +
+                    '</title>',
+            )
+            .join('');
+        const xml =
+            "<?xml version='1.0' encoding='UTF-8' standalone='yes'?> " +
+            '<msg serviceID="35" templateID="1" action="viewMultiMsg"' +
+            ' brief="' +
+            escapeForwardPreview(prompt, 'prompt') +
+            '"' +
+            ' m_fileName="' +
+            escapeXml(uniseq) +
+            '"' +
+            ' m_resid="' +
+            escapeXml(resId) +
+            '"' +
+            ' tSum="' +
+            tSum +
+            '" flag="3">' +
+            '<item layout="1"> ' +
+            '<title color="#000000" size="34">' +
+            escapedSource +
+            '</title>' +
+            titles +
+            ' <hr></hr> <summary color="#808080">' +
+            escapeForwardPreview(summary, 'summary') +
+            '</summary>' +
+            '</item> <source name="' +
+            escapedSource +
+            '"></source> </msg>';
+        return {
+            richMsg: {
+                template1: makeDeflatedPayload(xml),
+                serviceId: 35,
+            },
+        };
+    }
+
+    const lightApp = {
+        app: 'com.tencent.multimsg',
+        config: {
+            autosize: 1,
+            forward: 1,
+            round: 1,
+            type: 'normal',
+            width: 300,
+        },
+        desc: prompt,
+        extra: JSON.stringify({ filename: uniseq, tsum: tSum }),
+        meta: {
+            detail: {
+                news: news.map((n) => ({ text: n.text ?? '' })),
+                resid: resId,
+                source,
+                summary,
+                uniseq,
+            },
+        },
+        prompt,
+        ver: '0.0.0.5',
+        view: 'contact',
     };
-  }
 
-  const lightApp = {
-    app: 'com.tencent.multimsg',
-    config: {
-      autosize: 1,
-      forward: 1,
-      round: 1,
-      type: 'normal',
-      width: 300,
-    },
-    desc: prompt,
-    extra: JSON.stringify({ filename: uniseq, tsum: tSum }),
-    meta: {
-      detail: {
-        news: news.map(n => ({ text: n.text ?? '' })),
-        resid: resId,
-        source,
-        summary,
-        uniseq,
-      },
-    },
-    prompt,
-    ver: '0.0.0.5',
-    view: 'contact',
-  };
-
-  const json = JSON.stringify(lightApp);
-  return {
-    lightApp: {
-      data: makeDeflatedPayload(json),
-    },
-  };
+    const json = JSON.stringify(lightApp);
+    return {
+        lightApp: {
+            data: makeDeflatedPayload(json),
+        },
+    };
 }
 
 function md5BytesFromHex(hex: string | undefined): Uint8Array | null {
-  if (!hex || !/^[0-9a-fA-F]{32}$/.test(hex)) return null;
-  const bytes = hexToBytes(hex);
-  return bytes.length === 16 ? bytes : null;
+    if (!hex || !/^[0-9a-fA-F]{32}$/.test(hex)) {
+        return null;
+    }
+
+    const bytes = hexToBytes(hex);
+    return bytes.length === 16 ? bytes : null;
 }
 
 function fingerprintsFromEncodedMsgInfo(msgInfo: Uint8Array): {
-  md5Hex: string;
-  fileName: string;
-  fileSize: number;
-  width: number;
-  height: number;
+    md5Hex: string;
+    fileName: string;
+    fileSize: number;
+    width: number;
+    height: number;
 } | null {
-  let info: MsgInfo;
-  try {
-    info = protobuf_decode<MsgInfo>(msgInfo);
-  } catch {
-    return null;
-  }
-  const fi = info.msgInfoBody?.[0]?.index?.info;
-  if (!fi?.fileHash || !/^[0-9a-fA-F]{32}$/.test(fi.fileHash)) return null;
-  return {
-    md5Hex: fi.fileHash,
-    fileName: fi.fileName || `${fi.fileHash.toLowerCase()}.png`,
-    fileSize: fi.fileSize ?? 0,
-    width: fi.width ?? 0,
-    height: fi.height ?? 0,
-  };
+    let info: MsgInfo;
+
+    try {
+        info = protobuf_decode<MsgInfo>(msgInfo);
+    } catch {
+        return null;
+    }
+
+    const fi = info.msgInfoBody?.[0]?.index?.info;
+
+    if (!fi?.fileHash || !/^[0-9a-fA-F]{32}$/.test(fi.fileHash)) {
+        return null;
+    }
+
+    return {
+        md5Hex: fi.fileHash,
+        fileName: fi.fileName || `${fi.fileHash.toLowerCase()}.png`,
+        fileSize: fi.fileSize ?? 0,
+        width: fi.width ?? 0,
+        height: fi.height ?? 0,
+    };
 }
 
 /**
@@ -419,75 +493,95 @@ function fingerprintsFromEncodedMsgInfo(msgInfo: Uint8Array): {
  * fetchable URL the way native forwards do (#441).
  */
 function makeLegacyForwardImageElem(
-  isGroup: boolean,
-  msgInfo: Uint8Array,
-  element: MessageElement,
+    isGroup: boolean,
+    msgInfo: Uint8Array,
+    element: MessageElement,
 ): ProtoElem | null {
-  const fromInfo = fingerprintsFromEncodedMsgInfo(msgInfo);
-  const md5 = md5BytesFromHex(element.md5Hex) ?? md5BytesFromHex(fromInfo?.md5Hex);
-  if (!md5) return null;
-  const md5Hex = (element.md5Hex || fromInfo!.md5Hex);
-  const fileName = element.fileName || fromInfo?.fileName || `${md5Hex.toLowerCase()}.png`;
-  const fileSize = element.fileSize ?? fromInfo?.fileSize ?? 0;
-  const width = element.width ?? fromInfo?.width ?? 0;
-  const height = element.height ?? fromInfo?.height ?? 0;
-  if (isGroup) {
-    return { customFace: { filePath: fileName, md5, size: fileSize, width, height } };
-  }
-  return {
-    notOnlineImage: {
-      filePath: fileName,
-      picMd5: md5,
-      fileLen: fileSize,
-      picWidth: width,
-      picHeight: height,
-    },
-  };
+    const fromInfo = fingerprintsFromEncodedMsgInfo(msgInfo);
+    const md5 = md5BytesFromHex(element.md5Hex) ?? md5BytesFromHex(fromInfo?.md5Hex);
+
+    if (!md5) {
+        return null;
+    }
+
+    const md5Hex = element.md5Hex || fromInfo!.md5Hex;
+    const fileName = element.fileName || fromInfo?.fileName || `${md5Hex.toLowerCase()}.png`;
+    const fileSize = element.fileSize ?? fromInfo?.fileSize ?? 0;
+    const width = element.width ?? fromInfo?.width ?? 0;
+    const height = element.height ?? fromInfo?.height ?? 0;
+
+    if (isGroup) {
+        return { customFace: { filePath: fileName, md5, size: fileSize, width, height } };
+    }
+
+    return {
+        notOnlineImage: {
+            filePath: fileName,
+            picMd5: md5,
+            fileLen: fileSize,
+            picWidth: width,
+            picHeight: height,
+        },
+    };
 }
 
 async function makeImageElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem[]> {
-  const isGroup = ctx.groupId !== undefined;
-  const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
-  if (!isGroup && !targetIdOrUid) {
-    throw new Error('private image target uid is missing');
-  }
+    const isGroup = ctx.groupId !== undefined;
+    const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
 
-  const tempGroupId = ctx.scene === 'group-temp' ? ctx.tempGroupId : undefined;
-  if (ctx.scene === 'group-temp' && tempGroupId === undefined) {
-    throw new Error('temp-session image source group is missing');
-  }
-  const msgInfo = await uploadImageMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element, tempGroupId);
-  const nt: ProtoElem = {
-    commonElem: {
-      serviceType: 48,
-      pbElem: msgInfo,
-      businessType: isGroup ? 20 : 10,
-    },
-  };
-  if (!ctx.forwardFake) return [nt];
-  const legacy = makeLegacyForwardImageElem(isGroup, msgInfo, element);
-  return legacy ? [nt, legacy] : [nt];
+    if (!isGroup && !targetIdOrUid) {
+        throw new Error('private image target uid is missing');
+    }
+
+    const tempGroupId = ctx.scene === 'group-temp' ? ctx.tempGroupId : undefined;
+
+    if (ctx.scene === 'group-temp' && tempGroupId === undefined) {
+        throw new Error('temp-session image source group is missing');
+    }
+
+    const msgInfo = await uploadImageMsgInfo(
+        ctx.bridge,
+        isGroup,
+        targetIdOrUid,
+        element,
+        tempGroupId,
+    );
+    const nt: ProtoElem = {
+        commonElem: {
+            serviceType: 48,
+            pbElem: msgInfo,
+            businessType: isGroup ? 20 : 10,
+        },
+    };
+
+    if (!ctx.forwardFake) {
+        return [nt];
+    }
+
+    const legacy = makeLegacyForwardImageElem(isGroup, msgInfo, element);
+    return legacy ? [nt, legacy] : [nt];
 }
 
 async function makePttElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
-  const isGroup = ctx.groupId !== undefined;
-  const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
-  if (!isGroup && !targetIdOrUid) {
-    throw new Error('private record target uid is missing');
-  }
+    const isGroup = ctx.groupId !== undefined;
+    const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
 
-  const msgInfo = await uploadPttMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+    if (!isGroup && !targetIdOrUid) {
+        throw new Error('private record target uid is missing');
+    }
 
-  // commonElem.businessType is the QQ NT scene tag the receive-side
-  // decoder pairs with: 12=c2c, 22=group. Sending the group tag on a
-  // c2c message bounces with PbSendMsg result=79.
-  return {
-    commonElem: {
-      serviceType: 48,
-      pbElem: msgInfo,
-      businessType: isGroup ? 22 : 12,
-    },
-  };
+    const msgInfo = await uploadPttMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+
+    // commonElem.businessType is the QQ NT scene tag the receive-side
+    // decoder pairs with: 12=c2c, 22=group. Sending the group tag on a
+    // c2c message bounces with PbSendMsg result=79.
+    return {
+        commonElem: {
+            serviceType: 48,
+            pbElem: msgInfo,
+            businessType: isGroup ? 22 : 12,
+        },
+    };
 }
 
 /**
@@ -511,77 +605,83 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
  * the id).
  */
 function makeGroupFileElem(element: MessageElement, ctx?: SendContext): ProtoElem {
-  if (!element.fileId) throw new Error('file element missing fileId');
-  const cached = ctx?.bridge.recallUploadedFile(element.fileId);
-  const fileSize = element.fileSize ?? cached?.fileSize ?? 0;
-  const fileName = element.fileName ?? cached?.fileName ?? '';
-  const md5 = element.md5Hex
-    ? hexToBytes(element.md5Hex)
-    : (cached?.fileMd5 ?? new Uint8Array(0));
-  const sha1 = element.sha1Hex
-    ? hexToBytes(element.sha1Hex)
-    : (cached?.fileSha1 ?? new Uint8Array(0));
+    if (!element.fileId) {
+        throw new Error('file element missing fileId');
+    }
 
-  // Outer field1 is hardcoded to 6 in NapCat's encoder
-  // (`packet/message/element.ts:589`). Inner GroupFileExtraInfo carries
-  // busId=102 + the file_id + name + size + sha1/md5 hashes.
-  const extraBytes = protobuf_encode<GroupFileExtra>({
-    field1: 6,
-    fileName,
-    inner: {
-      info: {
-        busId: 102,
-        fileId: element.fileId,
-        fileSize: BigInt(fileSize),
+    const cached = ctx?.bridge.recallUploadedFile(element.fileId);
+    const fileSize = element.fileSize ?? cached?.fileSize ?? 0;
+    const fileName = element.fileName ?? cached?.fileName ?? '';
+    const md5 = element.md5Hex
+        ? hexToBytes(element.md5Hex)
+        : (cached?.fileMd5 ?? new Uint8Array(0));
+    const sha1 = element.sha1Hex
+        ? hexToBytes(element.sha1Hex)
+        : (cached?.fileSha1 ?? new Uint8Array(0));
+
+    // Outer field1 is hardcoded to 6 in NapCat's encoder
+    // (`packet/message/element.ts:589`). Inner GroupFileExtraInfo carries
+    // busId=102 + the file_id + name + size + sha1/md5 hashes.
+    const extraBytes = protobuf_encode<GroupFileExtra>({
+        field1: 6,
         fileName,
-        fileSha: sha1,
-        extInfoString: '',
-        fileMd5: md5,
-      },
-    },
-  });
-  if (extraBytes.length > 0xFFFF) {
-    // The 16-bit length prefix caps the payload at 64 KiB; even the
-    // densest GroupFileExtra (fileId/name/two hashes) is well under.
-    throw new Error(`group file extra too large (${extraBytes.length} > 65535)`);
-  }
-  const elemValue = new Uint8Array(3 + extraBytes.length);
-  elemValue[0] = 0x01;
-  elemValue[1] = (extraBytes.length >> 8) & 0xff;
-  elemValue[2] = extraBytes.length & 0xff;
-  elemValue.set(extraBytes, 3);
+        inner: {
+            info: {
+                busId: 102,
+                fileId: element.fileId,
+                fileSize: BigInt(fileSize),
+                fileName,
+                fileSha: sha1,
+                extInfoString: '',
+                fileMd5: md5,
+            },
+        },
+    });
 
-  return {
-    transElem: {
-      elemType: 24,
-      elemValue,
-    },
-  };
+    if (extraBytes.length > 0xffff) {
+        // The 16-bit length prefix caps the payload at 64 KiB; even the
+        // densest GroupFileExtra (fileId/name/two hashes) is well under.
+        throw new Error(`group file extra too large (${extraBytes.length} > 65535)`);
+    }
+
+    const elemValue = new Uint8Array(3 + extraBytes.length);
+    elemValue[0] = 0x01;
+    elemValue[1] = (extraBytes.length >> 8) & 0xff;
+    elemValue[2] = extraBytes.length & 0xff;
+    elemValue.set(extraBytes, 3);
+
+    return {
+        transElem: {
+            elemType: 24,
+            elemValue,
+        },
+    };
 }
 
 async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
-  const isGroup = ctx.groupId !== undefined;
-  const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
-  if (!isGroup && !targetIdOrUid) {
-    throw new Error('private video target uid is missing');
-  }
+    const isGroup = ctx.groupId !== undefined;
+    const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
 
-  const msgInfo = await uploadVideoMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+    if (!isGroup && !targetIdOrUid) {
+        throw new Error('private video target uid is missing');
+    }
 
-  // commonElem.businessType is the QQ NT scene tag the receive-side
-  // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
-  // c2c message bounces with PbSendMsg result=79.
-  //
-  // Oversize videos throw here; the OneBot layer catches that and falls
-  // back to file upload (see message-actions.ts video fallback). A file
-  // element can't be built here — there's no uploaded file_id yet.
-  return {
-    commonElem: {
-      serviceType: 48,
-      pbElem: msgInfo,
-      businessType: isGroup ? 21 : 11,
-    },
-  };
+    const msgInfo = await uploadVideoMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+
+    // commonElem.businessType is the QQ NT scene tag the receive-side
+    // decoder pairs with: 11=c2c, 21=group. Sending the group tag on a
+    // c2c message bounces with PbSendMsg result=79.
+    //
+    // Oversize videos throw here; the OneBot layer catches that and falls
+    // back to file upload (see message-actions.ts video fallback). A file
+    // element can't be built here — there's no uploaded file_id yet.
+    return {
+        commonElem: {
+            serviceType: 48,
+            pbElem: msgInfo,
+            businessType: isGroup ? 21 : 11,
+        },
+    };
 }
 
 /**
@@ -589,148 +689,167 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
  * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward, poke.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
-export async function buildSendElems(elements: MessageElement[], ctx?: SendContext): Promise<ProtoElem[]> {
-  // Validate the whole message before the first upload or packet build. This
-  // preserves all-or-nothing semantics: a malformed later segment cannot make
-  // an earlier media segment perform side effects before the send is rejected.
-  assertValidMessageElements(elements, 'W');
-  // Canonical MessageElements cannot contain empty text. OneBot's explicit
-  // empty-text compatibility placeholders are removed before this boundary,
-  // so the array length here is the effective on-wire segment count.
-  assertVideoSendPolicy(
-    elements.filter((element) => element.type === 'video').length,
-    elements.length,
-  );
-  assertWindowShakeSendPolicy(
-    elements.filter((element) => element.type === 'poke').length,
-    elements.length,
-    ctx?.scene,
-  );
-  for (const element of elements) {
-    if ((element.type === 'image' || element.type === 'record' || element.type === 'video') && !ctx) {
-      throw new MessageElementValidationError(
-        'MISSING_FIELD',
-        `message element "${element.type}" requires SendContext`,
-        element.type,
-      );
-    }
-    if (element.type === 'file' && !ctx?.forwardFake) {
-      throw new MessageElementValidationError(
-        'UNSENDABLE_TYPE',
-        'message element "file" must use the group/private file upload pipeline',
-        element.type,
-      );
-    }
-  }
+export async function buildSendElems(
+    elements: MessageElement[],
+    ctx?: SendContext,
+): Promise<ProtoElem[]> {
+    // Validate the whole message before the first upload or packet build. This
+    // preserves all-or-nothing semantics: a malformed later segment cannot make
+    // an earlier media segment perform side effects before the send is rejected.
+    assertValidMessageElements(elements, 'W');
+    // Canonical MessageElements cannot contain empty text. OneBot's explicit
+    // empty-text compatibility placeholders are removed before this boundary,
+    // so the array length here is the effective on-wire segment count.
+    assertVideoSendPolicy(
+        elements.filter((element) => element.type === 'video').length,
+        elements.length,
+    );
+    assertWindowShakeSendPolicy(
+        elements.filter((element) => element.type === 'poke').length,
+        elements.length,
+        ctx?.scene,
+    );
 
-  const result: ProtoElem[] = [];
-  // A user-supplied @ that lands immediately after a reply's srcMsg isn't
-  // honored by the QQ NT group server (the @ shows but never notifies, #129).
-  // When a reply and an @ coexist, emit the replied sender as a trailing
-  // mention right after srcMsg (mirrors Lagrange ForwardEntity.PackElement),
-  // which restores the wire shape the server expects.
-  const hasUserAt = elements.some((e) => e.type === 'at');
-
-  for (const elem of elements) {
-    switch (elem.type) {
-      case 'text':
-        result.push(makeTextElem(elem.text));
-        break;
-
-      case 'face':
-        result.push(await makeFaceElem(elem.faceId, elem.large ?? true, elem.resultId, ctx));
-        break;
-
-      case 'poke':
-        result.push(makePokeElem(elem));
-        break;
-
-      case 'mface':
-        result.push(makeMarketFaceElem(elem));
-        break;
-
-      case 'at':
-        result.push(makeMentionElem(elem, ctx));
-        break;
-
-      case 'reply':
-        result.push(makeReplyElem(elem));
-        if (hasUserAt && ctx?.groupId !== undefined && elem.replySenderUin) {
-          const replyMention = await makeReplyMentionElem(ctx, elem.replySenderUin);
-          if (replyMention) result.push(replyMention);
+    for (const element of elements) {
+        if (
+            (element.type === 'image' || element.type === 'record' || element.type === 'video') &&
+            !ctx
+        ) {
+            throw new MessageElementValidationError(
+                'MISSING_FIELD',
+                `message element "${element.type}" requires SendContext`,
+                element.type,
+            );
         }
-        break;
 
-      case 'json':
-        result.push(makeJsonElem(elem));
-        break;
-
-      case 'xml':
-        result.push(makeXmlElem(elem));
-        break;
-
-      case 'markdown':
-        result.push(makeMarkdownElem(elem));
-        break;
-
-      case 'image':
-        result.push(...await makeImageElem(ctx!, elem));
-        break;
-
-      case 'forward':
-        result.push(makeForwardElem(elem));
-        break;
-
-      case 'record':
-        result.push(await makePttElem(ctx!, elem));
-        break;
-
-      case 'video':
-        result.push(await makeVideoElem(ctx!, elem));
-        break;
-
-      case 'file':
-        // Files split into two routes depending on whether this is a
-        // live send or a forward-message fake-send:
-        //
-        // 1. LIVE send (PbSendMsg / OIDB 0x6d9_4) — never carried on
-        //    elems[]. The OneBot layer splits file segments off before
-        //    calling buildSendElems:
-        //      * c2c (private): split → `bridge.sendC2cFileMessage`
-        //        (routingHead.trans0x211 + msgContent FileExtra).
-        //      * group: split → `bridge.sendGroupFileMessage`
-        //        (OIDB 0x6d9_4 publish).
-        //    The QQ-NT server REJECTS outgoing PbSendMsg with a
-        //    transElem(24) (result=79), so the all-message preflight above
-        //    raises a typed validation error when a live file reaches here.
-        //
-        // 2. FORWARD-FAKE upload (long-msg) — `ctx.forwardFake===true`.
-        //    The long-msg service stores the gzipped protobuf verbatim
-        //    and the receiver decodes file entities from transElem(24)
-        //    + msgContent FileExtra. Mirror NapCat's split (see
-        //    `dev/napcatQQ/.../packet/message/element.ts:530-610`):
-        //      * group → emit transElem(24) via makeGroupFileElem
-        //      * c2c   → emit NOTHING here; the forward-builder pulls
-        //                the file segment off and writes msgContent
-        //                separately (because RichText.notOnlineFile +
-        //                FileExtra both live outside elems[]).
-        if (!ctx?.forwardFake) {
-          throw new Error('element-builder file routing invariant failed after preflight');
+        if (element.type === 'file' && !ctx?.forwardFake) {
+            throw new MessageElementValidationError(
+                'UNSENDABLE_TYPE',
+                'message element "file" must use the group/private file upload pipeline',
+                element.type,
+            );
         }
-        if (ctx.groupId !== undefined) {
-          result.push(makeGroupFileElem(elem, ctx));
-        }
-        // c2c forwardFake intentionally emits no Elem — handled by the
-        // forward-builder at the msgContent level.
-        break;
-
-      default:
-        // assertValidMessageElements above rejects every non-W type before any
-        // side effect. Reaching this branch means the manifest and dispatcher
-        // drifted despite their reconciliation test.
-        throw new Error(`element-builder dispatch invariant failed: ${elem.type}`);
     }
-  }
 
-  return result;
+    const result: ProtoElem[] = [];
+    // A user-supplied @ that lands immediately after a reply's srcMsg isn't
+    // honored by the QQ NT group server (the @ shows but never notifies, #129).
+    // When a reply and an @ coexist, emit the replied sender as a trailing
+    // mention right after srcMsg (mirrors Lagrange ForwardEntity.PackElement),
+    // which restores the wire shape the server expects.
+    const hasUserAt = elements.some((e) => e.type === 'at');
+
+    for (const elem of elements) {
+        switch (elem.type) {
+            case 'text':
+                result.push(makeTextElem(elem.text));
+                break;
+
+            case 'face':
+                result.push(
+                    await makeFaceElem(elem.faceId, elem.large ?? true, elem.resultId, ctx),
+                );
+                break;
+
+            case 'poke':
+                result.push(makePokeElem(elem));
+                break;
+
+            case 'mface':
+                result.push(makeMarketFaceElem(elem));
+                break;
+
+            case 'at':
+                result.push(makeMentionElem(elem, ctx));
+                break;
+
+            case 'reply':
+                result.push(makeReplyElem(elem));
+
+                if (hasUserAt && ctx?.groupId !== undefined && elem.replySenderUin) {
+                    const replyMention = await makeReplyMentionElem(ctx, elem.replySenderUin);
+
+                    if (replyMention) {
+                        result.push(replyMention);
+                    }
+                }
+
+                break;
+
+            case 'json':
+                result.push(makeJsonElem(elem));
+                break;
+
+            case 'xml':
+                result.push(makeXmlElem(elem));
+                break;
+
+            case 'markdown':
+                result.push(makeMarkdownElem(elem));
+                break;
+
+            case 'image':
+                result.push(...(await makeImageElem(ctx!, elem)));
+                break;
+
+            case 'forward':
+                result.push(makeForwardElem(elem));
+                break;
+
+            case 'record':
+                result.push(await makePttElem(ctx!, elem));
+                break;
+
+            case 'video':
+                result.push(await makeVideoElem(ctx!, elem));
+                break;
+
+            case 'file':
+                // Files split into two routes depending on whether this is a
+                // live send or a forward-message fake-send:
+                //
+                // 1. LIVE send (PbSendMsg / OIDB 0x6d9_4) — never carried on
+                //    elems[]. The OneBot layer splits file segments off before
+                //    calling buildSendElems:
+                //      * c2c (private): split → `bridge.sendC2cFileMessage`
+                //        (routingHead.trans0x211 + msgContent FileExtra).
+                //      * group: split → `bridge.sendGroupFileMessage`
+                //        (OIDB 0x6d9_4 publish).
+                //    The QQ-NT server REJECTS outgoing PbSendMsg with a
+                //    transElem(24) (result=79), so the all-message preflight above
+                //    raises a typed validation error when a live file reaches here.
+                //
+                // 2. FORWARD-FAKE upload (long-msg) — `ctx.forwardFake===true`.
+                //    The long-msg service stores the gzipped protobuf verbatim
+                //    and the receiver decodes file entities from transElem(24)
+                //    + msgContent FileExtra. Mirror NapCat's split (see
+                //    `dev/napcatQQ/.../packet/message/element.ts:530-610`):
+                //      * group → emit transElem(24) via makeGroupFileElem
+                //      * c2c   → emit NOTHING here; the forward-builder pulls
+                //                the file segment off and writes msgContent
+                //                separately (because RichText.notOnlineFile +
+                //                FileExtra both live outside elems[]).
+                if (!ctx?.forwardFake) {
+                    throw new Error(
+                        'element-builder file routing invariant failed after preflight',
+                    );
+                }
+
+                if (ctx.groupId !== undefined) {
+                    result.push(makeGroupFileElem(elem, ctx));
+                }
+
+                // c2c forwardFake intentionally emits no Elem — handled by the
+                // forward-builder at the msgContent level.
+                break;
+
+            default:
+                // assertValidMessageElements above rejects every non-W type before any
+                // side effect. Reaching this branch means the manifest and dispatcher
+                // drifted despite their reconciliation test.
+                throw new Error(`element-builder dispatch invariant failed: ${elem.type}`);
+        }
+    }
+
+    return result;
 }

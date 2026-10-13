@@ -17,93 +17,112 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  AvatarInfo,
-  OidbUserInfoByUidRequest,
-  OidbUserInfoResponse,
+    AvatarInfo,
+    OidbUserInfoByUidRequest,
+    OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { UserProfileInfo } from '../../qq-info';
 import { applyOnlineStatus, applyProfileDetails } from './fetch-user-profile';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 const REQUESTED_KEYS = [
-  20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026,
-  105, 27372, 27406, 20037,
-  41756, 41757, 42241,
-  // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
-  40410, 42031,
+    20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026, 105, 27372, 27406, 20037, 41756,
+    41757, 42241,
+    // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
+    40410, 42031,
 ];
 
 export namespace FetchUserProfileByUid {
-  export const command = 0xFE1;
-  export const subCommand = 2;
-  // No `uinForm` — the UID variant uses the default `reserved=0`
-  // envelope, mirroring Lagrange's untagged constructor at
-  // `OidbSvcTrpcTcp0xFE1_2.cs:9` (isUid=false → Reserved=0).
+    export const command = 0xfe1;
+    export const subCommand = 2;
+    // No `uinForm` — the UID variant uses the default `reserved=0`
+    // envelope, mirroring Lagrange's untagged constructor at
+    // `OidbSvcTrpcTcp0xFE1_2.cs:9` (isUid=false → Reserved=0).
 
-  export interface Params {
-    uid: string;
-  }
-
-  export type Deps = OidbSender;
-
-  export const serialize = (_ctx: Deps, p: Params): OidbUserInfoByUidRequest => ({
-    uid: p.uid,
-    keys: REQUESTED_KEYS.map(k => ({ key: k })),
-  });
-
-  export const deserialize = (_ctx: Deps, body: OidbUserInfoResponse): UserProfileInfo => {
-    if (!body.body) throw new Error('user info response body missing');
-
-    const info: UserProfileInfo = {
-      uin: body.body.uin ?? 0,
-      uid: body.body.uid ?? '',
-      nickname: '', remark: '', qid: '', sex: 'unknown', age: 0, sign: '', avatar: '', level: 0,
-      qidianMasterFlag: 0, qidianCrewFlag: 0, qidianCrewFlag2: 0,
-    };
-
-    if (body.body.properties) {
-      const bytesMap = new Map<number, Uint8Array>();
-      const numMap = new Map<number, number>();
-      for (const bp of body.body.properties.bytesProperties ?? []) {
-        bytesMap.set(bp.code ?? 0, bp.value ?? new Uint8Array(0));
-      }
-      for (const np of body.body.properties.numberProperties ?? []) {
-        numMap.set(np.number1 ?? 0, np.number2 ?? 0);
-      }
-      const getString = (code: number): string => {
-        const b = bytesMap.get(code);
-        return b ? Buffer.from(b).toString('utf8') : '';
-      };
-      info.nickname = getString(20002);
-      info.remark = getString(103);
-      info.qid = getString(27394);
-      info.sign = getString(102);
-
-      const avatarBytes = bytesMap.get(101);
-      if (avatarBytes) {
-        const av = protobuf_decode<AvatarInfo>(avatarBytes);
-        if (av?.url) info.avatar = av.url + '640';
-      }
-      const sexNum = numMap.get(20009) ?? 0;
-      info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
-      info.age = numMap.get(20037) ?? 0;
-      info.level = numMap.get(105) ?? 0;
-      applyOnlineStatus(info, bytesMap, numMap);
-      applyProfileDetails(info, numMap);
-      // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
-      info.qidianMasterFlag = numMap.get(42031) ?? 0;
-      info.qidianCrewFlag = numMap.get(40410) ?? 0;
+    export interface Params {
+        uid: string;
     }
 
-    return info;
-  };
+    export type Deps = OidbSender;
 
-  export const encode = (env: OidbBase<OidbUserInfoByUidRequest>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbUserInfoByUidRequest>>(env);
+    export const serialize = (_ctx: Deps, p: Params): OidbUserInfoByUidRequest => ({
+        uid: p.uid,
+        keys: REQUESTED_KEYS.map((k) => ({ key: k })),
+    });
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbUserInfoResponse> =>
-    protobuf_decode<OidbBase<OidbUserInfoResponse>>(bytes);
+    export const deserialize = (_ctx: Deps, body: OidbUserInfoResponse): UserProfileInfo => {
+        if (!body.body) {
+            throw new Error('user info response body missing');
+        }
 
-  export const invoke = (deps: Deps, params: Params): Promise<UserProfileInfo> =>
-    invokeOidb(deps, FetchUserProfileByUid, params);
+        const info: UserProfileInfo = {
+            uin: body.body.uin ?? 0,
+            uid: body.body.uid ?? '',
+            nickname: '',
+            remark: '',
+            qid: '',
+            sex: 'unknown',
+            age: 0,
+            sign: '',
+            avatar: '',
+            level: 0,
+            qidianMasterFlag: 0,
+            qidianCrewFlag: 0,
+            qidianCrewFlag2: 0,
+        };
+
+        if (body.body.properties) {
+            const bytesMap = new Map<number, Uint8Array>();
+            const numMap = new Map<number, number>();
+
+            for (const bp of body.body.properties.bytesProperties ?? []) {
+                bytesMap.set(bp.code ?? 0, bp.value ?? new Uint8Array(0));
+            }
+
+            for (const np of body.body.properties.numberProperties ?? []) {
+                numMap.set(np.number1 ?? 0, np.number2 ?? 0);
+            }
+
+            const getString = (code: number): string => {
+                const b = bytesMap.get(code);
+                return b ? Buffer.from(b).toString('utf8') : '';
+            };
+
+            info.nickname = getString(20002);
+            info.remark = getString(103);
+            info.qid = getString(27394);
+            info.sign = getString(102);
+
+            const avatarBytes = bytesMap.get(101);
+
+            if (avatarBytes) {
+                const av = protobuf_decode<AvatarInfo>(avatarBytes);
+
+                if (av?.url) {
+                    info.avatar = av.url + '640';
+                }
+            }
+
+            const sexNum = numMap.get(20009) ?? 0;
+            info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
+            info.age = numMap.get(20037) ?? 0;
+            info.level = numMap.get(105) ?? 0;
+            applyOnlineStatus(info, bytesMap, numMap);
+            applyProfileDetails(info, numMap);
+            // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
+            info.qidianMasterFlag = numMap.get(42031) ?? 0;
+            info.qidianCrewFlag = numMap.get(40410) ?? 0;
+        }
+
+        return info;
+    };
+
+    export const encode = (env: OidbBase<OidbUserInfoByUidRequest>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbUserInfoByUidRequest>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<OidbUserInfoResponse> =>
+        protobuf_decode<OidbBase<OidbUserInfoResponse>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<UserProfileInfo> =>
+        invokeOidb(deps, FetchUserProfileByUid, params);
 }

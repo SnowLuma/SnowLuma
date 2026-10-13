@@ -14,8 +14,8 @@ const CONSENT_CONFIG_PATH = path.join(CONFIG_DIR, 'consent.json');
 // repo-root markdown; the build copies them next to the bundle (dist/) so the
 // same lookup works in a packaged deploy. See vite.config.ts cp targets.
 const AGREEMENT_FILES = [
-  { id: 'eula' as const, file: 'EULA.md' },
-  { id: 'privacy' as const, file: 'PRIVACY.md' },
+    { id: 'eula' as const, file: 'EULA.md' },
+    { id: 'privacy' as const, file: 'PRIVACY.md' },
 ];
 
 export const EULA_ACCEPT_ENV = 'SNOWLUMA_ACCEPT_EULA';
@@ -24,54 +24,60 @@ export const PRIVACY_ACCEPT_ENV = 'SNOWLUMA_ACCEPT_PRIVACY';
 type ConsentEnvironment = Readonly<Record<string, string | undefined>>;
 
 export interface EnvironmentConsent {
-  eulaAccepted: boolean;
-  privacyAccepted: boolean;
-  /** Both documents must be accepted; a partial opt-in never unlocks the gate. */
-  accepted: boolean;
+    eulaAccepted: boolean;
+    privacyAccepted: boolean;
+    /** Both documents must be accepted; a partial opt-in never unlocks the gate. */
+    accepted: boolean;
 }
 
 export interface AgreementDoc {
-  id: 'eula' | 'privacy';
-  /** First markdown `# ` heading, for the tab/section title. */
-  title: string;
-  /** Declared "Version: x" from the doc — display only, NOT the consent key. */
-  declaredVersion: string;
-  /** Declared effective date (YYYY-MM-DD) — display only. */
-  effectiveDate: string;
-  /** Full markdown body the frontend renders. */
-  text: string;
+    id: 'eula' | 'privacy';
+    /** First markdown `# ` heading, for the tab/section title. */
+    title: string;
+    /** Declared "Version: x" from the doc — display only, NOT the consent key. */
+    declaredVersion: string;
+    /** Declared effective date (YYYY-MM-DD) — display only. */
+    effectiveDate: string;
+    /** Full markdown body the frontend renders. */
+    text: string;
 }
 
 export interface ConsentRecord {
-  /** The content-hash agreements version that was accepted. */
-  version: string;
-  /** ISO timestamp of acceptance. */
-  acceptedAt: string;
+    /** The content-hash agreements version that was accepted. */
+    version: string;
+    /** ISO timestamp of acceptance. */
+    acceptedAt: string;
 }
 
 export interface AgreementsPayload {
-  /** Content-hash version of the current agreement set. */
-  version: string;
-  /**
-   * True when the operator must (re-)accept: the agreements carry real text,
-   * environment consent is incomplete, AND the stored consent version differs
-   * from the current one. A missing or unreadable agreement set fails OPEN (no
-   * gate) so a broken bundle can never lock the admin out of their own panel.
-   */
-  consentRequired: boolean;
-  documents: AgreementDoc[];
+    /** Content-hash version of the current agreement set. */
+    version: string;
+    /**
+     * True when the operator must (re-)accept: the agreements carry real text,
+     * environment consent is incomplete, AND the stored consent version differs
+     * from the current one. A missing or unreadable agreement set fails OPEN (no
+     * gate) so a broken bundle can never lock the admin out of their own panel.
+     */
+    consentRequired: boolean;
+    documents: AgreementDoc[];
 }
 
 function parseEnvironmentAcceptance(name: string, raw: string | undefined): boolean {
-  if (raw === undefined || raw.trim() === '') return false;
+    if (raw === undefined || raw.trim() === '') {
+        return false;
+    }
 
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true') return true;
-  if (normalized === '0' || normalized === 'false') return false;
+    const normalized = raw.trim().toLowerCase();
 
-  throw new Error(
-    `${name} must be one of: 1, true, 0, false; received ${JSON.stringify(raw)}`,
-  );
+    if (normalized === '1' || normalized === 'true') {
+        return true;
+    }
+
+    if (normalized === '0' || normalized === 'false') {
+        return false;
+    }
+
+    throw new Error(`${name} must be one of: 1, true, 0, false; received ${JSON.stringify(raw)}`);
 }
 
 /**
@@ -80,15 +86,15 @@ function parseEnvironmentAcceptance(name: string, raw: string | undefined): bool
  * versioned consent gate instead of silently writing a permanent record.
  */
 export function resolveEnvironmentConsent(
-  env: ConsentEnvironment = process.env,
+    env: ConsentEnvironment = process.env,
 ): EnvironmentConsent {
-  const eulaAccepted = parseEnvironmentAcceptance(EULA_ACCEPT_ENV, env[EULA_ACCEPT_ENV]);
-  const privacyAccepted = parseEnvironmentAcceptance(PRIVACY_ACCEPT_ENV, env[PRIVACY_ACCEPT_ENV]);
-  return {
-    eulaAccepted,
-    privacyAccepted,
-    accepted: eulaAccepted && privacyAccepted,
-  };
+    const eulaAccepted = parseEnvironmentAcceptance(EULA_ACCEPT_ENV, env[EULA_ACCEPT_ENV]);
+    const privacyAccepted = parseEnvironmentAcceptance(PRIVACY_ACCEPT_ENV, env[PRIVACY_ACCEPT_ENV]);
+    return {
+        eulaAccepted,
+        privacyAccepted,
+        accepted: eulaAccepted && privacyAccepted,
+    };
 }
 
 // ── Agreement loading (pure-ish; file read + parse, cached) ─────────────────
@@ -101,35 +107,39 @@ export function resolveEnvironmentConsent(
  * root or dist/), so we probe a handful of candidates and take the first hit.
  */
 function resolveAgreementFile(file: string): string | null {
-  const candidates = [
-    path.join(__dirname, file), // packaged: dist/<file>
-    path.resolve(__dirname, '..', '..', '..', '..', file), // dev tsx: repoRoot/<file>
-    path.resolve(process.cwd(), file), // started from repo root
-    path.resolve(process.cwd(), '..', '..', file), // dev cwd = packages/core
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate)) return candidate;
-    } catch {
-      /* unreadable candidate, try next */
+    const candidates = [
+        path.join(__dirname, file), // packaged: dist/<file>
+        path.resolve(__dirname, '..', '..', '..', '..', file), // dev tsx: repoRoot/<file>
+        path.resolve(process.cwd(), file), // started from repo root
+        path.resolve(process.cwd(), '..', '..', file), // dev cwd = packages/core
+    ];
+
+    for (const candidate of candidates) {
+        try {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        } catch {
+            /* unreadable candidate, try next */
+        }
     }
-  }
-  return null;
+
+    return null;
 }
 
 /** Extract title / declared version / effective date from a doc body. */
 export function parseAgreementMeta(text: string): {
-  title: string;
-  declaredVersion: string;
-  effectiveDate: string;
+    title: string;
+    declaredVersion: string;
+    effectiveDate: string;
 } {
-  const title = text.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() ?? '';
-  // Matches both "Version: 1.0" / "版本 / Version:** 1.0" style lines.
-  const declaredVersion =
-    text.match(/(?:Version|版本)[^\n0-9]*([0-9][0-9A-Za-z.-]*)/)?.[1]?.trim() ?? '';
-  const effectiveDate =
-    text.match(/(?:Effective date|生效日期)[^\n0-9]*(\d{4}-\d{2}-\d{2})/)?.[1] ?? '';
-  return { title, declaredVersion, effectiveDate };
+    const title = text.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() ?? '';
+    // Matches both "Version: 1.0" / "版本 / Version:** 1.0" style lines.
+    const declaredVersion =
+        text.match(/(?:Version|版本)[^\n0-9]*([0-9][0-9A-Za-z.-]*)/)?.[1]?.trim() ?? '';
+    const effectiveDate =
+        text.match(/(?:Effective date|生效日期)[^\n0-9]*(\d{4}-\d{2}-\d{2})/)?.[1] ?? '';
+    return { title, declaredVersion, effectiveDate };
 }
 
 /**
@@ -139,89 +149,126 @@ export function parseAgreementMeta(text: string): {
  * and changes the moment any agreement's TEXT changes (forcing re-consent).
  */
 export function computeAgreementsVersion(docs: { id: string; text: string }[]): string {
-  const hash = createHash('sha256');
-  for (const doc of docs) {
-    hash.update(doc.id);
-    hash.update('\0');
-    hash.update(doc.text);
-    hash.update('\0');
-  }
-  return hash.digest('hex').slice(0, 16);
+    const hash = createHash('sha256');
+
+    for (const doc of docs) {
+        hash.update(doc.id);
+        hash.update('\0');
+        hash.update(doc.text);
+        hash.update('\0');
+    }
+
+    return hash.digest('hex').slice(0, 16);
 }
 
 let cache: { docs: AgreementDoc[]; version: string } | null = null;
 
 /** Load + parse both agreements and compute the version. Cached per process. */
 export function loadAgreements(): { docs: AgreementDoc[]; version: string } {
-  if (cache) return cache;
-  const docs: AgreementDoc[] = AGREEMENT_FILES.map(({ id, file }) => {
-    const resolved = resolveAgreementFile(file);
-    let text = '';
-    if (resolved) {
-      try {
-        text = fs.readFileSync(resolved, 'utf8');
-      } catch (err) {
-        log.warn('failed to read %s: %s', file, err instanceof Error ? err.message : String(err));
-      }
-    } else {
-      log.warn('agreement file not found (looked for %s near the bundle and repo root)', file);
+    if (cache) {
+        return cache;
     }
-    const meta = parseAgreementMeta(text);
-    return { id, title: meta.title, declaredVersion: meta.declaredVersion, effectiveDate: meta.effectiveDate, text };
-  });
-  cache = { docs, version: computeAgreementsVersion(docs) };
-  return cache;
+
+    const docs: AgreementDoc[] = AGREEMENT_FILES.map(({ id, file }) => {
+        const resolved = resolveAgreementFile(file);
+        let text = '';
+
+        if (resolved) {
+            try {
+                text = fs.readFileSync(resolved, 'utf8');
+            } catch (err) {
+                log.warn(
+                    'failed to read %s: %s',
+                    file,
+                    err instanceof Error ? err.message : String(err),
+                );
+            }
+        } else {
+            log.warn(
+                'agreement file not found (looked for %s near the bundle and repo root)',
+                file,
+            );
+        }
+
+        const meta = parseAgreementMeta(text);
+        return {
+            id,
+            title: meta.title,
+            declaredVersion: meta.declaredVersion,
+            effectiveDate: meta.effectiveDate,
+            text,
+        };
+    });
+    cache = { docs, version: computeAgreementsVersion(docs) };
+    return cache;
 }
 
 // ── Consent persistence (config/consent.json, atomic) ───────────────────────
 
 function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
 function isConsentRecord(value: unknown): value is ConsentRecord {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.version === 'string' && v.version.length > 0 && typeof v.acceptedAt === 'string';
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    const v = value as Record<string, unknown>;
+    return (
+        typeof v.version === 'string' && v.version.length > 0 && typeof v.acceptedAt === 'string'
+    );
 }
 
 export function loadConsentRecord(): ConsentRecord | null {
-  try {
-    if (!fs.existsSync(CONSENT_CONFIG_PATH)) return null;
-    const parsed = JSON.parse(fs.readFileSync(CONSENT_CONFIG_PATH, 'utf8')) as unknown;
-    return isConsentRecord(parsed) ? parsed : null;
-  } catch (err) {
-    log.warn('consent.json unreadable, treating as no consent: %s', err instanceof Error ? err.message : String(err));
-    return null;
-  }
+    try {
+        if (!fs.existsSync(CONSENT_CONFIG_PATH)) {
+            return null;
+        }
+
+        const parsed = JSON.parse(fs.readFileSync(CONSENT_CONFIG_PATH, 'utf8')) as unknown;
+        return isConsentRecord(parsed) ? parsed : null;
+    } catch (err) {
+        log.warn(
+            'consent.json unreadable, treating as no consent: %s',
+            err instanceof Error ? err.message : String(err),
+        );
+        return null;
+    }
 }
 
 function atomicWrite(record: ConsentRecord): void {
-  ensureConfigDir();
-  const tmp = CONSENT_CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(record, null, 2), { encoding: 'utf8' });
-  fs.renameSync(tmp, CONSENT_CONFIG_PATH);
+    ensureConfigDir();
+    const tmp = CONSENT_CONFIG_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(record, null, 2), { encoding: 'utf8' });
+    fs.renameSync(tmp, CONSENT_CONFIG_PATH);
 }
 
 /** Persist that the operator accepted `version`. Returns the stored record. */
 export function recordConsent(version: string): ConsentRecord {
-  const record: ConsentRecord = { version, acceptedAt: new Date().toISOString() };
-  atomicWrite(record);
-  return record;
+    const record: ConsentRecord = { version, acceptedAt: new Date().toISOString() };
+    atomicWrite(record);
+    return record;
 }
 
 /** True when neither environment nor stored consent covers the current agreements. */
 export function isConsentRequired(env: ConsentEnvironment = process.env): boolean {
-  if (resolveEnvironmentConsent(env).accepted) return false;
+    if (resolveEnvironmentConsent(env).accepted) {
+        return false;
+    }
 
-  const { docs, version } = loadAgreements();
-  const hasContent = docs.some((d) => d.text.trim().length > 0);
-  if (!hasContent) return false; // fail open: never brick the panel on a broken bundle
-  return loadConsentRecord()?.version !== version;
+    const { docs, version } = loadAgreements();
+    const hasContent = docs.some((d) => d.text.trim().length > 0);
+
+    if (!hasContent) {
+        return false;
+    } // fail open: never brick the panel on a broken bundle
+
+    return loadConsentRecord()?.version !== version;
 }
 
 /** Public payload for GET /api/agreements (texts + version + consentRequired). */
 export function getAgreementsPayload(): AgreementsPayload {
-  const { docs, version } = loadAgreements();
-  return { version, consentRequired: isConsentRequired(), documents: docs };
+    const { docs, version } = loadAgreements();
+    return { version, consentRequired: isConsentRequired(), documents: docs };
 }

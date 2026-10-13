@@ -4,10 +4,10 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { convertFriendMessage } from '../src/event-converter/to-message';
 import {
-  hashMessageIdInt32,
-  PRIVATE_MESSAGE_EVENT,
-  PRIVATE_NT_MESSAGE_EVENT,
-  PRIVATE_SENT_MESSAGE_EVENT,
+    hashMessageIdInt32,
+    PRIVATE_MESSAGE_EVENT,
+    PRIVATE_NT_MESSAGE_EVENT,
+    PRIVATE_SENT_MESSAGE_EVENT,
 } from '../src/message-id';
 import { MessageStore } from '../src/message-store';
 import type { ConverterContext } from '../src/event-converter';
@@ -17,264 +17,305 @@ const SELF_ID = 3961840894;
 const PEER_ID = 2705892349;
 
 function productionResolver(store: MessageStore): ConverterContext['messageIdResolver'] {
-  return async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
-    const resolvedEventName = eventName
-      || (isGroup ? 'group_message' : PRIVATE_MESSAGE_EVENT);
-    if (!isGroup
-      && timestamp !== undefined
-      && (resolvedEventName === PRIVATE_MESSAGE_EVENT
-        || resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)) {
-      const storedId = await store.resolvePrivateReplyMessageId(
-        sessionId,
-        sequence,
-        resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
-        timestamp,
-        replyElements,
-      );
-      if (storedId !== null) return storedId;
-    }
-    return hashMessageIdInt32(
-      sequence,
-      sessionId,
-      resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
-        ? PRIVATE_NT_MESSAGE_EVENT
-        : resolvedEventName,
-    );
-  };
+    return async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
+        const resolvedEventName = eventName || (isGroup ? 'group_message' : PRIVATE_MESSAGE_EVENT);
+
+        if (
+            !isGroup &&
+            timestamp !== undefined &&
+            (resolvedEventName === PRIVATE_MESSAGE_EVENT ||
+                resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)
+        ) {
+            const storedId = await store.resolvePrivateReplyMessageId(
+                sessionId,
+                sequence,
+                resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
+                timestamp,
+                replyElements,
+            );
+
+            if (storedId !== null) {
+                return storedId;
+            }
+        }
+
+        return hashMessageIdInt32(
+            sequence,
+            sessionId,
+            resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
+                ? PRIVATE_NT_MESSAGE_EVENT
+                : resolvedEventName,
+        );
+    };
 }
 
 describe('private reply id matches send receipt (#417, #433)', () => {
-  let dir: string;
-  let store: MessageStore;
+    let dir: string;
+    let store: MessageStore;
 
-  beforeEach(async () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-reply-id-'));
-    store = new MessageStore(path.join(dir, 'messages.db'));
-    await store.initialization;
-  });
-
-  afterEach(async () => {
-    await store.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('matches quoted text instead of a later voice message in the same second (#502)', async () => {
-    const sentAt = 1_790_000_000;
-    for (const [id, message] of [
-      [101, [{ type: 'text', data: { text: 'the quoted text' } }]],
-      [102, [{ type: 'record', data: { file: 'voice.amr' } }]],
-    ] as const) {
-      await store.storeMeta(id, {
-        isGroup: false, targetId: PEER_ID, sequence: id, sequenceAuthoritative: true,
-        eventName: PRIVATE_NT_MESSAGE_EVENT, clientSequence: id + 1000,
-        privateDirection: 'outgoing', random: id, timestamp: sentAt,
-      });
-      await store.storeEvent(id, false, PEER_ID, id, PRIVATE_NT_MESSAGE_EVENT, {
-        time: sentAt, post_type: 'message_sent', message_type: 'private', sub_type: 'friend',
-        message: JSON.parse(JSON.stringify(message)),
-      });
-    }
-    await store.close();
-    store = new MessageStore(path.join(dir, 'messages.db'));
-    await store.initialization;
-    const ctx: ConverterContext = {
-      selfId: SELF_ID, imageUrlResolver: null, mediaUrlResolver: null, mediaSegmentSink: null,
-      messageIdResolver: await productionResolver(store),
-    };
-    const event: FriendMessage = {
-      kind: 'friend_message', time: sentAt + 2, selfUin: SELF_ID,
-      senderUin: PEER_ID, peerUin: PEER_ID, senderUid: 'u_peer', senderNick: 'peer',
-      msgSeq: 2773, ntMsgSeq: 103, clientSeq: 2773, sequenceAuthoritative: true, msgId: 2,
-      elements: [{ type: 'reply', replySeq: 9999, replySenderUin: SELF_ID, replyTime: sentAt,
-        replyElements: [{ type: 'text', text: 'the quoted text' }] }],
-    };
-    const json = await convertFriendMessage(ctx, event);
-    expect(json.message).toEqual([{ type: 'reply', data: { id: '101' } }]);
-  });
-
-  it.each([
-    {
-      name: '#433',
-      ntSeq: 682,
-      localClientSeq: 201_616_628,
-      quoteSeq: 27_892,
-      sentAt: 1_788_102_428,
-      sendId: -12_721_351,
-    },
-    {
-      name: '#417',
-      ntSeq: 655,
-      localClientSeq: 509_147_526,
-      quoteSeq: 63_878,
-      sentAt: 1_787_409_444,
-      sendId: 866_508_396,
-    },
-  ])('$name resolves a quote of a bot-sent private message to the send receipt id', async (fixture) => {
-    const sendId = hashMessageIdInt32(fixture.ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
-    expect(sendId).toBe(fixture.sendId);
-    expect(sendId).not.toBe(hashMessageIdInt32(fixture.quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
-
-    await store.storeMeta(sendId, {
-      isGroup: false,
-      targetId: PEER_ID,
-      sequence: fixture.ntSeq,
-      sequenceAuthoritative: true,
-      eventName: PRIVATE_NT_MESSAGE_EVENT,
-      clientSequence: fixture.localClientSeq,
-      privateDirection: 'outgoing',
-      random: 1,
-      timestamp: fixture.sentAt,
+    beforeEach(async () => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-reply-id-'));
+        store = new MessageStore(path.join(dir, 'messages.db'));
+        await store.initialization;
     });
 
-    const ctx: ConverterContext = {
-      selfId: SELF_ID,
-      imageUrlResolver: null,
-      mediaUrlResolver: null,
-      mediaSegmentSink: null,
-      messageIdResolver: await productionResolver(store),
-    };
-
-    const event: FriendMessage = {
-      kind: 'friend_message',
-      time: fixture.sentAt + 2,
-      selfUin: SELF_ID,
-      senderUin: PEER_ID,
-      peerUin: PEER_ID,
-      senderUid: 'u_peer',
-      senderNick: 'peer',
-      msgSeq: 2773,
-      ntMsgSeq: fixture.ntSeq + 1,
-      clientSeq: 2773,
-      sequenceAuthoritative: true,
-      msgId: 2,
-      elements: [
-        {
-          type: 'reply',
-          replySeq: fixture.quoteSeq,
-          replySenderUin: SELF_ID,
-          replyTime: fixture.sentAt,
-        },
-        { type: 'text', text: '这是对bot消息的回复消息' },
-      ],
-    };
-
-    const json = await convertFriendMessage(ctx, event);
-    const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
-    expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
-  });
-
-  it('resolves a bot quote when the quote time drifts from the send receipt (#465)', async () => {
-    const ntSeq = 6008;
-    const localClientSeq = 567_154_552;
-    const quoteSeq = 6008;
-    const sentAt = 1_789_720_450;
-    const quoteTime = sentAt + 2;
-    const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
-    expect(sendId).not.toBe(hashMessageIdInt32(quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
-
-    await store.storeMeta(sendId, {
-      isGroup: false,
-      targetId: PEER_ID,
-      sequence: ntSeq,
-      sequenceAuthoritative: true,
-      eventName: PRIVATE_NT_MESSAGE_EVENT,
-      clientSequence: localClientSeq,
-      privateDirection: 'outgoing',
-      random: 1,
-      timestamp: sentAt,
+    afterEach(async () => {
+        await store.close();
+        fs.rmSync(dir, { recursive: true, force: true });
     });
 
-    const ctx: ConverterContext = {
-      selfId: SELF_ID,
-      imageUrlResolver: null,
-      mediaUrlResolver: null,
-      mediaSegmentSink: null,
-      messageIdResolver: await productionResolver(store),
-    };
+    it('matches quoted text instead of a later voice message in the same second (#502)', async () => {
+        const sentAt = 1_790_000_000;
 
-    const event: FriendMessage = {
-      kind: 'friend_message',
-      time: quoteTime + 1,
-      selfUin: SELF_ID,
-      senderUin: PEER_ID,
-      peerUin: PEER_ID,
-      senderUid: 'u_peer',
-      senderNick: 'peer',
-      msgSeq: 6010,
-      ntMsgSeq: ntSeq + 1,
-      clientSeq: 6010,
-      sequenceAuthoritative: true,
-      msgId: 2,
-      elements: [
-        {
-          type: 'reply',
-          replySeq: quoteSeq,
-          replySenderUin: SELF_ID,
-          replyTime: quoteTime,
-        },
-        { type: 'text', text: '111' },
-      ],
-    };
+        for (const [id, message] of [
+            [101, [{ type: 'text', data: { text: 'the quoted text' } }]],
+            [102, [{ type: 'record', data: { file: 'voice.amr' } }]],
+        ] as const) {
+            await store.storeMeta(id, {
+                isGroup: false,
+                targetId: PEER_ID,
+                sequence: id,
+                sequenceAuthoritative: true,
+                eventName: PRIVATE_NT_MESSAGE_EVENT,
+                clientSequence: id + 1000,
+                privateDirection: 'outgoing',
+                random: id,
+                timestamp: sentAt,
+            });
+            await store.storeEvent(id, false, PEER_ID, id, PRIVATE_NT_MESSAGE_EVENT, {
+                time: sentAt,
+                post_type: 'message_sent',
+                message_type: 'private',
+                sub_type: 'friend',
+                message: JSON.parse(JSON.stringify(message)),
+            });
+        }
 
-    const json = await convertFriendMessage(ctx, event);
-    const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
-    expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
-  });
-
-  it('resolves a bot quote by nearby send time when the quote sequence is unrelated', async () => {
-    const ntSeq = 682;
-    const localClientSeq = 201_616_628;
-    const quoteSeq = 27_892;
-    const sentAt = 1_788_102_428;
-    const quoteTime = sentAt + 2;
-    const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
-
-    await store.storeMeta(sendId, {
-      isGroup: false,
-      targetId: PEER_ID,
-      sequence: ntSeq,
-      sequenceAuthoritative: true,
-      eventName: PRIVATE_NT_MESSAGE_EVENT,
-      clientSequence: localClientSeq,
-      privateDirection: 'outgoing',
-      random: 1,
-      timestamp: sentAt,
+        await store.close();
+        store = new MessageStore(path.join(dir, 'messages.db'));
+        await store.initialization;
+        const ctx: ConverterContext = {
+            selfId: SELF_ID,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            mediaSegmentSink: null,
+            messageIdResolver: await productionResolver(store),
+        };
+        const event: FriendMessage = {
+            kind: 'friend_message',
+            time: sentAt + 2,
+            selfUin: SELF_ID,
+            senderUin: PEER_ID,
+            peerUin: PEER_ID,
+            senderUid: 'u_peer',
+            senderNick: 'peer',
+            msgSeq: 2773,
+            ntMsgSeq: 103,
+            clientSeq: 2773,
+            sequenceAuthoritative: true,
+            msgId: 2,
+            elements: [
+                {
+                    type: 'reply',
+                    replySeq: 9999,
+                    replySenderUin: SELF_ID,
+                    replyTime: sentAt,
+                    replyElements: [{ type: 'text', text: 'the quoted text' }],
+                },
+            ],
+        };
+        const json = await convertFriendMessage(ctx, event);
+        expect(json.message).toEqual([{ type: 'reply', data: { id: '101' } }]);
     });
 
-    const ctx: ConverterContext = {
-      selfId: SELF_ID,
-      imageUrlResolver: null,
-      mediaUrlResolver: null,
-      mediaSegmentSink: null,
-      messageIdResolver: await productionResolver(store),
-    };
-
-    const event: FriendMessage = {
-      kind: 'friend_message',
-      time: quoteTime + 1,
-      selfUin: SELF_ID,
-      senderUin: PEER_ID,
-      peerUin: PEER_ID,
-      senderUid: 'u_peer',
-      senderNick: 'peer',
-      msgSeq: 2773,
-      ntMsgSeq: ntSeq + 1,
-      clientSeq: 2773,
-      sequenceAuthoritative: true,
-      msgId: 2,
-      elements: [
+    it.each([
         {
-          type: 'reply',
-          replySeq: quoteSeq,
-          replySenderUin: SELF_ID,
-          replyTime: quoteTime,
+            name: '#433',
+            ntSeq: 682,
+            localClientSeq: 201_616_628,
+            quoteSeq: 27_892,
+            sentAt: 1_788_102_428,
+            sendId: -12_721_351,
         },
-        { type: 'text', text: '这是对bot消息的回复消息' },
-      ],
-    };
+        {
+            name: '#417',
+            ntSeq: 655,
+            localClientSeq: 509_147_526,
+            quoteSeq: 63_878,
+            sentAt: 1_787_409_444,
+            sendId: 866_508_396,
+        },
+    ])(
+        '$name resolves a quote of a bot-sent private message to the send receipt id',
+        async (fixture) => {
+            const sendId = hashMessageIdInt32(fixture.ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
+            expect(sendId).toBe(fixture.sendId);
+            expect(sendId).not.toBe(
+                hashMessageIdInt32(fixture.quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT),
+            );
 
-    const json = await convertFriendMessage(ctx, event);
-    const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
-    expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
-  });
+            await store.storeMeta(sendId, {
+                isGroup: false,
+                targetId: PEER_ID,
+                sequence: fixture.ntSeq,
+                sequenceAuthoritative: true,
+                eventName: PRIVATE_NT_MESSAGE_EVENT,
+                clientSequence: fixture.localClientSeq,
+                privateDirection: 'outgoing',
+                random: 1,
+                timestamp: fixture.sentAt,
+            });
+
+            const ctx: ConverterContext = {
+                selfId: SELF_ID,
+                imageUrlResolver: null,
+                mediaUrlResolver: null,
+                mediaSegmentSink: null,
+                messageIdResolver: await productionResolver(store),
+            };
+
+            const event: FriendMessage = {
+                kind: 'friend_message',
+                time: fixture.sentAt + 2,
+                selfUin: SELF_ID,
+                senderUin: PEER_ID,
+                peerUin: PEER_ID,
+                senderUid: 'u_peer',
+                senderNick: 'peer',
+                msgSeq: 2773,
+                ntMsgSeq: fixture.ntSeq + 1,
+                clientSeq: 2773,
+                sequenceAuthoritative: true,
+                msgId: 2,
+                elements: [
+                    {
+                        type: 'reply',
+                        replySeq: fixture.quoteSeq,
+                        replySenderUin: SELF_ID,
+                        replyTime: fixture.sentAt,
+                    },
+                    { type: 'text', text: '这是对bot消息的回复消息' },
+                ],
+            };
+
+            const json = await convertFriendMessage(ctx, event);
+            const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
+            expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
+        },
+    );
+
+    it('resolves a bot quote when the quote time drifts from the send receipt (#465)', async () => {
+        const ntSeq = 6008;
+        const localClientSeq = 567_154_552;
+        const quoteSeq = 6008;
+        const sentAt = 1_789_720_450;
+        const quoteTime = sentAt + 2;
+        const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
+        expect(sendId).not.toBe(hashMessageIdInt32(quoteSeq, PEER_ID, PRIVATE_SENT_MESSAGE_EVENT));
+
+        await store.storeMeta(sendId, {
+            isGroup: false,
+            targetId: PEER_ID,
+            sequence: ntSeq,
+            sequenceAuthoritative: true,
+            eventName: PRIVATE_NT_MESSAGE_EVENT,
+            clientSequence: localClientSeq,
+            privateDirection: 'outgoing',
+            random: 1,
+            timestamp: sentAt,
+        });
+
+        const ctx: ConverterContext = {
+            selfId: SELF_ID,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            mediaSegmentSink: null,
+            messageIdResolver: await productionResolver(store),
+        };
+
+        const event: FriendMessage = {
+            kind: 'friend_message',
+            time: quoteTime + 1,
+            selfUin: SELF_ID,
+            senderUin: PEER_ID,
+            peerUin: PEER_ID,
+            senderUid: 'u_peer',
+            senderNick: 'peer',
+            msgSeq: 6010,
+            ntMsgSeq: ntSeq + 1,
+            clientSeq: 6010,
+            sequenceAuthoritative: true,
+            msgId: 2,
+            elements: [
+                {
+                    type: 'reply',
+                    replySeq: quoteSeq,
+                    replySenderUin: SELF_ID,
+                    replyTime: quoteTime,
+                },
+                { type: 'text', text: '111' },
+            ],
+        };
+
+        const json = await convertFriendMessage(ctx, event);
+        const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
+        expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
+    });
+
+    it('resolves a bot quote by nearby send time when the quote sequence is unrelated', async () => {
+        const ntSeq = 682;
+        const localClientSeq = 201_616_628;
+        const quoteSeq = 27_892;
+        const sentAt = 1_788_102_428;
+        const quoteTime = sentAt + 2;
+        const sendId = hashMessageIdInt32(ntSeq, PEER_ID, PRIVATE_NT_MESSAGE_EVENT);
+
+        await store.storeMeta(sendId, {
+            isGroup: false,
+            targetId: PEER_ID,
+            sequence: ntSeq,
+            sequenceAuthoritative: true,
+            eventName: PRIVATE_NT_MESSAGE_EVENT,
+            clientSequence: localClientSeq,
+            privateDirection: 'outgoing',
+            random: 1,
+            timestamp: sentAt,
+        });
+
+        const ctx: ConverterContext = {
+            selfId: SELF_ID,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            mediaSegmentSink: null,
+            messageIdResolver: await productionResolver(store),
+        };
+
+        const event: FriendMessage = {
+            kind: 'friend_message',
+            time: quoteTime + 1,
+            selfUin: SELF_ID,
+            senderUin: PEER_ID,
+            peerUin: PEER_ID,
+            senderUid: 'u_peer',
+            senderNick: 'peer',
+            msgSeq: 2773,
+            ntMsgSeq: ntSeq + 1,
+            clientSeq: 2773,
+            sequenceAuthoritative: true,
+            msgId: 2,
+            elements: [
+                {
+                    type: 'reply',
+                    replySeq: quoteSeq,
+                    replySenderUin: SELF_ID,
+                    replyTime: quoteTime,
+                },
+                { type: 'text', text: '这是对bot消息的回复消息' },
+            ],
+        };
+
+        const json = await convertFriendMessage(ctx, event);
+        const reply = (json.message as Array<{ type: string; data: { id: string } }>)[0];
+        expect(reply).toEqual({ type: 'reply', data: { id: String(sendId) } });
+    });
 });

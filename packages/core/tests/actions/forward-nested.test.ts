@@ -30,237 +30,279 @@ import type { Elem } from '@snowluma/proto-defs/element';
 // Mock highway uploads only — they're irrelevant for text-only nodes
 // but the import would otherwise pull in the native ffmpeg addon.
 vi.mock('@snowluma/protocol/highway/image-upload', () => ({
-  uploadImageMsgInfo: vi.fn(async () => new Uint8Array()),
+    uploadImageMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
-  uploadPttMsgInfo: vi.fn(async () => new Uint8Array()),
+    uploadPttMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 vi.mock('@snowluma/protocol/highway/video-upload', () => ({
-  uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
+    uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 
 import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
-  return {
-    success: true,
-    gotResponse: true,
-    errorCode: 0,
-    errorMessage: '',
-    responseData: Buffer.from(protobuf_encode<SendLongMsgResp>({ result: { resId } })),
-  };
+    return {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<SendLongMsgResp>({ result: { resId } })),
+    };
 }
 
 function decodeOuterLongMsg(rawBytes: Uint8Array): LongMsgResult {
-  const env = protobuf_decode<SendLongMsgReq>(rawBytes);
-  const payload = env.info?.payload;
-  if (!(payload instanceof Uint8Array)) throw new Error('payload missing on the SendLongMsgReq');
-  return protobuf_decode<LongMsgResult>(gunzipSync(Buffer.from(payload)));
+    const env = protobuf_decode<SendLongMsgReq>(rawBytes);
+    const payload = env.info?.payload;
+
+    if (!(payload instanceof Uint8Array)) {
+        throw new Error('payload missing on the SendLongMsgReq');
+    }
+
+    return protobuf_decode<LongMsgResult>(gunzipSync(Buffer.from(payload)));
 }
 
-function findLightAppJson(msgBody: PushMsgBody[]): { resid?: string; uniseq?: string; app?: string; news?: Array<{ text: string }>; source?: string; summary?: string } | null {
-  for (const body of msgBody) {
-    const elems: Elem[] = body.body?.richText?.elems ?? [];
-    for (const elem of elems) {
-      if (elem.lightApp?.data && elem.lightApp.data.length > 1) {
-        const data = elem.lightApp.data;
-        if (data[0] !== 0x01) continue;
-        try {
-          const json = inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
-          const parsed = JSON.parse(json);
-          if (parsed?.app === 'com.tencent.multimsg') {
-            return {
-              app: parsed.app,
-              resid: parsed.meta?.detail?.resid,
-              uniseq: parsed.meta?.detail?.uniseq,
-              news: parsed.meta?.detail?.news,
-              source: parsed.meta?.detail?.source,
-              summary: parsed.meta?.detail?.summary,
-            };
-          }
-        } catch { /* ignore */ }
-      }
+function findLightAppJson(msgBody: PushMsgBody[]): {
+    resid?: string;
+    uniseq?: string;
+    app?: string;
+    news?: Array<{ text: string }>;
+    source?: string;
+    summary?: string;
+} | null {
+    for (const body of msgBody) {
+        const elems: Elem[] = body.body?.richText?.elems ?? [];
+
+        for (const elem of elems) {
+            if (elem.lightApp?.data && elem.lightApp.data.length > 1) {
+                const data = elem.lightApp.data;
+
+                if (data[0] !== 0x01) {
+                    continue;
+                }
+
+                try {
+                    const json = inflateSync(Buffer.from(data.subarray(1))).toString('utf8');
+                    const parsed = JSON.parse(json);
+
+                    if (parsed?.app === 'com.tencent.multimsg') {
+                        return {
+                            app: parsed.app,
+                            resid: parsed.meta?.detail?.resid,
+                            uniseq: parsed.meta?.detail?.uniseq,
+                            news: parsed.meta?.detail?.news,
+                            source: parsed.meta?.detail?.source,
+                            summary: parsed.meta?.detail?.summary,
+                        };
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }
+        }
     }
-  }
-  return null;
+
+    return null;
 }
 
 describe('forward / nested upload wire alignment', () => {
-  it('outer LongMsgResult contains both MultiMsg and the inner uuid piggyback action', async () => {
-    // Inner upload returns inner-res; outer upload returns outer-res.
-    const responses = ['inner-res', 'outer-res'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('outer LongMsgResult contains both MultiMsg and the inner uuid piggyback action', async () => {
+        // Inner upload returns inner-res; outer upload returns outer-res.
+        const responses = ['inner-res', 'outer-res'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    const resId = await new ForwardApi(bridge as any).upload([
-      {
-        userUin: 111, nickname: 'outer', elements: [],
-        innerForward: [
-          { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
-        ],
-      },
-    ]);
+        const resId = await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                innerForward: [
+                    { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
+                ],
+            },
+        ]);
 
-    expect(resId).toBe('outer-res');
-    expect(sendRawPacket).toHaveBeenCalledTimes(2);
+        expect(resId).toBe('outer-res');
+        expect(sendRawPacket).toHaveBeenCalledTimes(2);
 
-    // Second call is the OUTER's upload (the inner went first).
-    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
-    const outerLongMsg = decodeOuterLongMsg(outerBytes);
+        // Second call is the OUTER's upload (the inner went first).
+        const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+        const outerLongMsg = decodeOuterLongMsg(outerBytes);
 
-    const actions = outerLongMsg.action ?? [];
-    expect(actions).toHaveLength(2);
-    expect(actions[0]!.actionCommand).toBe('MultiMsg');
-    // The second action carries the inner's msgBody under a uuid
-    // actionCommand (NOT 'MultiMsg').
-    const piggybackUuid = actions[1]!.actionCommand!;
-    expect(piggybackUuid).not.toBe('MultiMsg');
-    expect(piggybackUuid).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(actions[1]!.actionData?.msgBody?.length ?? 0).toBeGreaterThan(0);
-  });
+        const actions = outerLongMsg.action ?? [];
+        expect(actions).toHaveLength(2);
+        expect(actions[0]!.actionCommand).toBe('MultiMsg');
+        // The second action carries the inner's msgBody under a uuid
+        // actionCommand (NOT 'MultiMsg').
+        const piggybackUuid = actions[1]!.actionCommand!;
+        expect(piggybackUuid).not.toBe('MultiMsg');
+        expect(piggybackUuid).toMatch(/^[0-9a-f-]{36}$/i);
+        expect(actions[1]!.actionData?.msgBody?.length ?? 0).toBeGreaterThan(0);
+    });
 
-  it('outer preview LightApp uniseq matches the piggyback actionCommand uuid', async () => {
-    // This is the alignment bug: without it the QQ-NT receiver
-    // can't link the inner preview to its piggyback in actions[].
-    const responses = ['inner-res-A', 'outer-res-A'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('outer preview LightApp uniseq matches the piggyback actionCommand uuid', async () => {
+        // This is the alignment bug: without it the QQ-NT receiver
+        // can't link the inner preview to its piggyback in actions[].
+        const responses = ['inner-res-A', 'outer-res-A'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    await new ForwardApi(bridge as any).upload([
-      {
-        userUin: 111, nickname: 'outer', elements: [],
-        innerForward: [
-          { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
-        ],
-      },
-    ]);
+        await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                innerForward: [
+                    { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
+                ],
+            },
+        ]);
 
-    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
-    const outerLongMsg = decodeOuterLongMsg(outerBytes);
+        const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+        const outerLongMsg = decodeOuterLongMsg(outerBytes);
 
-    const piggybackUuid = outerLongMsg.action![1]!.actionCommand!;
-    const outerMsgBody = outerLongMsg.action![0]!.actionData!.msgBody!;
-    const preview = findLightAppJson(outerMsgBody);
+        const piggybackUuid = outerLongMsg.action![1]!.actionCommand!;
+        const outerMsgBody = outerLongMsg.action![0]!.actionData!.msgBody!;
+        const preview = findLightAppJson(outerMsgBody);
 
-    expect(preview).not.toBeNull();
-    expect(preview!.app).toBe('com.tencent.multimsg');
-    expect(preview!.resid).toBe('inner-res-A');
-    expect(preview!.uniseq).toBe(piggybackUuid);
-  });
+        expect(preview).not.toBeNull();
+        expect(preview!.app).toBe('com.tencent.multimsg');
+        expect(preview!.resid).toBe('inner-res-A');
+        expect(preview!.uniseq).toBe(piggybackUuid);
+    });
 
-  it('three-deep nesting: outermost action[] carries 1+2 entries (MultiMsg + 2 piggybacks)', async () => {
-    // The middle level's upload produces 1 MultiMsg + 1 piggyback
-    // (for the deepest). The outermost level then concatenates its
-    // own MultiMsg + the middle's piggyback set, so action[].length = 3.
-    const responses = ['deepest', 'middle', 'outermost'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('three-deep nesting: outermost action[] carries 1+2 entries (MultiMsg + 2 piggybacks)', async () => {
+        // The middle level's upload produces 1 MultiMsg + 1 piggyback
+        // (for the deepest). The outermost level then concatenates its
+        // own MultiMsg + the middle's piggyback set, so action[].length = 3.
+        const responses = ['deepest', 'middle', 'outermost'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    await new ForwardApi(bridge as any).upload([
-      {
-        userUin: 1, nickname: 'L1', elements: [],
-        innerForward: [{
-          userUin: 2, nickname: 'L2', elements: [],
-          innerForward: [
-            { userUin: 3, nickname: 'L3', elements: [{ type: 'text', text: 'deep' }] },
-          ],
-        }],
-      },
-    ]);
+        await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 1,
+                nickname: 'L1',
+                elements: [],
+                innerForward: [
+                    {
+                        userUin: 2,
+                        nickname: 'L2',
+                        elements: [],
+                        innerForward: [
+                            {
+                                userUin: 3,
+                                nickname: 'L3',
+                                elements: [{ type: 'text', text: 'deep' }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ]);
 
-    expect(sendRawPacket).toHaveBeenCalledTimes(3);
-    const outermostBytes = sendRawPacket.mock.calls[2]![1] as Uint8Array;
-    const outermost = decodeOuterLongMsg(outermostBytes);
-    expect(outermost.action).toHaveLength(3);
-    expect(outermost.action![0]!.actionCommand).toBe('MultiMsg');
-    expect(outermost.action![1]!.actionCommand).not.toBe('MultiMsg');
-    expect(outermost.action![2]!.actionCommand).not.toBe('MultiMsg');
-    expect(outermost.action![1]!.actionCommand).not.toBe(outermost.action![2]!.actionCommand);
-  });
+        expect(sendRawPacket).toHaveBeenCalledTimes(3);
+        const outermostBytes = sendRawPacket.mock.calls[2]![1] as Uint8Array;
+        const outermost = decodeOuterLongMsg(outermostBytes);
+        expect(outermost.action).toHaveLength(3);
+        expect(outermost.action![0]!.actionCommand).toBe('MultiMsg');
+        expect(outermost.action![1]!.actionCommand).not.toBe('MultiMsg');
+        expect(outermost.action![2]!.actionCommand).not.toBe('MultiMsg');
+        expect(outermost.action![1]!.actionCommand).not.toBe(outermost.action![2]!.actionCommand);
+    });
 
-  it('inner forward bubble prefers caller-supplied node news over auto-generated lines', async () => {
-    const responses = ['inner-res', 'outer-res'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('inner forward bubble prefers caller-supplied node news over auto-generated lines', async () => {
+        const responses = ['inner-res', 'outer-res'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    const customNews = [{ text: '自定义预览行 1' }, { text: '自定义预览行 2' }];
-    await new ForwardApi(bridge as any).upload([{
-      userUin: 111,
-      nickname: 'outer',
-      elements: [],
-      news: customNews,
-      innerForward: [
-        { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: '会被覆盖的正文' }] },
-      ],
-    }]);
+        const customNews = [{ text: '自定义预览行 1' }, { text: '自定义预览行 2' }];
+        await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                news: customNews,
+                innerForward: [
+                    {
+                        userUin: 222,
+                        nickname: 'inner',
+                        elements: [{ type: 'text', text: '会被覆盖的正文' }],
+                    },
+                ],
+            },
+        ]);
 
-    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
-    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
-    const preview = findLightAppJson(outerMsgBody);
+        const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+        const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+        const preview = findLightAppJson(outerMsgBody);
 
-    expect(preview).not.toBeNull();
-    // Caller-supplied news wins over `inner: 会被覆盖的正文`.
-    expect(preview!.news).toEqual(customNews);
-  });
+        expect(preview).not.toBeNull();
+        // Caller-supplied news wins over `inner: 会被覆盖的正文`.
+        expect(preview!.news).toEqual(customNews);
+    });
 
-  it('inner forward bubble falls back to auto-generated lines when node has no news', async () => {
-    const responses = ['inner-res', 'outer-res'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('inner forward bubble falls back to auto-generated lines when node has no news', async () => {
+        const responses = ['inner-res', 'outer-res'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    await new ForwardApi(bridge as any).upload([{
-      userUin: 111,
-      nickname: 'outer',
-      elements: [],
-      // no `news` field — auto-generate from inner nodes
-      innerForward: [
-        { userUin: 222, nickname: '内层说话人', elements: [{ type: 'text', text: '第一句台词' }] },
-      ],
-    }]);
+        await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                // no `news` field — auto-generate from inner nodes
+                innerForward: [
+                    {
+                        userUin: 222,
+                        nickname: '内层说话人',
+                        elements: [{ type: 'text', text: '第一句台词' }],
+                    },
+                ],
+            },
+        ]);
 
-    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
-    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
-    const preview = findLightAppJson(outerMsgBody);
+        const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+        const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+        const preview = findLightAppJson(outerMsgBody);
 
-    expect(preview).not.toBeNull();
-    expect(preview!.news).toEqual([{ text: '内层说话人: 第一句台词' }]);
-  });
+        expect(preview).not.toBeNull();
+        expect(preview!.news).toEqual([{ text: '内层说话人: 第一句台词' }]);
+    });
 
-  it('inner forward card prefers caller-supplied source/summary/prompt metadata', async () => {
-    const responses = ['inner-res', 'outer-res'];
-    const sendRawPacket = vi.fn(async () =>
-      uploadResponseWithResId(responses.shift()!)) as any;
-    const bridge = mockBridge({ sendRawPacket });
+    it('inner forward card prefers caller-supplied source/summary/prompt metadata', async () => {
+        const responses = ['inner-res', 'outer-res'];
+        const sendRawPacket = vi.fn(async () => uploadResponseWithResId(responses.shift()!)) as any;
+        const bridge = mockBridge({ sendRawPacket });
 
-    await new ForwardApi(bridge as any).upload([{
-      userUin: 111,
-      nickname: 'outer',
-      elements: [],
-      source: '万叶的手记',
-      summary: '共 12 条剧情消息',
-      prompt: '查看剧情',
-      innerForward: [
-        { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
-      ],
-    }]);
+        await new ForwardApi(bridge as any).upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                source: '万叶的手记',
+                summary: '共 12 条剧情消息',
+                prompt: '查看剧情',
+                innerForward: [
+                    { userUin: 222, nickname: 'inner', elements: [{ type: 'text', text: 'hi' }] },
+                ],
+            },
+        ]);
 
-    const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
-    const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
-    const preview = findLightAppJson(outerMsgBody);
+        const outerBytes = sendRawPacket.mock.calls[1]![1] as Uint8Array;
+        const outerMsgBody = decodeOuterLongMsg(outerBytes).action![0]!.actionData!.msgBody!;
+        const preview = findLightAppJson(outerMsgBody);
 
-    expect(preview).not.toBeNull();
-    // decodeOuterLongMsg → lightApp meta.detail as built by element-builder
-    expect(preview!.app).toBe('com.tencent.multimsg');
-    // The plaintext preview lines of the wire bubble.
-    // Caller metadata wins: source = 万叶的手记, summary used instead of
-    // the auto-generated `查看N条转发消息`.
-    expect(preview!.source).toBe('万叶的手记');
-    expect(preview!.summary).toBe('共 12 条剧情消息');
-  });
+        expect(preview).not.toBeNull();
+        // decodeOuterLongMsg → lightApp meta.detail as built by element-builder
+        expect(preview!.app).toBe('com.tencent.multimsg');
+        // The plaintext preview lines of the wire bubble.
+        // Caller metadata wins: source = 万叶的手记, summary used instead of
+        // the auto-generated `查看N条转发消息`.
+        expect(preview!.source).toBe('万叶的手记');
+        expect(preview!.summary).toBe('共 12 条剧情消息');
+    });
 });

@@ -5,61 +5,65 @@
 
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type {
-  Oidb0x9084Req, Oidb0x9084Resp,
-} from '@snowluma/proto-defs/oidb-actions/base';
+import type { Oidb0x9084Req, Oidb0x9084Resp } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace FetchReactionSummary {
-  export const command = 0x9084;
-  export const subCommand = 1;
+    export const command = 0x9084;
+    export const subCommand = 1;
 
-  export interface Params {
-    groupId: number;
-    sequence: number;
-  }
-
-  export interface ReactionSummaryEntry {
-    emojiId: string;
-    emojiType: number;
-    count: number;
-    /** Unix epoch seconds of the most recent reaction. */
-    lastReactionTime: number;
-  }
-
-  export type Deps = OidbSender;
-
-  export const serialize = (_ctx: Deps, p: Params): Oidb0x9084Req => ({
-    groupId: BigInt(p.groupId),
-    sequence: BigInt(p.sequence),
-    emojiId: '',
-    emojiType: 0,
-    cookie: new Uint8Array(0),
-    count: 0,
-    field12: 1,
-  });
-
-  export const deserialize = (_ctx: Deps, body: Oidb0x9084Resp): ReactionSummaryEntry[] => {
-    const out: ReactionSummaryEntry[] = [];
-    for (const e of body.entries ?? []) {
-      const count = e.count ?? 0;
-      if (count <= 0) continue; // skip catalog-tail entries
-      out.push({
-        emojiId: e.emojiId ?? '',
-        emojiType: e.emojiType ?? 1,
-        count,
-        lastReactionTime: Number(e.lastReactionTime ?? 0n),
-      });
+    export interface Params {
+        groupId: number;
+        sequence: number;
     }
-    return out;
-  };
 
-  export const encode = (env: OidbBase<Oidb0x9084Req>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0x9084Req>>(env);
+    export interface ReactionSummaryEntry {
+        emojiId: string;
+        emojiType: number;
+        count: number;
+        /** Unix epoch seconds of the most recent reaction. */
+        lastReactionTime: number;
+    }
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0x9084Resp> =>
-    protobuf_decode<OidbBase<Oidb0x9084Resp>>(bytes);
+    export type Deps = OidbSender;
 
-  export const invoke = (deps: Deps, params: Params): Promise<ReactionSummaryEntry[]> =>
-    invokeOidb(deps, FetchReactionSummary, params);
+    export const serialize = (_ctx: Deps, p: Params): Oidb0x9084Req => ({
+        groupId: BigInt(p.groupId),
+        sequence: BigInt(p.sequence),
+        emojiId: '',
+        emojiType: 0,
+        cookie: new Uint8Array(0),
+        count: 0,
+        field12: 1,
+    });
+
+    export const deserialize = (_ctx: Deps, body: Oidb0x9084Resp): ReactionSummaryEntry[] => {
+        const out: ReactionSummaryEntry[] = [];
+
+        for (const e of body.entries ?? []) {
+            const count = e.count ?? 0;
+
+            if (count <= 0) {
+                continue;
+            } // skip catalog-tail entries
+
+            out.push({
+                emojiId: e.emojiId ?? '',
+                emojiType: e.emojiType ?? 1,
+                count,
+                lastReactionTime: Number(e.lastReactionTime ?? 0n),
+            });
+        }
+
+        return out;
+    };
+
+    export const encode = (env: OidbBase<Oidb0x9084Req>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0x9084Req>>(env);
+
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0x9084Resp> =>
+        protobuf_decode<OidbBase<Oidb0x9084Resp>>(bytes);
+
+    export const invoke = (deps: Deps, params: Params): Promise<ReactionSummaryEntry[]> =>
+        invokeOidb(deps, FetchReactionSummary, params);
 }

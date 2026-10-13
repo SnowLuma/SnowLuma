@@ -3,217 +3,260 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { guessFileNameFromUrl, loadBinarySource, resolveLocalFilePath } from '@snowluma/protocol/highway/utils';
+import {
+    guessFileNameFromUrl,
+    loadBinarySource,
+    resolveLocalFilePath,
+} from '@snowluma/protocol/highway/utils';
 
 describe('highway source paths', () => {
-  it('normalizes file URLs with an extra leading slash on POSIX', () => {
-    if (process.platform === 'win32') return;
-    expect(resolveLocalFilePath('file:////AstrBot/data/plugin/cache/BV-test.mp4'))
-      .toBe('/AstrBot/data/plugin/cache/BV-test.mp4');
-  });
+    it('normalizes file URLs with an extra leading slash on POSIX', () => {
+        if (process.platform === 'win32') {
+            return;
+        }
 
-  it('percent-decodes a URL basename used as the upload filename (#354)', () => {
-    expect(guessFileNameFromUrl(
-      'file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx',
-    )).toBe('测试文件.xlsx');
-    expect(guessFileNameFromUrl('https://cdn.example/a/%E4%B8%AD%E6%96%87.png?x=1'))
-      .toBe('中文.png');
-    expect(guessFileNameFromUrl('https://cdn.example/plain.bin')).toBe('plain.bin');
-    expect(guessFileNameFromUrl('https://cdn.example/%ZZ.xlsx')).toBe('%ZZ.xlsx');
-  });
+        expect(resolveLocalFilePath('file:////AstrBot/data/plugin/cache/BV-test.mp4')).toBe(
+            '/AstrBot/data/plugin/cache/BV-test.mp4',
+        );
+    });
 
-  it('loads encoded file URLs from the local filesystem', async () => {
-    const filePath = path.join(os.tmpdir(), `snowluma video ${process.pid}-${Date.now()}.txt`);
-    fs.writeFileSync(filePath, 'ok');
+    it('percent-decodes a URL basename used as the upload filename (#354)', () => {
+        expect(
+            guessFileNameFromUrl('file:///D:/test/%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6.xlsx'),
+        ).toBe('测试文件.xlsx');
+        expect(guessFileNameFromUrl('https://cdn.example/a/%E4%B8%AD%E6%96%87.png?x=1')).toBe(
+            '中文.png',
+        );
+        expect(guessFileNameFromUrl('https://cdn.example/plain.bin')).toBe('plain.bin');
+        expect(guessFileNameFromUrl('https://cdn.example/%ZZ.xlsx')).toBe('%ZZ.xlsx');
+    });
 
-    try {
-      const source = pathToFileURL(filePath).href;
-      const loaded = await loadBinarySource(source, 'test file');
-      expect(Buffer.from(loaded.bytes).toString('utf8')).toBe('ok');
-      expect(loaded.fileName).toBe(path.basename(filePath));
-    } finally {
-      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-    }
-  });
+    it('loads encoded file URLs from the local filesystem', async () => {
+        const filePath = path.join(os.tmpdir(), `snowluma video ${process.pid}-${Date.now()}.txt`);
+        fs.writeFileSync(filePath, 'ok');
 
-  it('loads base64 data URLs as inline bytes', async () => {
-    const loaded = await loadBinarySource('data:audio/webm;base64,AQID', 'record', 64);
+        try {
+            const source = pathToFileURL(filePath).href;
+            const loaded = await loadBinarySource(source, 'test file');
+            expect(Buffer.from(loaded.bytes).toString('utf8')).toBe('ok');
+            expect(loaded.fileName).toBe(path.basename(filePath));
+        } finally {
+            try {
+                fs.unlinkSync(filePath);
+            } catch {
+                /* ignore */
+            }
+        }
+    });
 
-    expect({ bytes: Array.from(loaded.bytes), fileName: loaded.fileName })
-      .toEqual({ bytes: [1, 2, 3], fileName: '' });
-  });
+    it('loads base64 data URLs as inline bytes', async () => {
+        const loaded = await loadBinarySource('data:audio/webm;base64,AQID', 'record', 64);
 
-  it('never classifies data URLs as local file paths', () => {
-    expect(resolveLocalFilePath('data:audio/webm;base64,AQID')).toBeNull();
-  });
+        expect({ bytes: Array.from(loaded.bytes), fileName: loaded.fileName }).toEqual({
+            bytes: [1, 2, 3],
+            fileName: '',
+        });
+    });
 
-  it('rejects non-base64 data URLs explicitly', async () => {
-    await expect(
-      loadBinarySource('data:text/plain,hello', 'record', 64),
-    ).rejects.toThrow(/data URL source must use base64 encoding/);
-  });
+    it('never classifies data URLs as local file paths', () => {
+        expect(resolveLocalFilePath('data:audio/webm;base64,AQID')).toBeNull();
+    });
 
-  it('requires the RFC 2397 base64 flag instead of a base64 media type', async () => {
-    await expect(
-      loadBinarySource('data:base64,AQID', 'record', 64),
-    ).rejects.toThrow(/data URL source must use base64 encoding/);
-  });
+    it('rejects non-base64 data URLs explicitly', async () => {
+        await expect(loadBinarySource('data:text/plain,hello', 'record', 64)).rejects.toThrow(
+            /data URL source must use base64 encoding/,
+        );
+    });
+
+    it('requires the RFC 2397 base64 flag instead of a base64 media type', async () => {
+        await expect(loadBinarySource('data:base64,AQID', 'record', 64)).rejects.toThrow(
+            /data URL source must use base64 encoding/,
+        );
+    });
 });
 
 describe('loadBinarySource maxBytes enforcement', () => {
-  const originalFetch = globalThis.fetch;
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
-
-  it('rejects HTTP downloads larger than maxBytes via streaming, even without Content-Length', async () => {
-    // Streamed chunk-encoded response: no Content-Length, totals > cap.
-    const chunkSize = 4 * 1024;
-    const totalChunks = 16;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (let i = 0; i < totalChunks; i++) controller.enqueue(new Uint8Array(chunkSize));
-        controller.close();
-      },
+    const originalFetch = globalThis.fetch;
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        vi.restoreAllMocks();
     });
-    globalThis.fetch = vi.fn(async () => new Response(stream, {
-      status: 200,
-      headers: { /* no content-length */ },
-    })) as typeof fetch;
 
-    // Cap below total: 16*4096 = 65536, cap 32 KiB → should throw mid-stream.
-    await expect(
-      loadBinarySource('https://example.test/big.bin', 'test', 32 * 1024),
-    ).rejects.toThrow(/too large/);
-  });
+    it('rejects HTTP downloads larger than maxBytes via streaming, even without Content-Length', async () => {
+        // Streamed chunk-encoded response: no Content-Length, totals > cap.
+        const chunkSize = 4 * 1024;
+        const totalChunks = 16;
+        const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+                for (let i = 0; i < totalChunks; i++) {
+                    controller.enqueue(new Uint8Array(chunkSize));
+                }
 
-  it('rejects HTTP downloads when Content-Length already exceeds maxBytes', async () => {
-    globalThis.fetch = vi.fn(async () => new Response(new Uint8Array(0), {
-      status: 200,
-      headers: { 'content-length': String(10 * 1024 * 1024) },
-    })) as typeof fetch;
+                controller.close();
+            },
+        });
+        globalThis.fetch = vi.fn(
+            async () =>
+                new Response(stream, {
+                    status: 200,
+                    headers: {/* no content-length */},
+                }),
+        ) as typeof fetch;
 
-    await expect(
-      loadBinarySource('https://example.test/big.bin', 'test', 1024),
-    ).rejects.toThrow(/too large: 10485760/);
-  });
-
-  it('accepts a streamed download that fits inside maxBytes', async () => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2, 3]));
-        controller.enqueue(new Uint8Array([4, 5]));
-        controller.close();
-      },
+        // Cap below total: 16*4096 = 65536, cap 32 KiB → should throw mid-stream.
+        await expect(
+            loadBinarySource('https://example.test/big.bin', 'test', 32 * 1024),
+        ).rejects.toThrow(/too large/);
     });
-    globalThis.fetch = vi.fn(async () => new Response(stream, { status: 200 })) as typeof fetch;
 
-    const loaded = await loadBinarySource('https://example.test/small.bin', 'test', 1024);
-    expect(Array.from(loaded.bytes)).toEqual([1, 2, 3, 4, 5]);
-  });
+    it('rejects HTTP downloads when Content-Length already exceeds maxBytes', async () => {
+        globalThis.fetch = vi.fn(
+            async () =>
+                new Response(new Uint8Array(0), {
+                    status: 200,
+                    headers: { 'content-length': String(10 * 1024 * 1024) },
+                }),
+        ) as typeof fetch;
 
-  it('rejects oversized local files via fs.stat before reading them', async () => {
-    const filePath = path.join(os.tmpdir(), `snowluma-binary-cap-${process.pid}-${Date.now()}.bin`);
-    fs.writeFileSync(filePath, Buffer.alloc(128));
-    try {
-      await expect(
-        loadBinarySource(filePath, 'test', 64),
-      ).rejects.toThrow(/too large: 128 > 64/);
-    } finally {
-      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-    }
-  });
+        await expect(
+            loadBinarySource('https://example.test/big.bin', 'test', 1024),
+        ).rejects.toThrow(/too large: 10485760/);
+    });
 
-  it('rejects oversized base64 payloads', async () => {
-    const big = Buffer.alloc(128).toString('base64');
-    await expect(
-      loadBinarySource(`base64://${big}`, 'test', 64),
-    ).rejects.toThrow(/too large: 128 > 64/);
-  });
+    it('accepts a streamed download that fits inside maxBytes', async () => {
+        const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new Uint8Array([1, 2, 3]));
+                controller.enqueue(new Uint8Array([4, 5]));
+                controller.close();
+            },
+        });
+        globalThis.fetch = vi.fn(async () => new Response(stream, { status: 200 })) as typeof fetch;
 
-  it('rejects oversized base64 data URL payloads', async () => {
-    const big = Buffer.alloc(128).toString('base64');
-    await expect(
-      loadBinarySource(`data:audio/webm;base64,${big}`, 'test', 64),
-    ).rejects.toThrow(/too large: 128 > 64/);
-  });
+        const loaded = await loadBinarySource('https://example.test/small.bin', 'test', 1024);
+        expect(Array.from(loaded.bytes)).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('rejects oversized local files via fs.stat before reading them', async () => {
+        const filePath = path.join(
+            os.tmpdir(),
+            `snowluma-binary-cap-${process.pid}-${Date.now()}.bin`,
+        );
+        fs.writeFileSync(filePath, Buffer.alloc(128));
+
+        try {
+            await expect(loadBinarySource(filePath, 'test', 64)).rejects.toThrow(
+                /too large: 128 > 64/,
+            );
+        } finally {
+            try {
+                fs.unlinkSync(filePath);
+            } catch {
+                /* ignore */
+            }
+        }
+    });
+
+    it('rejects oversized base64 payloads', async () => {
+        const big = Buffer.alloc(128).toString('base64');
+        await expect(loadBinarySource(`base64://${big}`, 'test', 64)).rejects.toThrow(
+            /too large: 128 > 64/,
+        );
+    });
+
+    it('rejects oversized base64 data URL payloads', async () => {
+        const big = Buffer.alloc(128).toString('base64');
+        await expect(loadBinarySource(`data:audio/webm;base64,${big}`, 'test', 64)).rejects.toThrow(
+            /too large: 128 > 64/,
+        );
+    });
 });
 
 describe('loadBinarySource HTTP header hardening', () => {
-  const originalFetch = globalThis.fetch;
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
+    const originalFetch = globalThis.fetch;
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        vi.restoreAllMocks();
+    });
 
-  it('sends a browser User-Agent on the first attempt, without a Referer', async () => {
-    const calls: Array<Record<string, string>> = [];
-    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
-      calls.push((init?.headers ?? {}) as Record<string, string>);
-      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-    }) as typeof fetch;
+    it('sends a browser User-Agent on the first attempt, without a Referer', async () => {
+        const calls: Array<Record<string, string>> = [];
+        globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+            calls.push((init?.headers ?? {}) as Record<string, string>);
+            return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }) as typeof fetch;
 
-    await loadBinarySource('https://example.test/a.png', 'image');
-    expect(calls).toHaveLength(1);
-    expect(calls[0]['User-Agent']).toMatch(/Mozilla\/5\.0/);
-    expect(calls[0]['Referer']).toBeUndefined();
-  });
+        await loadBinarySource('https://example.test/a.png', 'image');
+        expect(calls).toHaveLength(1);
+        expect(calls[0]['User-Agent']).toMatch(/Mozilla\/5\.0/);
+        expect(calls[0]['Referer']).toBeUndefined();
+    });
 
-  it('retries with a Referer when the first fetch fails at the network level', async () => {
-    // Reproduces the reported bug: an anti-bot front-end resets the
-    // header-less request → undici `TypeError: fetch failed`. The retry
-    // carries a Referer pointing at the resource itself and succeeds.
-    const calls: Array<Record<string, string>> = [];
-    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
-      calls.push((init?.headers ?? {}) as Record<string, string>);
-      if (calls.length === 1) throw new TypeError('fetch failed');
-      return new Response(new Uint8Array([9, 9]), { status: 200 });
-    }) as typeof fetch;
+    it('retries with a Referer when the first fetch fails at the network level', async () => {
+        // Reproduces the reported bug: an anti-bot front-end resets the
+        // header-less request → undici `TypeError: fetch failed`. The retry
+        // carries a Referer pointing at the resource itself and succeeds.
+        const calls: Array<Record<string, string>> = [];
+        globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+            calls.push((init?.headers ?? {}) as Record<string, string>);
 
-    const loaded = await loadBinarySource('https://img.example.test/x.gif', 'image');
-    expect(Array.from(loaded.bytes)).toEqual([9, 9]);
-    expect(calls).toHaveLength(2);
-    expect(calls[0]['Referer']).toBeUndefined();
-    expect(calls[1]['Referer']).toBe('https://img.example.test/x.gif');
-  });
+            if (calls.length === 1) {
+                throw new TypeError('fetch failed');
+            }
 
-  it('retries with a Referer on a 403 (anti-hotlink)', async () => {
-    let n = 0;
-    globalThis.fetch = vi.fn(async () => {
-      n++;
-      if (n === 1) return new Response(new Uint8Array(0), { status: 403 });
-      return new Response(new Uint8Array([7]), { status: 200 });
-    }) as typeof fetch;
+            return new Response(new Uint8Array([9, 9]), { status: 200 });
+        }) as typeof fetch;
 
-    const loaded = await loadBinarySource('https://cdn.example.test/y.jpg', 'image');
-    expect(Array.from(loaded.bytes)).toEqual([7]);
-    expect(n).toBe(2);
-  });
+        const loaded = await loadBinarySource('https://img.example.test/x.gif', 'image');
+        expect(Array.from(loaded.bytes)).toEqual([9, 9]);
+        expect(calls).toHaveLength(2);
+        expect(calls[0]['Referer']).toBeUndefined();
+        expect(calls[1]['Referer']).toBe('https://img.example.test/x.gif');
+    });
 
-  it('does not retry a size-limit rejection (deterministic, no second download)', async () => {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array(0), {
-      status: 200,
-      headers: { 'content-length': String(10 * 1024 * 1024) },
-    }));
-    globalThis.fetch = fetchMock as typeof fetch;
+    it('retries with a Referer on a 403 (anti-hotlink)', async () => {
+        let n = 0;
+        globalThis.fetch = vi.fn(async () => {
+            n++;
 
-    await expect(
-      loadBinarySource('https://example.test/big.bin', 'image', 1024),
-    ).rejects.toThrow(/too large/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
+            if (n === 1) {
+                return new Response(new Uint8Array(0), { status: 403 });
+            }
 
-  it('surfaces the first error when the Referer retry also fails', async () => {
-    let n = 0;
-    globalThis.fetch = vi.fn(async () => {
-      n++;
-      throw new TypeError('fetch failed');
-    }) as typeof fetch;
+            return new Response(new Uint8Array([7]), { status: 200 });
+        }) as typeof fetch;
 
-    await expect(
-      loadBinarySource('https://example.test/z.png', 'image'),
-    ).rejects.toThrow(/fetch failed/);
-    expect(n).toBe(2);
-  });
+        const loaded = await loadBinarySource('https://cdn.example.test/y.jpg', 'image');
+        expect(Array.from(loaded.bytes)).toEqual([7]);
+        expect(n).toBe(2);
+    });
+
+    it('does not retry a size-limit rejection (deterministic, no second download)', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(new Uint8Array(0), {
+                    status: 200,
+                    headers: { 'content-length': String(10 * 1024 * 1024) },
+                }),
+        );
+        globalThis.fetch = fetchMock as typeof fetch;
+
+        await expect(
+            loadBinarySource('https://example.test/big.bin', 'image', 1024),
+        ).rejects.toThrow(/too large/);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces the first error when the Referer retry also fails', async () => {
+        let n = 0;
+        globalThis.fetch = vi.fn(async () => {
+            n++;
+            throw new TypeError('fetch failed');
+        }) as typeof fetch;
+
+        await expect(loadBinarySource('https://example.test/z.png', 'image')).rejects.toThrow(
+            /fetch failed/,
+        );
+        expect(n).toBe(2);
+    });
 });

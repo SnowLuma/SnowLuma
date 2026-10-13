@@ -60,6 +60,8 @@ pnpm --filter @snowluma/onebot test   # example: tests for the affected package
 pnpm --filter webui test             # the frontend package has no @snowluma/ prefix
 ```
 
+TypeScript formatting uses the root [Prettier configuration](.prettierrc.json), [local ESLint formatting rules](eslint.format.config.ts), and [ignore list](.prettierignore). Use `pnpm format` for all TS/TSX/MTS/CTS files and `pnpm format:check` for a read-only check. For selected files, run `pnpm exec eslint --config eslint.format.config.ts --fix <paths>` followed by `pnpm exec prettier --write <paths>`. These commands enforce four-space indentation, braces around control-statement bodies, and blank lines around statement blocks while preserving other logical spacing. They are separate from CI and its code-quality lint rules. Generated catalogs and compiler fixtures retain their source formatting.
+
 Use focused tests while iterating. Before handing off a code change, run the full checks required by CONTRIBUTING.md and report anything that could not run. [PR CI](.github/workflows/ci.yml) is the reference; `pnpm run ci` reproduces its commands locally, including dependency installation and the generated-catalog check.
 
 - **Documentation-only changes:** verify links, paths, commands and `git diff --check`; runtime tests do not validate prose.
@@ -80,7 +82,7 @@ Use focused tests while iterating. Before handing off a code change, run the ful
 - **Validate at inputs.** Use the existing action field and cross-field validation helpers. Preserve accepted input forms, response fields and error behavior unless the change explicitly calls for new semantics. Do not silently discard invalid outbound message content.
 - **Protect persisted data.** Message history and media metadata are durable records. Do not add automatic deletion or treat them as disposable caches. Migration changes need failure and restart coverage; keep failures visible.
 - **Preserve transport policy.** Retain configured bind addresses and access checks. TLS startup failure must not silently downgrade to HTTP. Distinguish saved configuration from changes actually applied to a running adapter.
-- **Keep types and ownership clear.** Follow the strict TypeScript configuration, existing import style and two-space indentation. Validate unknown external data instead of hiding mismatches with casts or fallback values. Keep comments about reasons and non-obvious behavior.
+- **Keep types and ownership clear.** Follow the strict TypeScript configuration, existing import style and four-space TypeScript indentation. Validate unknown external data instead of hiding mismatches with casts or fallback values. Keep comments about reasons and non-obvious behavior.
 - **Keep diagnostics safe.** Use existing sanitization when recording external input. Credentials, private keys, private account data and unredacted captures do not belong in commits, fixtures or public reports.
 
 ## Generated files and related changes

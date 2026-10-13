@@ -1,8 +1,17 @@
-import type { pb, pb_optional, pb_repeated, int_32, uint_32, uint_64, bool, bytes } from '@snowluma/proton';
+import type {
+    pb,
+    pb_optional,
+    pb_repeated,
+    int_32,
+    uint_32,
+    uint_64,
+    bool,
+    bytes,
+} from '@snowluma/proton';
 
 export interface ExtMapEntry {
-  key?:   pb<1, string>;
-  value?: pb<2, string>;
+    key?: pb<1, string>;
+    value?: pb<2, string>;
 }
 
 // QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetAlbumList
@@ -12,327 +21,332 @@ export interface ExtMapEntry {
 // file; the operation-specific request body only contains the group id and
 // the pagination cursor.
 export interface GetAlbumListReqData {
-  groupId?:    pb<1, string>;
-  attachInfo?: pb_optional<2, string>;
+    groupId?: pb<1, string>;
+    attachInfo?: pb_optional<2, string>;
 }
 export interface GetAlbumListRequest {
-  seq?:     pb<1, int_32>;
-  field2?:  pb_optional<2, bytes>;
-  field3?:  pb_optional<3, bytes>;
-  data?:    pb<4, GetAlbumListReqData>;
-  traceId?: pb<5, string>;
-  extMap?:  pb_repeated<10, ExtMapEntry>;
+    seq?: pb<1, int_32>;
+    field2?: pb_optional<2, bytes>;
+    field3?: pb_optional<3, bytes>;
+    data?: pb<4, GetAlbumListReqData>;
+    traceId?: pb<5, string>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface AlbumCreator {
-  uid?:         pb<1, string>;
-  nick?:        pb<2, string>;
-  isSweet?:     pb<5, bool>;
-  isSpecial?:   pb<6, bool>;
-  isSuperLike?: pb<7, bool>;
-  customId?:    pb<8, string>;
-  polyId?:      pb<9, string>;
-  portrait?:    pb<10, string>;
-  canFollow?:   pb<11, int_32>;
-  isFollowed?:  pb<12, int_32>;
-  uin?:         pb<13, string>;
-  dittoUin?:    pb<14, string>;
+    uid?: pb<1, string>;
+    nick?: pb<2, string>;
+    isSweet?: pb<5, bool>;
+    isSpecial?: pb<6, bool>;
+    isSuperLike?: pb<7, bool>;
+    customId?: pb<8, string>;
+    polyId?: pb<9, string>;
+    portrait?: pb<10, string>;
+    canFollow?: pb<11, int_32>;
+    isFollowed?: pb<12, int_32>;
+    uin?: pb<13, string>;
+    dittoUin?: pb<14, string>;
 }
 export interface GroupAlbumInfo {
-  albumId?:        pb<1, string>;
-  owner?:          pb<2, string>;
-  name?:           pb<3, string>;
-  description?:    pb<4, string>;
-  createTime?:     pb<5, uint_64>;
-  modifyTime?:     pb<6, uint_64>;
-  lastUploadTime?: pb<7, uint_64>;
-  uploadNumber?:   pb<8, uint_64>;
-  // QQ NT AlbumCodec_DecodeAlbumInfo tag 9 reuses the media-list MediaInfo codec.
-  cover?:          pb<9, MediaInfo>;
-  creator?:        pb<10, AlbumCreator>;
-  topFlag?:        pb<11, uint_64>;
-  busiType?:       pb<12, int_32>;
-  status?:         pb<13, int_32>;
-  allowShare?:     pb<15, bool>;
-  isSubscribe?:    pb<16, bool>;
-  bitmap?:         pb<17, string>;
-  isShareAlbum?:   pb<18, bool>;
-  qzAlbumType?:    pb<20, int_32>;
-  coverType?:      pb<23, int_32>;
-  defaultDesc?:    pb<26, string>;
-  sortType?:       pb<30, int_32>;
+    albumId?: pb<1, string>;
+    owner?: pb<2, string>;
+    name?: pb<3, string>;
+    description?: pb<4, string>;
+    createTime?: pb<5, uint_64>;
+    modifyTime?: pb<6, uint_64>;
+    lastUploadTime?: pb<7, uint_64>;
+    uploadNumber?: pb<8, uint_64>;
+    // QQ NT AlbumCodec_DecodeAlbumInfo tag 9 reuses the media-list MediaInfo codec.
+    cover?: pb<9, MediaInfo>;
+    creator?: pb<10, AlbumCreator>;
+    topFlag?: pb<11, uint_64>;
+    busiType?: pb<12, int_32>;
+    status?: pb<13, int_32>;
+    allowShare?: pb<15, bool>;
+    isSubscribe?: pb<16, bool>;
+    bitmap?: pb<17, string>;
+    isShareAlbum?: pb<18, bool>;
+    qzAlbumType?: pb<20, int_32>;
+    coverType?: pb<23, int_32>;
+    defaultDesc?: pb<26, string>;
+    sortType?: pb<30, int_32>;
 }
 export interface GetAlbumListRspData {
-  albumList?:  pb_repeated<1, GroupAlbumInfo>;
-  attachInfo?: pb<2, string>;
-  hasMore?:    pb<3, bool>;
+    albumList?: pb_repeated<1, GroupAlbumInfo>;
+    attachInfo?: pb<2, string>;
+    hasMore?: pb<3, bool>;
 }
 export interface GetAlbumListResponse {
-  seq?:       pb<1, int_32>;
-  result?:    pb<2, int_32>;
-  errorText?: pb<3, string>;
-  data?:      pb<4, GetAlbumListRspData>;
+    seq?: pb<1, int_32>;
+    result?: pb<2, int_32>;
+    errorText?: pb<3, string>;
+    data?: pb<4, GetAlbumListRspData>;
 }
 
 export interface ReqInfo {
-  groupId?:  pb<1, string>;
-  albumId?:  pb<2, string>;
-  field3?:   pb<3, int_32>;
-  field4?:   pb<4, string>;
-  pageInfo?: pb<5, string>;
+    groupId?: pb<1, string>;
+    albumId?: pb<2, string>;
+    field3?: pb<3, int_32>;
+    field4?: pb<4, string>;
+    pageInfo?: pb<5, string>;
 }
 export interface GetMediaListRequest {
-  field1?:  pb<1, int_32>;
-  field2?:  pb<2, bytes>;
-  field3?:  pb<3, bytes>;
-  reqInfo?: pb<4, ReqInfo>;
-  traceId?: pb<5, string>;
-  extMap?:  pb_repeated<10, ExtMapEntry>;
+    field1?: pb<1, int_32>;
+    field2?: pb<2, bytes>;
+    field3?: pb<3, bytes>;
+    reqInfo?: pb<4, ReqInfo>;
+    traceId?: pb<5, string>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface UrlInfo {
-  url?:    pb<1, string>;
-  width?:  pb<2, uint_32>;
-  height?: pb<3, uint_32>;
+    url?: pb<1, string>;
+    width?: pb<2, uint_32>;
+    height?: pb<3, uint_32>;
 }
 export interface PhotoUrl {
-  spec?: pb<1, uint_32>;
-  url?:  pb<2, UrlInfo>;
+    spec?: pb<1, uint_32>;
+    url?: pb<2, UrlInfo>;
 }
 export interface ImageInfo {
-  name?:       pb<1, string>;
-  sloc?:       pb<2, string>;
-  lloc?:       pb<3, string>;
-  photoUrls?:  pb_repeated<4, PhotoUrl>;
-  defaultUrl?: pb<5, UrlInfo>;
-  isGif?:      pb<6, bool>;
-  hasRaw?:     pb<7, bool>;
+    name?: pb<1, string>;
+    sloc?: pb<2, string>;
+    lloc?: pb<3, string>;
+    photoUrls?: pb_repeated<4, PhotoUrl>;
+    defaultUrl?: pb<5, UrlInfo>;
+    isGif?: pb<6, bool>;
+    hasRaw?: pb<7, bool>;
 }
 export interface VideoInfo {
-  id?:        pb<1, string>;
-  url?:       pb<2, string>;
-  cover?:     pb<3, ImageInfo>;
-  width?:     pb<4, uint_32>;
-  height?:    pb<5, uint_32>;
-  videoTime?: pb<6, uint_64>;
-  videoUrl?:  pb_repeated<7, PhotoUrl>;
+    id?: pb<1, string>;
+    url?: pb<2, string>;
+    cover?: pb<3, ImageInfo>;
+    width?: pb<4, uint_32>;
+    height?: pb<5, uint_32>;
+    videoTime?: pb<6, uint_64>;
+    videoUrl?: pb_repeated<7, PhotoUrl>;
 }
 export interface MediaInfo {
-  type?:       pb<1, uint_32>;
-  image?:      pb<2, ImageInfo>;
-  video?:      pb<3, VideoInfo>;
-  uploader?:   pb<6, string>;
-  batchId?:    pb<7, uint_64>;
-  uploadTime?: pb<8, uint_64>;
+    type?: pb<1, uint_32>;
+    image?: pb<2, ImageInfo>;
+    video?: pb<3, VideoInfo>;
+    uploader?: pb<6, string>;
+    batchId?: pb<7, uint_64>;
+    uploadTime?: pb<8, uint_64>;
 }
 export interface GetMediaListAlbumInfo {
-  albumId?: pb<1, string>;
-  owner?:   pb<2, string>;
-  name?:    pb<3, string>;
+    albumId?: pb<1, string>;
+    owner?: pb<2, string>;
+    name?: pb<3, string>;
 }
 export interface GetMediaListRspData {
-  albumInfo?:      pb<1, GetMediaListAlbumInfo>;
-  mediaList?:      pb_repeated<3, MediaInfo>;
-  prevAttachInfo?: pb<4, string>;
-  nextAttachInfo?: pb<5, string>;
+    albumInfo?: pb<1, GetMediaListAlbumInfo>;
+    mediaList?: pb_repeated<3, MediaInfo>;
+    prevAttachInfo?: pb<4, string>;
+    nextAttachInfo?: pb<5, string>;
 }
 export interface GetMediaListResponse {
-  field1?: pb<1, int_32>;
-  field2?: pb<2, bytes>;
-  field3?: pb<3, bytes>;
-  data?:   pb<4, GetMediaListRspData>;
+    field1?: pb<1, int_32>;
+    field2?: pb<2, bytes>;
+    field3?: pb<3, bytes>;
+    data?: pb<4, GetMediaListRspData>;
 }
 export interface CommentContentItem {
-  type?:    pb<1, uint_32>;
-  content?: pb<2, string>;
+    // Text cells on the wire include type 0. A plain pb<> field would omit it.
+    type?: pb_optional<1, uint_32>;
+    content?: pb<2, string>;
 }
 export interface CommentUser {
-  uin?: pb<13, string>;
+    uin?: pb<13, string>;
+    uinNum?: pb<14, uint_64>;
 }
 export interface CommentReqContent {
-  user?:      pb<2, CommentUser>;
-  // QQ NT FeedWorker writes StComment content cells as a repeated field.
-  contents?:  pb_repeated<3, CommentContentItem>;
-  clientKey?: pb<7, string>;
+    user?: pb<2, CommentUser>;
+    // QQ NT FeedWorker writes StComment content cells as a repeated field.
+    contents?: pb_repeated<3, CommentContentItem>;
+    clientKey?: pb<7, string>;
 }
 // QQ NT FeedWorker copies StFeed media cells with the MediaInfo codec.
 export interface CommentReqPhotoInfo {
-  medias?:  pb_repeated<1, MediaInfo>;
-  albumId?: pb<3, string>;
-  batchId?: pb<5, uint_64>;
+    medias?: pb_repeated<1, MediaInfo>;
+    albumId?: pb<3, string>;
+    batchId?: pb<5, uint_64>;
 }
 export interface CommentReqBodyHeader {
-  // FeedWorker encode writes only time and feed id into this cell.
-  type?:   pb<1, uint_32>;
-  time?:   pb<3, uint_64>;
-  feedId?: pb<4, string>;
-  cellId?: pb<5, string>;
-  field6?: pb<6, uint_32>;
+    // Fallback only. A successful write copies the feed cellCommon bytes,
+    // which also carry type, the 421 locator, and field 6.
+    type?: pb<1, uint_32>;
+    time?: pb<3, uint_64>;
+    feedId?: pb<4, string>;
+    cellId?: pb<5, string>;
+    field6?: pb<6, uint_32>;
 }
 export interface CommentReqBodyUserWrap {
-  field1?: pb<1, CommentUser>;
+    field1?: pb<1, CommentUser>;
 }
 export interface CommentReqBody {
-  field1?: pb<1, CommentReqBodyHeader>;
-  field2?: pb<2, CommentReqBodyUserWrap>;
-  field5?: pb<5, CommentReqPhotoInfo>;
+    // Raw length-delimited cells from GetQunFeedDetail. Re-encoding them
+    // through the typed schemas drops fields QZone requires.
+    field1?: pb<1, bytes>;
+    field2?: pb<2, bytes>;
+    field5?: pb<5, bytes>;
 }
 export interface DoQunCommentRequestBody {
-  groupId?: pb<2, string>;
-  field3?:  pb<3, uint_32>;
-  reqBody?: pb<4, CommentReqBody>;
-  field5?:  pb<5, CommentReqContent>;
+    groupId?: pb<2, string>;
+    field3?: pb<3, uint_32>;
+    reqBody?: pb<4, CommentReqBody>;
+    field5?: pb<5, CommentReqContent>;
 }
 export interface DoQunCommentRequest {
-  field1?:  pb<1, int_32>;
-  field2?:  pb_optional<2, bytes>;
-  field3?:  pb_optional<3, bytes>;
-  body?:    pb<4, DoQunCommentRequestBody>;
-  traceId?: pb<5, string>;
-  extMap?:  pb_repeated<10, ExtMapEntry>;
+    field1?: pb<1, int_32>;
+    field2?: pb_optional<2, bytes>;
+    field3?: pb_optional<3, bytes>;
+    body?: pb<4, DoQunCommentRequestBody>;
+    traceId?: pb<5, string>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface CommentRespUser {
-  uin?: pb<13, string>;
+    uin?: pb<13, string>;
 }
 export interface CommentRespContent {
-  type?:    pb<1, uint_32>;
-  content?: pb<2, string>;
+    type?: pb<1, uint_32>;
+    content?: pb<2, string>;
 }
 export interface CommentRespData {
-  id?:        pb<1, string>;
-  user?:      pb<2, CommentRespUser>;
-  content?:   pb_repeated<3, CommentRespContent>;
-  time?:      pb<4, uint_64>;
-  clientKey?: pb<7, string>;
+    id?: pb<1, string>;
+    user?: pb<2, CommentRespUser>;
+    content?: pb_repeated<3, CommentRespContent>;
+    time?: pb<4, uint_64>;
+    clientKey?: pb<7, string>;
 }
 export interface DoQunCommentResponseComment {
-  id?:        pb<1, string>;
-  data?:      pb<2, CommentRespData>;
-  content?:   pb_repeated<3, CommentRespContent>;
-  time?:      pb<4, uint_64>;
-  clientKey?: pb<7, string>;
+    id?: pb<1, string>;
+    data?: pb<2, CommentRespData>;
+    content?: pb_repeated<3, CommentRespContent>;
+    time?: pb<4, uint_64>;
+    clientKey?: pb<7, string>;
 }
 export interface DoQunCommentResponse {
-  field1?:    pb<1, int_32>;
-  result?:    pb<2, int_32>;
-  errorText?: pb<3, string>;
-  comment?:   pb<4, DoQunCommentResponseComment>;
+    field1?: pb<1, int_32>;
+    result?: pb<2, int_32>;
+    errorText?: pb<3, string>;
+    comment?: pb<4, DoQunCommentResponseComment>;
 }
 export interface DoQunLikeReqLikeInfo {
-  id?:     pb<1, string>;
-  status?: pb<3, uint_32>;
+    id?: pb<1, string>;
+    status?: pb<3, uint_32>;
 }
 export interface DoQunLikeReqCellCommon {
-  time?:   pb<3, uint_64>;
-  feedId?: pb<4, string>;
+    time?: pb<3, uint_64>;
+    feedId?: pb<4, string>;
 }
 export interface DoQunLikeReqCellUser {
-  uin?: pb<13, string>;
+    uin?: pb<13, string>;
 }
 export interface DoQunLikeReqCellUserInfo {
-  user?: pb<1, DoQunLikeReqCellUser>;
+    user?: pb<1, DoQunLikeReqCellUser>;
 }
 export interface DoQunLikeReqCellQunInfo {
-  qunId?: pb<1, string>;
+    qunId?: pb<1, string>;
 }
 export interface DoQunLikeReqCellMedia {
-  albumId?: pb<3, string>;
-  batchId?: pb<5, uint_64>;
+    albumId?: pb<3, string>;
+    batchId?: pb<5, uint_64>;
 }
 export interface DoQunLikeReqFeedPublish {
-  cellCommon?:   pb<1, DoQunLikeReqCellCommon>;
-  cellUserInfo?: pb<2, DoQunLikeReqCellUserInfo>;
-  cellMedia?:    pb<5, DoQunLikeReqCellMedia>;
-  cellQunInfo?:  pb<12, DoQunLikeReqCellQunInfo>;
+    cellCommon?: pb<1, DoQunLikeReqCellCommon>;
+    cellUserInfo?: pb<2, DoQunLikeReqCellUserInfo>;
+    cellMedia?: pb<5, DoQunLikeReqCellMedia>;
+    cellQunInfo?: pb<12, DoQunLikeReqCellQunInfo>;
 }
 export interface DoQunLikeReqBody {
-  type?:      pb<2, uint_32>;
-  like?:      pb<3, DoQunLikeReqLikeInfo>;
-  publish?:   pb<4, DoQunLikeReqFeedPublish>;
-  clientKey?: pb<5, string>;
+    type?: pb<2, uint_32>;
+    like?: pb<3, DoQunLikeReqLikeInfo>;
+    publish?: pb<4, DoQunLikeReqFeedPublish>;
+    clientKey?: pb<5, string>;
 }
 export interface DoQunLikeRequest {
-  field1?: pb<1, int_32>;
-  field2?: pb<2, string>;
-  field3?: pb<3, string>;
-  body?:   pb<4, DoQunLikeReqBody>;
-  extMap?: pb_repeated<10, ExtMapEntry>;
+    field1?: pb<1, int_32>;
+    field2?: pb<2, string>;
+    field3?: pb<3, string>;
+    body?: pb<4, DoQunLikeReqBody>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface DoQunLikeRespBody {
-  like?: pb<2, DoQunLikeReqLikeInfo>;
+    like?: pb<2, DoQunLikeReqLikeInfo>;
 }
 export interface DoQunLikeResponse {
-  field1?: pb<1, int_32>;
-  body?:   pb<4, DoQunLikeRespBody>;
+    field1?: pb<1, int_32>;
+    body?: pb<4, DoQunLikeRespBody>;
 }
 // QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail
 //
 // Official album comments look this feed up first (empty feed id + album /
 // batch / lloc) and then copy the returned cell into DoQunComment.
 export interface GetQunFeedDetailReqData {
-  groupId?:      pb<2, string>;
-  feedId?:       pb<3, string>;
-  commentCount?: pb<4, int_32>;
-  attachInfo?:   pb<5, string>;
-  albumId?:      pb<6, string>;
-  batchId?:      pb<7, string>;
-  lloc?:         pb<8, string>;
+    groupId?: pb<2, string>;
+    feedId?: pb<3, string>;
+    commentCount?: pb<4, int_32>;
+    attachInfo?: pb<5, string>;
+    albumId?: pb<6, string>;
+    batchId?: pb<7, string>;
+    lloc?: pb<8, string>;
 }
 export interface GetQunFeedDetailRequest {
-  seq?:     pb<1, int_32>;
-  field2?:  pb_optional<2, bytes>;
-  field3?:  pb_optional<3, bytes>;
-  data?:    pb<4, GetQunFeedDetailReqData>;
-  traceId?: pb<5, string>;
-  extMap?:  pb_repeated<10, ExtMapEntry>;
+    seq?: pb<1, int_32>;
+    field2?: pb_optional<2, bytes>;
+    field3?: pb_optional<3, bytes>;
+    data?: pb<4, GetQunFeedDetailReqData>;
+    traceId?: pb<5, string>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface QunFeedCellCommon {
-  type?:   pb<1, uint_32>;
-  time?:   pb<3, uint_64>;
-  feedId?: pb<4, string>;
-  cellId?: pb<5, string>;
-  field6?: pb<6, uint_32>;
+    type?: pb<1, uint_32>;
+    time?: pb<3, uint_64>;
+    feedId?: pb<4, string>;
+    cellId?: pb<5, string>;
+    field6?: pb<6, uint_32>;
 }
 export interface QunFeedCellUser {
-  uin?: pb<13, string>;
+    uin?: pb<13, string>;
 }
 export interface QunFeedCellUserInfo {
-  user?: pb<1, QunFeedCellUser>;
+    user?: pb<1, QunFeedCellUser>;
 }
 export interface QunFeed {
-  cellCommon?:   pb<1, QunFeedCellCommon>;
-  cellUserInfo?: pb<2, QunFeedCellUserInfo>;
-  // FeedWorker copies this cell into DoQunComment body.4.5.
-  cellMedia?:    pb<5, CommentReqPhotoInfo>;
+    cellCommon?: pb<1, QunFeedCellCommon>;
+    cellUserInfo?: pb<2, QunFeedCellUserInfo>;
+    // FeedWorker copies this cell into DoQunComment body.4.5.
+    cellMedia?: pb<5, CommentReqPhotoInfo>;
 }
 export interface QunClientFeed {
-  feed?: pb<1, QunFeed>;
+    feed?: pb<1, QunFeed>;
 }
 export interface GetQunFeedDetailRspData {
-  feed?: pb<2, QunClientFeed>;
+    feed?: pb<2, QunClientFeed>;
 }
 export interface GetQunFeedDetailResponse {
-  seq?:       pb<1, int_32>;
-  result?:    pb<2, int_32>;
-  errorText?: pb<3, string>;
-  data?:      pb<4, GetQunFeedDetailRspData>;
+    seq?: pb<1, int_32>;
+    result?: pb<2, int_32>;
+    errorText?: pb<3, string>;
+    data?: pb<4, GetQunFeedDetailRspData>;
 }
 export interface DeleteMediasReqBody {
-  groupId?: pb<1, string>;
-  albumId?: pb<2, string>;
-  // deleteMedias 4th arg: photo lloc, or a video's cover lloc.
-  mediaIds?: pb_repeated<3, string>;
-  // deleteMedias 5th arg: matching batch ids. Android always sends these.
-  batchIds?: pb_repeated<4, string>;
+    groupId?: pb<1, string>;
+    albumId?: pb<2, string>;
+    // deleteMedias 4th arg: photo lloc, or a video's cover lloc.
+    mediaIds?: pb_repeated<3, string>;
+    // deleteMedias 5th arg: matching batch ids. Android always sends these.
+    batchIds?: pb_repeated<4, string>;
 }
 export interface DeleteMediasRequest {
-  field1?:  pb<1, int_32>;
-  field2?:  pb<2, string>;
-  field3?:  pb<3, string>;
-  body?:    pb<4, DeleteMediasReqBody>;
-  traceId?: pb<5, string>;
-  extMap?:  pb_repeated<10, ExtMapEntry>;
+    field1?: pb<1, int_32>;
+    field2?: pb<2, string>;
+    field3?: pb<3, string>;
+    body?: pb<4, DeleteMediasReqBody>;
+    traceId?: pb<5, string>;
+    extMap?: pb_repeated<10, ExtMapEntry>;
 }
 export interface DeleteMediasResponse {
-  field1?: pb<1, int_32>;
-  field2?: pb<2, int_32>;
-  field3?: pb<3, string>;
+    field1?: pb<1, int_32>;
+    field2?: pb<2, int_32>;
+    field3?: pb<3, string>;
 }
