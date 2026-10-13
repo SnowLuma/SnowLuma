@@ -3,6 +3,7 @@ import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import { subscribeLogs } from '@snowluma/common/logger';
+import { SqliteDatabase } from '@snowluma/sqlite';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { GroupMemberInfo, QQGroupInfo, UserProfileInfo } from '@snowluma/protocol/qq-info';
 
@@ -31,20 +32,19 @@ function cleanupDb(dbPath: string): void {
     }
 }
 
-function holdWriteLock(dbPath: string): () => void {
-    const locker = new DatabaseSync(dbPath);
-    locker.exec('PRAGMA busy_timeout = 0');
-    locker.exec('BEGIN IMMEDIATE');
+async function holdWriteLock(dbPath: string): Promise<() => Promise<void>> {
+    const locker = new SqliteDatabase(dbPath, { busyTimeout: 0 });
+    await locker.exec('BEGIN IMMEDIATE');
     let released = false;
 
-    return () => {
+    return async () => {
         if (released) {
             return;
         }
 
         released = true;
-        locker.exec('ROLLBACK');
-        locker.close();
+        await locker.exec('ROLLBACK');
+        await locker.close();
     };
 }
 
@@ -379,7 +379,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('retry-recovery');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
         let closed = false;
 
         try {
@@ -412,7 +412,7 @@ describe('IdentityService', () => {
             });
             expect(identity.persistenceStatus.nextRetryAt! - Date.now()).toBe(500);
 
-            releaseLock();
+            await releaseLock();
             await vi.advanceTimersByTimeAsync(500);
             await identity.flush();
 
@@ -430,7 +430,7 @@ describe('IdentityService', () => {
             expect(reopened.findFriend(22222)?.uid).toBe('u_retry');
             await reopened.close();
         } finally {
-            releaseLock();
+            await releaseLock();
 
             if (!closed) {
                 await identity.close();
@@ -443,7 +443,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('retry-order');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
         let closed = false;
 
         try {
@@ -468,7 +468,7 @@ describe('IdentityService', () => {
             expect(identity.findFriend(11111)).toBeNull();
             expect(identity.findFriend(22222)?.uid).toBe('u_second');
 
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.close();
             closed = true;
@@ -479,7 +479,7 @@ describe('IdentityService', () => {
             expect(reopened.findFriend(22222)?.uid).toBe('u_second');
             await reopened.close();
         } finally {
-            releaseLock();
+            await releaseLock();
 
             if (!closed) {
                 await identity.close();
@@ -495,7 +495,8 @@ describe('IdentityService', () => {
         const member = makeMember(33333, 'u_member', 'before');
         identity.rememberGroups([makeGroup()]);
         identity.rememberGroupMembers(GROUP_ID, [member]);
-        const releaseLock = holdWriteLock(dbPath);
+        await identity.flush();
+        const releaseLock = await holdWriteLock(dbPath);
         const observed = { ...member, card: 'accepted' };
 
         try {
@@ -503,7 +504,7 @@ describe('IdentityService', () => {
             observed.card = 'caller-mutated';
 
             expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('accepted');
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.close();
 
@@ -512,7 +513,7 @@ describe('IdentityService', () => {
             expect(reopened.findGroupMember(GROUP_ID, member.uin)?.card).toBe('accepted');
             await reopened.close();
         } finally {
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
@@ -525,7 +526,8 @@ describe('IdentityService', () => {
         const member = makeMember(33333, 'u_member', 'persisted-card');
         identity.rememberGroups([makeGroup()]);
         identity.rememberGroupMembers(GROUP_ID, [member]);
-        const releaseLock = holdWriteLock(dbPath);
+        await identity.flush();
+        const releaseLock = await holdWriteLock(dbPath);
 
         try {
             identity.updateGroupMember(GROUP_ID, { ...member, card: 'pending-card' });
@@ -534,7 +536,7 @@ describe('IdentityService', () => {
             expect(identity.findGroup(GROUP_ID)?.groupName).toBe('refreshed-group');
             expect(identity.findGroupMember(GROUP_ID, member.uin)?.card).toBe('pending-card');
 
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.close();
 
@@ -544,7 +546,7 @@ describe('IdentityService', () => {
             expect(reopened.findGroupMember(GROUP_ID, member.uin)?.card).toBe('pending-card');
             await reopened.close();
         } finally {
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
@@ -556,7 +558,8 @@ describe('IdentityService', () => {
         await identity.initialization;
         identity.rememberRequestIdentity({ uid: 'u_old_for_uin', uin: 22001 });
         identity.rememberRequestIdentity({ uid: 'u_stable', uin: 22002 });
-        const releaseLock = holdWriteLock(dbPath);
+        await identity.flush();
+        const releaseLock = await holdWriteLock(dbPath);
 
         try {
             identity.rememberRequestIdentity({ uid: 'u_new_for_uin', uin: 22001 });
@@ -567,7 +570,7 @@ describe('IdentityService', () => {
             expect(identity.findUinByUid('u_old_for_uin')).toBeNull();
             expect(identity.findUidByUin(22002)).toBeNull();
 
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.close();
 
@@ -577,7 +580,7 @@ describe('IdentityService', () => {
             expect(reopened.findUinByUid('u_stable')).toBe(22999);
             await reopened.close();
         } finally {
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
@@ -587,7 +590,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('retry-capacity');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
 
         try {
             const capacity = identity.persistenceStatus.queueCapacity;
@@ -619,7 +622,7 @@ describe('IdentityService', () => {
             });
             expect(identity.persistenceStatus.lastError).toMatch(/queue full/i);
         } finally {
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.close();
         }
@@ -630,7 +633,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('retry-exhausted');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
         const seen: Array<{ level: string; message: string }> = [];
         const unsubscribe = subscribeLogs((entry) => {
             if (entry.scope === 'Identity' && entry.uin === Number(SELF_UIN)) {
@@ -717,7 +720,7 @@ describe('IdentityService', () => {
             expect(skipLogs).toHaveLength(2);
             expect(skipLogs[1]?.message).toMatch(/suppressed=50/);
 
-            releaseLock();
+            await releaseLock();
             await identity.close();
 
             const reopened = new IdentityService(SELF_UIN, dbPath);
@@ -739,7 +742,7 @@ describe('IdentityService', () => {
             await persisted.close();
         } finally {
             unsubscribe();
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
@@ -749,7 +752,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('close-flush');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
 
         identity.rememberFriends([
             {
@@ -761,7 +764,7 @@ describe('IdentityService', () => {
         ]);
         expect(identity.persistenceStatus.pendingWrites).toBe(1);
 
-        releaseLock();
+        await releaseLock();
         await identity.close();
 
         expect(identity.persistenceStatus).toMatchObject({
@@ -782,7 +785,7 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('close-pending');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
+        const releaseLock = await holdWriteLock(dbPath);
         const seen: Array<{ level: string; message: string }> = [];
         const unsubscribe = subscribeLogs((entry) => {
             if (entry.scope === 'Identity' && entry.uin === Number(SELF_UIN)) {
@@ -821,7 +824,7 @@ describe('IdentityService', () => {
             );
         } finally {
             unsubscribe();
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
@@ -831,8 +834,8 @@ describe('IdentityService', () => {
         const dbPath = tempDbPath('close-failure');
         const identity = new IdentityService(SELF_UIN, dbPath);
         await identity.initialization;
-        const releaseLock = holdWriteLock(dbPath);
-        const database = (identity as unknown as { db: DatabaseSync }).db;
+        const releaseLock = await holdWriteLock(dbPath);
+        const database = (identity as unknown as { db: SqliteDatabase }).db;
         const closeSpy = vi.spyOn(database, 'close').mockImplementationOnce(() => {
             throw new Error('injected close failure');
         });
@@ -868,7 +871,7 @@ describe('IdentityService', () => {
             expect(identity.persistenceStatus.pendingWrites).toBe(2);
 
             closeSpy.mockRestore();
-            releaseLock();
+            await releaseLock();
             await vi.runOnlyPendingTimersAsync();
             await identity.flush();
             expect(identity.persistenceStatus).toMatchObject({
@@ -884,7 +887,7 @@ describe('IdentityService', () => {
             await reopened.close();
         } finally {
             closeSpy.mockRestore();
-            releaseLock();
+            await releaseLock();
             await identity.close();
         }
     });
