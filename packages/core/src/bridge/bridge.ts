@@ -37,6 +37,8 @@ export class Bridge implements BridgeInterface {
     private readonly sysMsgDedup_ = new SysMsgDedup();
     private onlineClients_: readonly Readonly<OnlineDeviceInfo>[] | null = null;
     private disposed_ = false;
+    private disposePromise_: Promise<void> | null = null;
+    private readonly pendingPackets_ = new Set<Promise<void>>();
     private rosterWarmupStarted_ = false;
     private rosterWarmupSettled_ = false;
     private rosterWarmupResult_: RosterWarmupResult | null = null;
@@ -142,7 +144,11 @@ export class Bridge implements BridgeInterface {
         });
     }
 
-    dispose(): void {
+    dispose(): Promise<void> {
+        if (this.disposePromise_) {
+            return this.disposePromise_;
+        }
+
         this.disposed_ = true;
         this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
         this.pids_.clear();
@@ -151,14 +157,15 @@ export class Bridge implements BridgeInterface {
         this.packetClient_ = null;
         this.packetClientPid_ = null;
         this.onlineClients_ = null;
-
-        try {
-            this.identity.close();
-        } finally {
-            // A close failure must remain visible to the caller, but must not leave
-            // event subscribers attached to a Bridge that Manager already removed.
-            this.events.clear();
-        }
+        this.disposePromise_ = (async () => {
+            try {
+                await Promise.allSettled(this.pendingPackets_);
+                await this.identity.close();
+            } finally {
+                this.events.clear();
+            }
+        })();
+        return this.disposePromise_;
     }
 
     /** Legacy two-step setter retained for external compatibility. It assigns
@@ -303,7 +310,14 @@ export class Bridge implements BridgeInterface {
     }
 
     onPacket(pkt: PacketInfo): Promise<void> {
-        return this.pipeline.process(pkt);
+        if (this.disposed_) {
+            return Promise.reject(new Error('Bridge is disposed'));
+        }
+
+        const work = this.identity.initialization.then(() => this.pipeline.process(pkt));
+        this.pendingPackets_.add(work);
+        void work.finally(() => this.pendingPackets_.delete(work)).catch(() => undefined);
+        return work;
     }
 
     rememberUploadedFile(meta: UploadedFileMeta): void {
@@ -500,6 +514,12 @@ export class Bridge implements BridgeInterface {
     }
 
     private async runRosterWarmup(): Promise<RosterWarmupResult> {
+        await this.identity.initialization;
+
+        if (this.disposed_) {
+            return { friendsLoaded: false, groupsLoaded: false };
+        }
+
         const uin = this.identity.uin;
         const selfUin = parseInt(uin, 10) || 0;
         let selfResolved = false;

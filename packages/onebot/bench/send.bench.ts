@@ -95,19 +95,26 @@ describe('messageStore — SQLite writes per send', () => {
     // branch which is a different cost profile.
     let id1 = 100_000;
     let id2 = 200_000;
-    bench('storeMeta', () => {
-        store.storeMeta(id1++, META);
+    bench('storeMeta', async () => {
+        await store.storeMeta(id1++, META);
     });
-    bench('storeEvent (JSON payload ~250 bytes)', () => {
-        store.storeEvent(id2++, true, META.targetId, META.sequence, META.eventName, SAMPLE_EVENT);
+    bench('storeEvent (JSON payload ~250 bytes)', async () => {
+        await store.storeEvent(
+            id2++,
+            true,
+            META.targetId,
+            META.sequence,
+            META.eventName,
+            SAMPLE_EVENT,
+        );
     });
 });
 
-describe('messageStore — read paths', () => {
+describe('messageStore — read paths', async () => {
     // Seed a small set of records so findEvent / findMeta have hits.
     for (let i = 0; i < 100; i++) {
-        store.storeMeta(500_000 + i, META);
-        store.storeEvent(
+        await store.storeMeta(500_000 + i, META);
+        await store.storeEvent(
             600_000 + i,
             true,
             META.targetId,
@@ -117,13 +124,13 @@ describe('messageStore — read paths', () => {
         );
     }
 
-    bench('findMeta (hit)', () => {
-        store.findMeta(500_050);
+    bench('findMeta (hit)', async () => {
+        await store.findMeta(500_050);
     });
-    bench('findMeta (miss)', () => {
-        store.findMeta(9_999_999);
+    bench('findMeta (miss)', async () => {
+        await store.findMeta(9_999_999);
     });
-    bench('findEvent (hit, JSON.parse on read)', () => {
-        store.findEvent(600_050);
+    bench('findEvent (hit, JSON.parse on read)', async () => {
+        await store.findEvent(600_050);
     });
 });

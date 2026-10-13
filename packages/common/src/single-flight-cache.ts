@@ -71,18 +71,17 @@ export class SingleFlightCache<K, V> {
         }
 
         const task = (async () => {
-            try {
-                const value = await this.load(key);
+            const value = await this.load(key);
 
-                if (this.shouldCache(value)) {
-                    this.fresh.set(key, { at: this.now(), value });
-                }
-
-                return value;
-            } finally {
-                this.inflight.delete(key);
+            if (this.shouldCache(value)) {
+                this.fresh.set(key, { at: this.now(), value });
             }
-        })();
+
+            return value;
+        })().finally(() => {
+            // Run after registration even when load throws synchronously.
+            this.inflight.delete(key);
+        });
         this.inflight.set(key, task);
         return task;
     }

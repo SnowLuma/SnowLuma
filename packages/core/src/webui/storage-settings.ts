@@ -1,3 +1,4 @@
+import { isObject } from '@snowluma/common/coerce';
 import type { LogStoragePolicy, LogStorageStatus } from '@snowluma/common/log-file-transport';
 import {
     DEFAULT_LOG_MAX_TOTAL_MB,
@@ -321,8 +322,4 @@ function assertPersistedSettings(runtime: RuntimeConfig, expected: LogStorageSet
     ) {
         throw new Error('persisted log storage settings do not match the requested values');
     }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

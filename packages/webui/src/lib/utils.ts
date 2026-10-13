@@ -57,7 +57,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** Clipboard write that still works on LAN HTTP and inside a modal focus trap. */
 /** WebKit `<input type="color">` only accepts `#rrggbb`. */
 export function toColorInputValue(raw: string, fallback = '#0ea5e9'): string {
     const v = raw.trim();
@@ -73,6 +72,7 @@ export function toColorInputValue(raw: string, fallback = '#0ea5e9'): string {
     return fallback;
 }
 
+/** Clipboard write that still works on LAN HTTP and inside a modal focus trap. */
 export async function copyText(value: string): Promise<boolean> {
     try {
         if (navigator.clipboard?.writeText) {
@@ -83,8 +83,9 @@ export async function copyText(value: string): Promise<boolean> {
         /* insecure origin / permission — fall through */
     }
 
+    const ta = document.createElement('textarea');
+
     try {
-        const ta = document.createElement('textarea');
         ta.value = value;
         ta.setAttribute('readonly', '');
         ta.style.position = 'fixed';
@@ -95,10 +96,10 @@ export async function copyText(value: string): Promise<boolean> {
         host.appendChild(ta);
         ta.focus();
         ta.setSelectionRange(0, ta.value.length);
-        const ok = document.execCommand('copy');
-        host.removeChild(ta);
-        return ok;
+        return document.execCommand('copy');
     } catch {
         return false;
+    } finally {
+        ta.remove();
     }
 }

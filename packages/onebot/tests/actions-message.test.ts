@@ -14,7 +14,7 @@ function requireAction(name: string) {
 }
 
 function asCtx(partial: Partial<ApiActionContext>): ApiActionContext {
-    return partial as ApiActionContext;
+    return { refreshMessageMedia: vi.fn(async () => {}), ...partial } as ApiActionContext;
 }
 
 const sendMsg = requireAction('send_msg');
@@ -88,10 +88,7 @@ describe('send_custom_face', () => {
         const { ctx, resolveCustomFace, sendPrivateMessage } = context();
         expect(
             await action.toHandler(ctx)({ emoji_id: 'a'.repeat(32), user_id: 456 }),
-        ).toMatchObject({
-            status: 'ok',
-            data: { message_id: 8 },
-        });
+        ).toMatchObject({ status: 'ok', data: { message_id: 8 } });
         expect(sendPrivateMessage).toHaveBeenCalledWith(456, [image], false);
         resolveCustomFace.mockRejectedValueOnce(new Error('sticker missing'));
         await expect(action.toHandler(ctx)({ emoji_id: 'missing', user_id: 456 })).rejects.toThrow(
@@ -106,9 +103,7 @@ describe('send_custom_face', () => {
             const { ctx, resolveCustomFace } = context();
             expect(
                 await action.toHandler(ctx)({ emoji_id: 'saved-sticker', ...target }),
-            ).toMatchObject({
-                retcode: 1400,
-            });
+            ).toMatchObject({ retcode: 1400 });
             expect(resolveCustomFace).not.toHaveBeenCalled();
         },
     );
@@ -513,155 +508,6 @@ describe('get_msg', () => {
                 real_id: 555001,
             },
         });
-    });
-
-    it('refreshes image URLs from file, then file_id, and skips unusable segments', async () => {
-        const fileImage: JsonObject = {
-            file: 'ABC.jpg',
-            file_id: 'SHOULD_NOT_WIN.jpg',
-            url: 'https://old.example/ABC.jpg',
-        };
-        const fileIdImage: JsonObject = {
-            file_id: 'BY_FILE_ID.jpg',
-            url: 'https://old.example/file-id.jpg',
-        };
-        const emptyFileImage: JsonObject = {
-            file: '',
-            file_id: 'SHOULD_NOT_USE.jpg',
-            url: 'https://old.example/empty-file.jpg',
-        };
-        const keepEmptyUrl: JsonObject = {
-            file: 'KEEP_EMPTY.jpg',
-            url: 'https://old.example/keep-empty.jpg',
-        };
-        const keepNull: JsonObject = {
-            file: 'KEEP_NULL.jpg',
-            url: 'https://old.example/keep-null.jpg',
-        };
-        const keepNonString: JsonObject = {
-            file: 'KEEP_NONSTRING.jpg',
-            url: 'https://old.example/keep-nonstring.jpg',
-        };
-        const noHandle: JsonObject = {
-            url: 'https://old.example/no-file.jpg',
-        };
-        const stored: JsonObject = {
-            message_id: 777001,
-            message: [
-                null,
-                'skip-me',
-                12,
-                { type: 'text', data: { text: 'plain' } },
-                { type: 'image', data: 'not-object' },
-                { type: 'image' },
-                { type: 'image', data: emptyFileImage },
-                { type: 'image', data: noHandle },
-                { type: 'image', data: fileIdImage },
-                { type: 'image', data: keepEmptyUrl },
-                { type: 'image', data: keepNull },
-                { type: 'image', data: keepNonString },
-                { type: 'image', data: fileImage },
-            ],
-        };
-        const getImageInfo = vi.fn(async (file: string) => {
-            if (file === 'ABC.jpg') {
-                return { url: 'https://new.example/ABC.jpg?rkey=FRESH' };
-            }
-
-            if (file === 'BY_FILE_ID.jpg') {
-                return { url: 'https://new.example/file-id.jpg?rkey=FRESH' };
-            }
-
-            if (file === 'KEEP_EMPTY.jpg') {
-                return { url: '' };
-            }
-
-            if (file === 'KEEP_NULL.jpg') {
-                return null;
-            }
-
-            if (file === 'KEEP_NONSTRING.jpg') {
-                return { url: 1 };
-            }
-
-            return { url: 'https://should-not-apply.example/' };
-        });
-
-        const response = await getMsg.toHandler(
-            asCtx({
-                getMessage: () => stored,
-                getImageInfo,
-            }),
-        )({ message_id: 777001 });
-
-        expect(getImageInfo.mock.calls).toEqual([
-            ['BY_FILE_ID.jpg'],
-            ['KEEP_EMPTY.jpg'],
-            ['KEEP_NULL.jpg'],
-            ['KEEP_NONSTRING.jpg'],
-            ['ABC.jpg'],
-        ]);
-        expect(response).toEqual({
-            status: 'ok',
-            retcode: 0,
-            data: {
-                message_id: 777001,
-                real_id: 777001,
-                message: [
-                    null,
-                    'skip-me',
-                    12,
-                    { type: 'text', data: { text: 'plain' } },
-                    { type: 'image', data: 'not-object' },
-                    { type: 'image' },
-                    { type: 'image', data: emptyFileImage },
-                    { type: 'image', data: noHandle },
-                    { type: 'image', data: fileIdImage },
-                    { type: 'image', data: keepEmptyUrl },
-                    { type: 'image', data: keepNull },
-                    { type: 'image', data: keepNonString },
-                    { type: 'image', data: fileImage },
-                ],
-            },
-        });
-        expect(fileImage.url).toBe('https://new.example/ABC.jpg?rkey=FRESH');
-        expect(fileIdImage.url).toBe('https://new.example/file-id.jpg?rkey=FRESH');
-        expect(emptyFileImage.url).toBe('https://old.example/empty-file.jpg');
-        expect(keepEmptyUrl.url).toBe('https://old.example/keep-empty.jpg');
-        expect(keepNull.url).toBe('https://old.example/keep-null.jpg');
-        expect(keepNonString.url).toBe('https://old.example/keep-nonstring.jpg');
-        expect(noHandle.url).toBe('https://old.example/no-file.jpg');
-    });
-
-    it('keeps the stored image URL when getImageInfo throws', async () => {
-        const imageData: JsonObject = {
-            file: 'THROW.jpg',
-            url: 'https://old.example/throw.jpg',
-        };
-        const getImageInfo = vi.fn(async () => {
-            throw new Error('rkey fetch failed');
-        });
-        const response = await getMsg.toHandler(
-            asCtx({
-                getMessage: () => ({
-                    message_id: 777002,
-                    message: [{ type: 'image', data: imageData }],
-                }),
-                getImageInfo,
-            }),
-        )({ message_id: 777002 });
-
-        expect(getImageInfo.mock.calls).toEqual([['THROW.jpg']]);
-        expect(response).toEqual({
-            status: 'ok',
-            retcode: 0,
-            data: {
-                message_id: 777002,
-                real_id: 777002,
-                message: [{ type: 'image', data: imageData }],
-            },
-        });
-        expect(imageData.url).toBe('https://old.example/throw.jpg');
     });
 });
 

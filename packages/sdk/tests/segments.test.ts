@@ -73,6 +73,33 @@ describe('segments.reply', () => {
     });
 });
 
+describe('segments.customReply', () => {
+    it('builds an inline quote without requiring a cached message id', () => {
+        expect(
+            segments.customReply([segments.text('SnowLuma')], {
+                qq: 10001,
+                time: 1700000000,
+                seq: 42,
+            }),
+        ).toEqual({
+            type: 'reply',
+            data: {
+                message: [{ type: 'text', data: { text: 'SnowLuma' } }],
+                qq: 10001,
+                time: 1700000000,
+                seq: 42,
+            },
+        });
+    });
+
+    it('accepts a plain quote string without metadata', () => {
+        expect(segments.customReply('quoted')).toEqual({
+            type: 'reply',
+            data: { message: 'quoted' },
+        });
+    });
+});
+
 describe('segments.image', () => {
     it('uses only the file when no options are given', () => {
         expect(segments.image('/tmp/a.png')).toEqual({

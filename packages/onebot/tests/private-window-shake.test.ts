@@ -32,6 +32,13 @@ function makeContext(messageApi: Record<string, ReturnType<typeof vi.fn>>): OneB
         } as never,
         cacheMessageMeta: vi.fn(),
         mediaStore: {} as never,
+        converterCtx: {
+            selfId: 10001,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            messageIdResolver: null,
+            mediaSegmentSink: null,
+        },
         tempSessions: new TempSessionStore(),
         musicSignUrl: '',
     } as unknown as OneBotInstanceContext;

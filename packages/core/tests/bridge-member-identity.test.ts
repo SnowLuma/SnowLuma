@@ -121,7 +121,7 @@ describe('Bridge group member identity refresh', () => {
             seen.push(event);
         });
 
-        bridge.onPacket(makePacket());
+        await bridge.onPacket(makePacket());
         const event = await waitForEvent(seen);
 
         expect(profileFetches).toEqual([member.uid]);
@@ -129,7 +129,7 @@ describe('Bridge group member identity refresh', () => {
         expect(event.userUin).toBe(member.uin);
     });
 
-    it('remembers UID mappings from realtime request events', () => {
+    it('remembers UID mappings from realtime request events', async () => {
         const bridge = new Bridge(IdentityService.memory(SELF_UIN));
         const events: QQEventVariant[] = [
             {
@@ -155,7 +155,7 @@ describe('Bridge group member identity refresh', () => {
         ];
 
         bridge.registerCmd('test.request_identity', () => events);
-        bridge.onPacket(makeRequestPacket());
+        await bridge.onPacket(makeRequestPacket());
 
         expect(bridge.identity.findUidByUin(55555)).toBe('u_friend_request');
         expect(bridge.identity.findUidByUin(66666)).toBe('u_group_request');

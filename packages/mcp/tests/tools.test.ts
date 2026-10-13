@@ -101,6 +101,25 @@ describe('callTool — docs tools (no client needed)', () => {
 });
 
 describe('callTool — query_action (read)', () => {
+    it.each([null, [], 'invalid', 42, false].map((params) => ({ params })))(
+        'rejects invalid params without invoking the client ($params)',
+        async ({ params }) => {
+            let called = false;
+            const client = fakeClient(() => {
+                called = true;
+                return { status: 'ok', retcode: 0, data: null };
+            });
+            const res = await callTool(
+                'query_action',
+                { action: 'get_status', params },
+                { mode: 'read', client },
+            );
+            expect(res.isError).toBe(true);
+            expect(text(res)).toContain('params');
+            expect(called).toBe(false);
+        },
+    );
+
     it('executes a read-only action and passes the envelope through', async () => {
         const res = await callTool(
             'query_action',

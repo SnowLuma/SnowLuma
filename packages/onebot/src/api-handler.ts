@@ -55,10 +55,13 @@ export interface ApiActionContext {
     getLoginInfo: () => { userId: number; nickname: string };
     isOnline: () => boolean;
     getUptimeMs: () => number;
-    getMessage: (messageId: number) => JsonObject | null;
-    getMessageMeta: (messageId: number) => MessageMeta | null;
-    cacheMessageMetas: (entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>) => void;
-    listReadSessions: () => ReadSessionTargets;
+    getMessage: (messageId: number) => JsonObject | null | Promise<JsonObject | null>;
+    refreshMessageMedia: (messageId: number, event: JsonObject) => Promise<void>;
+    getMessageMeta: (messageId: number) => MessageMeta | null | Promise<MessageMeta | null>;
+    cacheMessageMetas: (
+        entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>,
+    ) => void | Promise<void>;
+    listReadSessions: () => ReadSessionTargets | Promise<ReadSessionTargets>;
     sendPrivateMessage: (
         userId: number,
         message: JsonValue,

@@ -1,10 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import fs, { promises as fsp } from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { STAGE_DIR, stageSourceToDisk, sweepStagedUploads } from '@snowluma/protocol/highway/stage';
+
+const stageRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'sl-proto-stage-root-'));
+const tmpdir = vi.spyOn(os, 'tmpdir').mockReturnValue(stageRoot);
+const { STAGE_DIR, stageSourceToDisk, sweepStagedUploads } =
+    await import('@snowluma/protocol/highway/stage');
+tmpdir.mockRestore();
 
 const DOWNLOAD_UA =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -56,9 +61,13 @@ afterEach(async () => {
     await fsp.rm(scratch, { recursive: true, force: true });
 });
 
+afterAll(async () => {
+    await fsp.rm(stageRoot, { recursive: true, force: true });
+});
+
 describe('STAGE_DIR', () => {
     it('is os.tmpdir()/media-stage', () => {
-        expect(STAGE_DIR).toBe(path.join(os.tmpdir(), 'media-stage'));
+        expect(STAGE_DIR).toBe(path.join(stageRoot, 'media-stage'));
     });
 });
 

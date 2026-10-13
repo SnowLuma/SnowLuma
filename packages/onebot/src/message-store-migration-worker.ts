@@ -65,7 +65,7 @@ export async function runMessageStoreMigrationWorker(
     port.on('message', handleControlMessage);
 
     try {
-        prepareMessageStoreDatabase(data.dbPath);
+        await prepareMessageStoreDatabase(data.dbPath);
         await migrateLegacyMedia(data.dbPath, () => cancelled);
 
         if (cancelled) {
@@ -88,7 +88,7 @@ export async function runMessageStoreMigrationWorker(
         let lastProgressAt: number | null = null;
 
         while (!cancelled) {
-            const status = migrator.runBatch(DEFAULT_BATCH_SIZE);
+            const status = await migrator.runBatch(DEFAULT_BATCH_SIZE);
             const progressAt = performance.now();
             port.postMessage({
                 kind: 'progress',
@@ -110,7 +110,7 @@ export async function runMessageStoreMigrationWorker(
         } satisfies MessageStoreMigrationWorkerMessage);
     } finally {
         port.off('message', handleControlMessage);
-        migrator?.close();
+        await migrator?.close();
     }
 }
 

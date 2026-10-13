@@ -60,6 +60,10 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plugin-cp": "^6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "@snowluma/sqlite": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -61,5 +61,8 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

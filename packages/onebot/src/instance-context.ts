@@ -22,6 +22,7 @@ import {
     fetchPttText as fetchPttTextAction,
     getImageInfo as getCachedImageInfo,
     getRecordInfo as getCachedRecordInfo,
+    refreshMessageMedia,
 } from './modules/media-actions';
 import {
     deleteMessage,
@@ -58,8 +59,12 @@ export interface OneBotInstanceContext {
     config: OneBotConfig;
     musicSignUrl?: string;
     getUptimeMs(): number;
-    cacheMessageMeta(messageId: number, meta: MessageMeta): void;
-    dispatchEvent(event: JsonObject, source?: 'bridge' | 'send', startedAt?: number): void;
+    cacheMessageMeta(messageId: number, meta: MessageMeta): void | Promise<void>;
+    dispatchEvent(
+        event: JsonObject,
+        source?: 'bridge' | 'send',
+        startedAt?: number,
+    ): void | Promise<void>;
 }
 
 export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
@@ -71,11 +76,14 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
         getLoginInfo: () => getLoginInfo(ref),
         isOnline: () => true,
         getUptimeMs: () => ref.getUptimeMs(),
-        getMessage: (messageId) => messageStore.findEvent(messageId),
-        getMessageMeta: (messageId) => messageStore.findMeta(messageId),
-        cacheMessageMetas: (entries) => messageStore.storeMetas(entries),
-        listReadSessions: () =>
-            messageStore.listReadSessions(bridge.identity.groups.map((group) => group.groupId)),
+        getMessage: async (messageId) => await messageStore.findEvent(messageId),
+        refreshMessageMedia: (messageId, event) => refreshMessageMedia(ref, messageId, event),
+        getMessageMeta: async (messageId) => await messageStore.findMeta(messageId),
+        cacheMessageMetas: async (entries) => await messageStore.storeMetas(entries),
+        listReadSessions: async () =>
+            await messageStore.listReadSessions(
+                bridge.identity.groups.map((group) => group.groupId),
+            ),
         canSendImage: () => true,
         canSendRecord: () => true,
         sendPrivateMessage: (userId, message, autoEscape, tempGroupId) =>
@@ -85,7 +93,9 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                 message,
                 autoEscape,
                 tempGroupId,
-                tempGroupId === undefined ? (event) => ref.dispatchEvent(event, 'send') : undefined,
+                tempGroupId === undefined
+                    ? async (event) => await ref.dispatchEvent(event, 'send')
+                    : undefined,
             ),
         sendGroupMessage: (groupId, message, autoEscape) =>
             sendGroupMessage(ref, groupId, message, autoEscape),
@@ -109,8 +119,12 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
         sendGroupForwardMsg: (groupId, messages, meta) =>
             sendGroupForwardMessage(ref, groupId, messages, meta),
         sendPrivateForwardMsg: (userId, messages, meta) =>
-            sendPrivateForwardMessage(ref, userId, messages, meta, (event) =>
-                ref.dispatchEvent(event, 'send'),
+            sendPrivateForwardMessage(
+                ref,
+                userId,
+                messages,
+                meta,
+                async (event) => await ref.dispatchEvent(event, 'send'),
             ),
         sendForwardMsg: (messages, groupId) => uploadForwardMessage(ref, messages, groupId),
         getForwardMsg: (resId) => getForwardMessage(ref, resId),
@@ -120,13 +134,13 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                 messageId,
                 target,
                 target.userId !== undefined
-                    ? (event) => ref.dispatchEvent(event, 'send')
+                    ? async (event) => await ref.dispatchEvent(event, 'send')
                     : undefined,
             ),
         setEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, true),
         deleteEssenceMsg: (messageId) => setEssenceMessage(bridge, messageStore, messageId, false),
         setMsgEmojiLike: async (messageId, emojiId, set) => {
-            const meta = messageStore.findMeta(messageId);
+            const meta = await messageStore.findMeta(messageId);
 
             if (!meta) {
                 throw new Error('message not found');
@@ -144,7 +158,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
             const emojiType = emojiId.length > 3 ? 2 : 1;
 
             if (set) {
-                reactionStore.recordAdd(
+                await reactionStore.recordAdd(
                     meta.targetId,
                     meta.sequence,
                     emojiId,
@@ -154,11 +168,11 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                     Math.floor(Date.now() / 1000),
                 );
             } else {
-                reactionStore.recordRemove(meta.targetId, meta.sequence, emojiId, ref.selfId);
+                await reactionStore.recordRemove(meta.targetId, meta.sequence, emojiId, ref.selfId);
             }
         },
         fetchEmojiLikeSummary: async (messageId) => {
-            const meta = messageStore.findMeta(messageId);
+            const meta = await messageStore.findMeta(messageId);
 
             if (!meta) {
                 throw new Error('message not found');
@@ -172,7 +186,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                 throw new Error('message has no authoritative QQ sequence');
             }
 
-            const summary = reactionStore.summarizeMessage(meta.targetId, meta.sequence);
+            const summary = await reactionStore.summarizeMessage(meta.targetId, meta.sequence);
             const out: Array<{
                 emoji_id: string;
                 emoji_type: number;
@@ -182,9 +196,15 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
             }> = [];
 
             for (const entry of summary) {
-                let users = reactionStore
-                    .listUsers(meta.targetId, meta.sequence, entry.emojiId, 1000, 0)
-                    .map((user) => ({ user_id: user.operatorUin }));
+                let users = (
+                    await reactionStore.listUsers(
+                        meta.targetId,
+                        meta.sequence,
+                        entry.emojiId,
+                        1000,
+                        0,
+                    )
+                ).map((user) => ({ user_id: user.operatorUin }));
 
                 try {
                     const remote = await bridge.apis.interaction.getEmojiLikes(
@@ -214,7 +234,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
             return out;
         },
         fetchEmojiLikeUsers: async (messageId, emojiId, count, offset = 0) => {
-            const meta = messageStore.findMeta(messageId);
+            const meta = await messageStore.findMeta(messageId);
 
             if (!meta) {
                 throw new Error('message not found');
@@ -228,7 +248,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                 throw new Error('message has no authoritative QQ sequence');
             }
 
-            const raw = reactionStore.listUsers(
+            const raw = await reactionStore.listUsers(
                 meta.targetId,
                 meta.sequence,
                 emojiId,
@@ -240,7 +260,11 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
                 uid: r.operatorUid,
                 setAt: r.setAt,
             }));
-            const cachedCount = reactionStore.countUsers(meta.targetId, meta.sequence, emojiId);
+            const cachedCount = await reactionStore.countUsers(
+                meta.targetId,
+                meta.sequence,
+                emojiId,
+            );
             let serverCount = cachedCount;
 
             try {

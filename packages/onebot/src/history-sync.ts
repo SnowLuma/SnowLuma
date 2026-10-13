@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import {
@@ -136,8 +137,11 @@ export class LoginHistorySyncCoordinator {
             })),
             signal,
         );
-        const groupCandidates = selectGroupCandidates(ref.messageStore, state.groups);
-        const privateCandidates = selectPrivateCandidates(ref.messageStore, state.privateUsers);
+        const groupCandidates = await selectGroupCandidates(ref.messageStore, state.groups);
+        const privateCandidates = await selectPrivateCandidates(
+            ref.messageStore,
+            state.privateUsers,
+        );
         // URL resolvers may issue additional QQ requests for rkeys or media
         // download addresses. Automatic backfill must stay inside its one-probe
         // plus six-page packet budget, so persist only URLs already present in the
@@ -151,9 +155,9 @@ export class LoginHistorySyncCoordinator {
                 imageUrlResolver: null,
                 mediaUrlResolver: null,
                 mediaSegmentSink: mediaSegmentSink
-                    ? (mediaType, element, data, isGroup, sessionId) => {
+                    ? async (mediaType, element, data, isGroup, sessionId) => {
                           throwIfAborted(signal);
-                          mediaSegmentSink(mediaType, element, data, isGroup, sessionId);
+                          await mediaSegmentSink(mediaType, element, data, isGroup, sessionId);
                       }
                     : null,
             },
@@ -257,18 +261,21 @@ export class LoginHistorySyncCoordinator {
 
 export const loginHistorySyncCoordinator = new LoginHistorySyncCoordinator();
 
-function selectGroupCandidates(
+async function selectGroupCandidates(
     store: MessageStore,
     states: readonly GroupHistorySyncState[],
-): GroupCandidate[] {
-    return states
-        .flatMap((state): GroupCandidate[] => {
+): Promise<GroupCandidate[]> {
+    return (
+        await mapWithConcurrency(states, 8, async (state): Promise<GroupCandidate[]> => {
             if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) {
                 return [];
             }
 
-            const observedSequence = store.findLatestAuthoritativeSequence(true, state.groupId);
-            const localSequence = store.findLatestPersistedAuthoritativeSequence(
+            const observedSequence = await store.findLatestAuthoritativeSequence(
+                true,
+                state.groupId,
+            );
+            const localSequence = await store.findLatestPersistedAuthoritativeSequence(
                 true,
                 state.groupId,
             );
@@ -312,22 +319,27 @@ function selectGroupCandidates(
                 },
             ];
         })
+    )
+        .flat()
         .sort(compareCandidates)
         .slice(0, LOGIN_HISTORY_SYNC_LIMITS.maxGroups);
 }
 
-function selectPrivateCandidates(
+async function selectPrivateCandidates(
     store: MessageStore,
     states: readonly PrivateHistorySyncState[],
-): PrivateCandidate[] {
-    return states
-        .flatMap((state): PrivateCandidate[] => {
+): Promise<PrivateCandidate[]> {
+    return (
+        await mapWithConcurrency(states, 8, async (state): Promise<PrivateCandidate[]> => {
             if (!Number.isSafeInteger(state.latestSeq) || state.latestSeq <= 0) {
                 return [];
             }
 
-            const observedSequence = store.findLatestAuthoritativeSequence(false, state.userId);
-            const localSequence = store.findLatestPersistedAuthoritativeSequence(
+            const observedSequence = await store.findLatestAuthoritativeSequence(
+                false,
+                state.userId,
+            );
+            const localSequence = await store.findLatestPersistedAuthoritativeSequence(
                 false,
                 state.userId,
             );
@@ -360,6 +372,8 @@ function selectPrivateCandidates(
                 },
             ];
         })
+    )
+        .flat()
         .sort(compareCandidates)
         .slice(0, LOGIN_HISTORY_SYNC_LIMITS.maxPrivateUsers);
 }
@@ -452,7 +466,7 @@ async function persistGroupMessage(
         );
     }
 
-    persistHistoryEvent(ref.messageStore, converted);
+    await persistHistoryEvent(ref.messageStore, converted);
 }
 
 async function persistPrivateMessage(
@@ -489,7 +503,12 @@ async function persistPrivateMessage(
     }
 
     if (
-        ref.messageStore.isPrivateMessageRecalled(peerUin, clientSequence, sentBySelf, message.time)
+        await ref.messageStore.isPrivateMessageRecalled(
+            peerUin,
+            clientSequence,
+            sentBySelf,
+            message.time,
+        )
     ) {
         log.debug(
             'login history sync omitted recalled private message: UIN=%d peer=%d clientSeq=%d self=%s',
@@ -505,8 +524,7 @@ async function persistPrivateMessage(
         converted.target_id = peerUin;
     }
 
-    persistHistoryEvent(ref.messageStore, converted, peerUin, message);
-    return true;
+    return persistHistoryEvent(ref.messageStore, converted, peerUin, message);
 }
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {

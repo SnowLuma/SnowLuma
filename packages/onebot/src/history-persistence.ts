@@ -9,12 +9,12 @@ import type { JsonObject } from './types';
  * Private history needs the conversation peer explicitly because `user_id`
  * names the sender and therefore equals the bot account on outgoing messages.
  */
-export function persistHistoryEvent(
+export async function persistHistoryEvent(
     store: MessageStore,
     event: JsonObject,
     privatePeerId?: number,
     source?: FriendMessage,
-): void {
+): Promise<boolean> {
     const messageId = toHistoryInt(event.message_id);
 
     if (!Number.isSafeInteger(messageId) || messageId === 0) {
@@ -63,7 +63,7 @@ export function persistHistoryEvent(
                   timestamp: source.time,
               } satisfies Parameters<MessageStore['storeMeta']>[1])
             : undefined;
-    store.storeHistoryEvent(messageId, isGroup, sessionId, sequence, eventName, event, {
+    return store.storeHistoryEvent(messageId, isGroup, sessionId, sequence, eventName, event, {
         sequenceAuthoritative,
         meta,
     });

@@ -10,7 +10,7 @@ describe('MessageStore', () => {
     const testDbPath = path.join('data', 'test', 'messages-test.db');
     let store: MessageStore;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Clean up any existing test database
         try {
             fs.unlinkSync(testDbPath);
@@ -19,10 +19,11 @@ describe('MessageStore', () => {
         }
 
         store = new MessageStore(testDbPath);
+        await store.initialization;
     });
 
-    afterEach(() => {
-        store.close();
+    afterEach(async () => {
+        await store.close();
 
         // Clean up test database
         try {
@@ -33,13 +34,13 @@ describe('MessageStore', () => {
     });
 
     describe('resolveReplySequence', () => {
-        it('resolves group message reply sequence', () => {
+        it('resolves group message reply sequence', async () => {
             const groupId = 123456;
             const sequence = 100;
             const messageId = hashMessageIdInt32(sequence, groupId, GROUP_MESSAGE_EVENT);
 
             // Store a group message
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: true,
                 targetId: groupId,
                 sequence,
@@ -51,18 +52,18 @@ describe('MessageStore', () => {
             });
 
             // Resolve the reply sequence
-            const resolved = store.resolveReplySequence(true, groupId, messageId);
+            const resolved = await store.resolveReplySequence(true, groupId, messageId);
             expect(resolved).toBe(sequence);
         });
 
-        it('resolves private message reply sequence without session_id matching', () => {
+        it('resolves private message reply sequence without session_id matching', async () => {
             // Simulate receiving a private message from user 111111
             const senderUin = 111111;
             const sequence = 200;
             const messageId = hashMessageIdInt32(sequence, senderUin, PRIVATE_MESSAGE_EVENT);
 
             // Store the received message (session_id is sender's UIN)
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: senderUin,
                 sequence,
@@ -75,13 +76,13 @@ describe('MessageStore', () => {
 
             // When replying to this message, we send to the sender (who becomes the recipient)
             // The key fix: resolveReplySequence should work even when sessionId doesn't match
-            const resolved = store.resolveReplySequence(false, senderUin, messageId);
+            const resolved = await store.resolveReplySequence(false, senderUin, messageId);
             expect(resolved).toBe(sequence);
 
             // More importantly: it should also work when we pass a different sessionId
             // (which was the bug - we were passing recipient UIN instead of sender UIN)
             const differentUin = 999999;
-            const resolvedWithDifferentSession = store.resolveReplySequence(
+            const resolvedWithDifferentSession = await store.resolveReplySequence(
                 false,
                 differentUin,
                 messageId,
@@ -89,9 +90,9 @@ describe('MessageStore', () => {
             expect(resolvedWithDifferentSession).toBe(sequence);
         });
 
-        it('uses the sender-local sequence for private replies, not the NT history sequence', () => {
+        it('uses the sender-local sequence for private replies, not the NT history sequence', async () => {
             const messageId = -123456789;
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: 111111,
                 sequence: 63214,
@@ -103,32 +104,32 @@ describe('MessageStore', () => {
                 timestamp: 1700000000,
             });
 
-            expect(store.resolveReplySequence(false, 111111, messageId)).toBe(32743);
+            expect(await store.resolveReplySequence(false, 111111, messageId)).toBe(32743);
         });
 
-        it('returns null for non-existent message', () => {
-            const resolved = store.resolveReplySequence(true, 123456, 999999);
+        it('returns null for non-existent message', async () => {
+            const resolved = await store.resolveReplySequence(true, 123456, 999999);
             expect(resolved).toBeNull();
         });
 
-        it('returns null for invalid messageId', () => {
-            const resolved = store.resolveReplySequence(true, 123456, 0);
+        it('returns null for invalid messageId', async () => {
+            const resolved = await store.resolveReplySequence(true, 123456, 0);
             expect(resolved).toBeNull();
         });
 
-        it('returns null for invalid sessionId', () => {
+        it('returns null for invalid sessionId', async () => {
             const messageId = hashMessageIdInt32(100, 123456, GROUP_MESSAGE_EVENT);
-            const resolved = store.resolveReplySequence(true, 0, messageId);
+            const resolved = await store.resolveReplySequence(true, 0, messageId);
             expect(resolved).toBeNull();
         });
 
-        it('distinguishes between group and private messages', () => {
+        it('distinguishes between group and private messages', async () => {
             const sessionId = 123456;
             const sequence = 300;
 
             // Store a group message
             const groupMessageId = hashMessageIdInt32(sequence, sessionId, GROUP_MESSAGE_EVENT);
-            store.storeMeta(groupMessageId, {
+            await store.storeMeta(groupMessageId, {
                 isGroup: true,
                 targetId: sessionId,
                 sequence,
@@ -141,7 +142,7 @@ describe('MessageStore', () => {
 
             // Store a private message with same sequence but different hash
             const privateMessageId = hashMessageIdInt32(sequence, sessionId, PRIVATE_MESSAGE_EVENT);
-            store.storeMeta(privateMessageId, {
+            await store.storeMeta(privateMessageId, {
                 isGroup: false,
                 targetId: sessionId,
                 sequence,
@@ -153,17 +154,25 @@ describe('MessageStore', () => {
             });
 
             // Should resolve correctly based on isGroup flag
-            const groupResolved = store.resolveReplySequence(true, sessionId, groupMessageId);
+            const groupResolved = await store.resolveReplySequence(true, sessionId, groupMessageId);
             expect(groupResolved).toBe(sequence);
 
-            const privateResolved = store.resolveReplySequence(false, sessionId, privateMessageId);
+            const privateResolved = await store.resolveReplySequence(
+                false,
+                sessionId,
+                privateMessageId,
+            );
             expect(privateResolved).toBe(sequence);
 
             // Should not cross-resolve
-            const wrongGroupResolve = store.resolveReplySequence(true, sessionId, privateMessageId);
+            const wrongGroupResolve = await store.resolveReplySequence(
+                true,
+                sessionId,
+                privateMessageId,
+            );
             expect(wrongGroupResolve).toBeNull();
 
-            const wrongPrivateResolve = store.resolveReplySequence(
+            const wrongPrivateResolve = await store.resolveReplySequence(
                 false,
                 sessionId,
                 groupMessageId,
@@ -173,7 +182,7 @@ describe('MessageStore', () => {
     });
 
     describe('storeEvent and findEvent', () => {
-        it('stores and retrieves event data', () => {
+        it('stores and retrieves event data', async () => {
             const messageId = 12345;
             const event = {
                 post_type: 'message',
@@ -184,20 +193,20 @@ describe('MessageStore', () => {
                 time: Date.now(),
             };
 
-            store.storeEvent(messageId, true, 123456, 100, GROUP_MESSAGE_EVENT, event);
+            await store.storeEvent(messageId, true, 123456, 100, GROUP_MESSAGE_EVENT, event);
 
-            const retrieved = store.findEvent(messageId);
+            const retrieved = await store.findEvent(messageId);
             expect(retrieved).toEqual(event);
         });
 
-        it('returns null for non-existent event', () => {
-            const retrieved = store.findEvent(999999);
+        it('returns null for non-existent event', async () => {
+            const retrieved = await store.findEvent(999999);
             expect(retrieved).toBeNull();
         });
     });
 
     describe('storeMeta and findMeta', () => {
-        it('stores and retrieves message meta', () => {
+        it('stores and retrieves message meta', async () => {
             const messageId = 54321;
             const meta = {
                 isGroup: true,
@@ -210,18 +219,18 @@ describe('MessageStore', () => {
                 timestamp: Date.now(),
             };
 
-            store.storeMeta(messageId, meta);
+            await store.storeMeta(messageId, meta);
 
-            const retrieved = store.findMeta(messageId);
+            const retrieved = await store.findMeta(messageId);
             expect(retrieved).toEqual(meta);
         });
 
-        it('returns null for non-existent meta', () => {
-            const retrieved = store.findMeta(999999);
+        it('returns null for non-existent meta', async () => {
+            const retrieved = await store.findMeta(999999);
             expect(retrieved).toBeNull();
         });
 
-        it('rolls back the full metadata batch when a later write fails', () => {
+        it('rolls back the full metadata batch when a later write fails', async () => {
             const firstMessageId = 54323;
             const rejectedMessageId = 54324;
             const database = new DatabaseSync(testDbPath);
@@ -235,42 +244,43 @@ describe('MessageStore', () => {
       `);
             database.close();
 
-            expect(() =>
-                store.storeMetas([
-                    {
-                        messageId: firstMessageId,
-                        meta: {
-                            isGroup: true,
-                            targetId: 123456,
-                            sequence: 101,
-                            sequenceAuthoritative: true,
-                            eventName: GROUP_MESSAGE_EVENT,
-                            clientSequence: 0,
-                            random: 1001,
-                            timestamp: 1700000001,
+            await expect(
+                async () =>
+                    await store.storeMetas([
+                        {
+                            messageId: firstMessageId,
+                            meta: {
+                                isGroup: true,
+                                targetId: 123456,
+                                sequence: 101,
+                                sequenceAuthoritative: true,
+                                eventName: GROUP_MESSAGE_EVENT,
+                                clientSequence: 0,
+                                random: 1001,
+                                timestamp: 1700000001,
+                            },
                         },
-                    },
-                    {
-                        messageId: rejectedMessageId,
-                        meta: {
-                            isGroup: true,
-                            targetId: 123456,
-                            sequence: 102,
-                            sequenceAuthoritative: true,
-                            eventName: GROUP_MESSAGE_EVENT,
-                            clientSequence: 0,
-                            random: 1002,
-                            timestamp: 1700000002,
+                        {
+                            messageId: rejectedMessageId,
+                            meta: {
+                                isGroup: true,
+                                targetId: 123456,
+                                sequence: 102,
+                                sequenceAuthoritative: true,
+                                eventName: GROUP_MESSAGE_EVENT,
+                                clientSequence: 0,
+                                random: 1002,
+                                timestamp: 1700000002,
+                            },
                         },
-                    },
-                ]),
-            ).toThrow(/second message meta rejected/);
+                    ]),
+            ).rejects.toThrow(/second message meta rejected/);
 
-            expect(store.findMeta(firstMessageId)).toBeNull();
-            expect(store.findMeta(rejectedMessageId)).toBeNull();
+            expect(await store.findMeta(firstMessageId)).toBeNull();
+            expect(await store.findMeta(rejectedMessageId)).toBeNull();
         });
 
-        it('preserves the write error when SQLite already rolled back the transaction', () => {
+        it('preserves the write error when SQLite already rolled back the transaction', async () => {
             const rejectedMessageId = 54325;
             const database = new DatabaseSync(testDbPath);
             database.exec(`
@@ -283,30 +293,31 @@ describe('MessageStore', () => {
       `);
             database.close();
 
-            expect(() =>
-                store.storeMetas([
-                    {
-                        messageId: rejectedMessageId,
-                        meta: {
-                            isGroup: true,
-                            targetId: 123456,
-                            sequence: 103,
-                            sequenceAuthoritative: true,
-                            eventName: GROUP_MESSAGE_EVENT,
-                            clientSequence: 0,
-                            random: 1003,
-                            timestamp: 1700000003,
+            await expect(
+                async () =>
+                    await store.storeMetas([
+                        {
+                            messageId: rejectedMessageId,
+                            meta: {
+                                isGroup: true,
+                                targetId: 123456,
+                                sequence: 103,
+                                sequenceAuthoritative: true,
+                                eventName: GROUP_MESSAGE_EVENT,
+                                clientSequence: 0,
+                                random: 1003,
+                                timestamp: 1700000003,
+                            },
                         },
-                    },
-                ]),
-            ).toThrow(/metadata transaction forced rollback.*rollback also failed/);
+                    ]),
+            ).rejects.toThrow(/metadata transaction forced rollback.*rollback also failed/);
 
-            expect(store.findMeta(rejectedMessageId)).toBeNull();
+            expect(await store.findMeta(rejectedMessageId)).toBeNull();
         });
 
-        it('does not promote a non-authoritative sequence when event data arrives later', () => {
+        it('does not promote a non-authoritative sequence when event data arrives later', async () => {
             const messageId = 54322;
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: 123456,
                 sequence: 0,
@@ -316,7 +327,7 @@ describe('MessageStore', () => {
                 random: 12,
                 timestamp: 1700000000,
             });
-            store.storeEvent(messageId, false, 123456, 88, PRIVATE_MESSAGE_EVENT, {
+            await store.storeEvent(messageId, false, 123456, 88, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000000,
                 post_type: 'message',
                 message_type: 'private',
@@ -324,13 +335,13 @@ describe('MessageStore', () => {
                 message_seq: 88,
             });
 
-            expect(store.findMeta(messageId)).toMatchObject({
+            expect(await store.findMeta(messageId)).toMatchObject({
                 sequenceAuthoritative: false,
                 clientSequence: 88,
             });
         });
 
-        it('rolls back private history metadata when storing the event body fails', () => {
+        it('rolls back private history metadata when storing the event body fails', async () => {
             const messageId = -987654321;
             const peerId = 555;
             const database = new DatabaseSync(testDbPath);
@@ -344,49 +355,50 @@ describe('MessageStore', () => {
       `);
             database.close();
 
-            expect(() =>
-                store.storeHistoryEvent(
-                    messageId,
-                    false,
-                    peerId,
-                    850,
-                    PRIVATE_MESSAGE_EVENT,
-                    {
-                        time: 1_700_000_000,
-                        post_type: 'message',
-                        message_type: 'private',
-                        sub_type: 'friend',
-                        user_id: peerId,
-                        message_id: messageId,
-                        message_seq: 50,
-                    },
-                    {
-                        sequenceAuthoritative: true,
-                        meta: {
-                            isGroup: false,
-                            targetId: peerId,
-                            sequence: 850,
-                            sequenceAuthoritative: true,
-                            eventName: PRIVATE_MESSAGE_EVENT,
-                            clientSequence: 50,
-                            privateDirection: 'incoming',
-                            random: 42,
-                            timestamp: 1_700_000_000,
+            await expect(
+                async () =>
+                    await store.storeHistoryEvent(
+                        messageId,
+                        false,
+                        peerId,
+                        850,
+                        PRIVATE_MESSAGE_EVENT,
+                        {
+                            time: 1_700_000_000,
+                            post_type: 'message',
+                            message_type: 'private',
+                            sub_type: 'friend',
+                            user_id: peerId,
+                            message_id: messageId,
+                            message_seq: 50,
                         },
-                    },
-                ),
-            ).toThrow(/history event body rejected/);
+                        {
+                            sequenceAuthoritative: true,
+                            meta: {
+                                isGroup: false,
+                                targetId: peerId,
+                                sequence: 850,
+                                sequenceAuthoritative: true,
+                                eventName: PRIVATE_MESSAGE_EVENT,
+                                clientSequence: 50,
+                                privateDirection: 'incoming',
+                                random: 42,
+                                timestamp: 1_700_000_000,
+                            },
+                        },
+                    ),
+            ).rejects.toThrow(/history event body rejected/);
 
-            expect(store.findMeta(messageId)).toBeNull();
-            expect(store.findEvent(messageId)).toBeNull();
-            expect(store.findLatestAuthoritativeSequence(false, peerId)).toBeNull();
+            expect(await store.findMeta(messageId)).toBeNull();
+            expect(await store.findEvent(messageId)).toBeNull();
+            expect(await store.findLatestAuthoritativeSequence(false, peerId)).toBeNull();
         });
     });
 
     describe('listSessionEvents', () => {
-        function storeGroupSequence(groupId: number): void {
+        async function storeGroupSequence(groupId: number): Promise<void> {
             for (let sequence = 1; sequence <= 5; sequence++) {
-                store.storeEvent(sequence, true, groupId, sequence, GROUP_MESSAGE_EVENT, {
+                await store.storeEvent(sequence, true, groupId, sequence, GROUP_MESSAGE_EVENT, {
                     post_type: 'message',
                     message_type: 'group',
                     group_id: groupId,
@@ -396,27 +408,27 @@ describe('MessageStore', () => {
             }
         }
 
-        it('returns the anchor and newer messages in chronological order', () => {
+        it('returns the anchor and newer messages in chronological order', async () => {
             const groupId = 123456;
-            storeGroupSequence(groupId);
+            await storeGroupSequence(groupId);
 
-            const messages = store.listSessionEvents(true, groupId, 3, 3, false);
+            const messages = await store.listSessionEvents(true, groupId, 3, 3, false);
 
             expect(messages.map((message) => message.message_seq)).toEqual([3, 4, 5]);
         });
 
-        it('keeps the anchor and older messages as the default', () => {
+        it('keeps the anchor and older messages as the default', async () => {
             const groupId = 123456;
-            storeGroupSequence(groupId);
+            await storeGroupSequence(groupId);
 
-            const messages = store.listSessionEvents(true, groupId, 3, 3);
+            const messages = await store.listSessionEvents(true, groupId, 3, 3);
 
             expect(messages.map((message) => message.message_seq)).toEqual([1, 2, 3]);
         });
 
-        it('excludes unconfirmed sequences from replies and history anchors (#254)', () => {
+        it('excludes unconfirmed sequences from replies and history anchors (#254)', async () => {
             const groupId = 123456;
-            store.storeEvent(1, true, groupId, 9748, GROUP_MESSAGE_EVENT, {
+            await store.storeEvent(1, true, groupId, 9748, GROUP_MESSAGE_EVENT, {
                 post_type: 'message',
                 message_type: 'group',
                 group_id: groupId,
@@ -424,7 +436,7 @@ describe('MessageStore', () => {
                 message_id: 1,
                 message_seq: 9748,
             });
-            store.storeEvent(
+            await store.storeEvent(
                 2,
                 true,
                 groupId,
@@ -441,20 +453,22 @@ describe('MessageStore', () => {
                 { sequenceAuthoritative: false },
             );
 
-            expect(store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
+            expect(await store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
             expect(
-                store.listSessionEvents(true, groupId).map((message) => message.message_seq),
+                (await store.listSessionEvents(true, groupId)).map(
+                    (message) => message.message_seq,
+                ),
             ).toEqual([9748]);
-            expect(store.resolveReplySequence(true, groupId, 2)).toBeNull();
-            expect(store.findMeta(2)).toMatchObject({
+            expect(await store.resolveReplySequence(true, groupId, 2)).toBeNull();
+            expect(await store.findMeta(2)).toMatchObject({
                 sequence: 1799283572,
                 sequenceAuthoritative: false,
             });
         });
 
-        it('migrates legacy synthetic group-file and reply-backfill sequences (#254)', () => {
+        it('migrates legacy synthetic group-file and reply-backfill sequences (#254)', async () => {
             const groupId = 123456;
-            store.close();
+            await store.close();
 
             const legacy = new DatabaseSync(testDbPath);
             legacy.exec(`
@@ -630,21 +644,23 @@ describe('MessageStore', () => {
             legacy.close();
 
             store = new MessageStore(testDbPath);
+            await store.initialization;
             const migrator = new MessageStoreMigrator(testDbPath);
+            await migrator.initialization;
 
-            expect(migrator.getStatus()).toMatchObject({
+            expect(await migrator.getStatus()).toMatchObject({
                 phase: 'migrating',
                 processed: 0,
                 total: 8,
             });
-            expect(store.findMeta(2)).toMatchObject({ sequenceAuthoritative: true });
+            expect(await store.findMeta(2)).toMatchObject({ sequenceAuthoritative: true });
 
-            expect(migrator.runBatch(3)).toMatchObject({
+            expect(await migrator.runBatch(3)).toMatchObject({
                 phase: 'migrating',
                 processed: 3,
                 total: 8,
             });
-            store.storeMeta(-100, {
+            await store.storeMeta(-100, {
                 isGroup: true,
                 targetId: groupId,
                 sequence: 9700,
@@ -654,47 +670,50 @@ describe('MessageStore', () => {
                 random: 0,
                 timestamp: 1700000600,
             });
-            migrator.close();
+            await migrator.close();
 
             const resumedMigrator = new MessageStoreMigrator(testDbPath);
-            expect(resumedMigrator.getStatus()).toMatchObject({
+            await resumedMigrator.initialization;
+            expect(await resumedMigrator.getStatus()).toMatchObject({
                 phase: 'migrating',
                 processed: 3,
                 total: 8,
             });
-            expect(resumedMigrator.runBatch(3)).toMatchObject({
+            expect(await resumedMigrator.runBatch(3)).toMatchObject({
                 phase: 'migrating',
                 processed: 6,
                 total: 8,
             });
-            expect(resumedMigrator.runBatch(3)).toMatchObject({
+            expect(await resumedMigrator.runBatch(3)).toMatchObject({
                 phase: 'complete',
                 processed: 8,
                 total: 8,
             });
-            resumedMigrator.close();
+            await resumedMigrator.close();
 
-            expect(store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
+            expect(await store.findLatestAuthoritativeSequence(true, groupId)).toBe(9748);
             expect(
-                store.listSessionEvents(true, groupId).map((message) => message.message_seq),
+                (await store.listSessionEvents(true, groupId)).map(
+                    (message) => message.message_seq,
+                ),
             ).toEqual([9748]);
-            expect(store.findMeta(2)).toMatchObject({ sequenceAuthoritative: false });
-            expect(store.findMeta(3)).toMatchObject({ sequenceAuthoritative: false });
-            expect(store.findMeta(4)).toMatchObject({ sequenceAuthoritative: false });
-            expect(store.findMeta(5)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(2)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(3)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(4)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(5)).toMatchObject({ sequenceAuthoritative: false });
             // Pre-fix observed/fetched private rows contain sender-local field-5
             // sequences and may not become anchors. A send receipt with a retained
             // client sequence is already authoritative and remains usable.
-            expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(850);
-            expect(store.findMeta(6)).toMatchObject({ sequenceAuthoritative: false });
-            expect(store.findMeta(7)).toMatchObject({ sequenceAuthoritative: false });
-            expect(store.findMeta(9)).toMatchObject({ sequenceAuthoritative: true });
-            expect(store.findMeta(-100)).toMatchObject({
+            expect(await store.findLatestAuthoritativeSequence(false, 555)).toBe(850);
+            expect(await store.findMeta(6)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(7)).toMatchObject({ sequenceAuthoritative: false });
+            expect(await store.findMeta(9)).toMatchObject({ sequenceAuthoritative: true });
+            expect(await store.findMeta(-100)).toMatchObject({
                 sequence: 9700,
                 sequenceAuthoritative: true,
             });
 
-            store.storeMeta(8, {
+            await store.storeMeta(8, {
                 isGroup: false,
                 targetId: 555,
                 sequence: 900,
@@ -704,11 +723,11 @@ describe('MessageStore', () => {
                 random: 88,
                 timestamp: 1700000600,
             });
-            expect(store.findLatestAuthoritativeSequence(false, 555)).toBe(900);
+            expect(await store.findLatestAuthoritativeSequence(false, 555)).toBe(900);
         });
 
-        it('resumes classification when an older schema upgrade stopped between steps', () => {
-            store.close();
+        it('resumes classification when an older schema upgrade stopped between steps', async () => {
+            await store.close();
             const legacy = new DatabaseSync(testDbPath);
             legacy.exec(`
         DROP TABLE messages;
@@ -739,26 +758,28 @@ describe('MessageStore', () => {
             legacy.close();
 
             store = new MessageStore(testDbPath);
+            await store.initialization;
             const migrator = new MessageStoreMigrator(testDbPath);
-            expect(migrator.getStatus()).toEqual({
+            await migrator.initialization;
+            expect(await migrator.getStatus()).toEqual({
                 phase: 'migrating',
                 processed: 0,
                 total: 1,
             });
-            expect(migrator.runBatch(10)).toEqual({
+            expect(await migrator.runBatch(10)).toEqual({
                 phase: 'complete',
                 processed: 1,
                 total: 1,
             });
-            migrator.close();
-            expect(store.findMeta(1)).toMatchObject({ sequenceAuthoritative: false });
+            await migrator.close();
+            expect(await store.findMeta(1)).toMatchObject({ sequenceAuthoritative: false });
         });
 
-        it('creates the normal indexes when background preparation creates the database', () => {
-            store.close();
+        it('creates the normal indexes when background preparation creates the database', async () => {
+            await store.close();
             fs.unlinkSync(testDbPath);
 
-            prepareMessageStoreDatabase(testDbPath);
+            await prepareMessageStoreDatabase(testDbPath);
             const database = new DatabaseSync(testDbPath);
             const indexes = database
                 .prepare(
@@ -777,14 +798,15 @@ describe('MessageStore', () => {
                 'idx_messages_session_seq',
             ]);
             store = new MessageStore(testDbPath);
+            await store.initialization;
         });
     });
 
     describe('private recall invalidation', () => {
-        it('removes the recalled cached event by peer and client sequence', () => {
+        it('removes the recalled cached event by peer and client sequence', async () => {
             const messageId = -123456789;
             const peerId = 555;
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 63214,
@@ -794,7 +816,7 @@ describe('MessageStore', () => {
                 random: 88,
                 timestamp: 1700000600,
             });
-            store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
+            await store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000600,
                 post_type: 'message',
                 message_type: 'private',
@@ -805,7 +827,7 @@ describe('MessageStore', () => {
                 message: [{ type: 'text', data: { text: '77' } }],
             });
             const selfMessageId = -22334455;
-            store.storeMeta(selfMessageId, {
+            await store.storeMeta(selfMessageId, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 73214,
@@ -815,7 +837,7 @@ describe('MessageStore', () => {
                 random: 99,
                 timestamp: 1700000601,
             });
-            store.storeEvent(selfMessageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+            await store.storeEvent(selfMessageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000601,
                 post_type: 'message_sent',
                 message_type: 'private',
@@ -827,18 +849,22 @@ describe('MessageStore', () => {
                 message: [{ type: 'text', data: { text: 'self' } }],
             });
 
-            expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(messageId);
-            expect(store.findEvent(messageId)).toBeNull();
-            expect(store.findMeta(messageId)).toBeNull();
-            expect(store.findEvent(selfMessageId)).not.toBeNull();
-            expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBeNull();
-            expect(store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(selfMessageId);
+            expect(await store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(
+                messageId,
+            );
+            expect(await store.findEvent(messageId)).toBeNull();
+            expect(await store.findMeta(messageId)).toBeNull();
+            expect(await store.findEvent(selfMessageId)).not.toBeNull();
+            expect(await store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBeNull();
+            expect(await store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(
+                selfMessageId,
+            );
         });
 
-        it('prevents a recalled message from being stored after a meta-only race', () => {
+        it('prevents a recalled message from being stored after a meta-only race', async () => {
             const messageId = -123456789;
             const peerId = 555;
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 63214,
@@ -850,8 +876,10 @@ describe('MessageStore', () => {
                 timestamp: 1700000600,
             });
 
-            expect(store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(messageId);
-            store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
+            expect(await store.recordPrivateRecall(peerId, 32743, false, 1700000700)).toBe(
+                messageId,
+            );
+            await store.storeEvent(messageId, false, peerId, 63214, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000600,
                 post_type: 'message',
                 message_type: 'private',
@@ -861,14 +889,14 @@ describe('MessageStore', () => {
                 user_id: peerId,
             });
 
-            expect(store.findEvent(messageId)).toBeNull();
-            expect(store.findMeta(messageId)).toBeNull();
+            expect(await store.findEvent(messageId)).toBeNull();
+            expect(await store.findMeta(messageId)).toBeNull();
         });
 
-        it('prevents an outgoing self-sent event from reviving after its meta is recalled', () => {
+        it('prevents an outgoing self-sent event from reviving after its meta is recalled', async () => {
             const messageId = -22334455;
             const peerId = 555;
-            store.storeMeta(messageId, {
+            await store.storeMeta(messageId, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 73214,
@@ -880,8 +908,10 @@ describe('MessageStore', () => {
                 timestamp: 1700000600,
             });
 
-            expect(store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(messageId);
-            store.storeEvent(messageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+            expect(await store.recordPrivateRecall(peerId, 32743, true, 1700000700)).toBe(
+                messageId,
+            );
+            await store.storeEvent(messageId, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000600,
                 post_type: 'message_sent',
                 message_type: 'private',
@@ -892,18 +922,22 @@ describe('MessageStore', () => {
                 target_id: peerId,
             });
 
-            expect(store.findEvent(messageId)).toBeNull();
-            expect(store.findMeta(messageId)).toBeNull();
+            expect(await store.findEvent(messageId)).toBeNull();
+            expect(await store.findMeta(messageId)).toBeNull();
         });
 
-        it('does not delete a later message that reused the recalled client sequence', () => {
+        it('does not delete a later message that reused the recalled client sequence', async () => {
             const peerId = 555;
             const clientSequence = 32743;
             const oldMessageId = -123456789;
             const futureMessageId = -22334455;
 
-            const storePrivate = (messageId: number, ntSequence: number, timestamp: number) => {
-                store.storeMeta(messageId, {
+            const storePrivate = async (
+                messageId: number,
+                ntSequence: number,
+                timestamp: number,
+            ) => {
+                await store.storeMeta(messageId, {
                     isGroup: false,
                     targetId: peerId,
                     sequence: ntSequence,
@@ -914,35 +948,44 @@ describe('MessageStore', () => {
                     random: ntSequence,
                     timestamp,
                 });
-                store.storeEvent(messageId, false, peerId, ntSequence, PRIVATE_MESSAGE_EVENT, {
-                    time: timestamp,
-                    post_type: 'message',
-                    message_type: 'private',
-                    sub_type: 'friend',
-                    message_id: messageId,
-                    message_seq: clientSequence,
-                    user_id: peerId,
-                });
+                await store.storeEvent(
+                    messageId,
+                    false,
+                    peerId,
+                    ntSequence,
+                    PRIVATE_MESSAGE_EVENT,
+                    {
+                        time: timestamp,
+                        post_type: 'message',
+                        message_type: 'private',
+                        sub_type: 'friend',
+                        message_id: messageId,
+                        message_seq: clientSequence,
+                        user_id: peerId,
+                    },
+                );
             };
 
-            storePrivate(oldMessageId, 63214, 600);
-            storePrivate(futureMessageId, 73214, 800);
+            await storePrivate(oldMessageId, 63214, 600);
+            await storePrivate(futureMessageId, 73214, 800);
 
-            expect(store.findPrivateMessageId(peerId, clientSequence, false, 700)).toBe(
+            expect(await store.findPrivateMessageId(peerId, clientSequence, false, 700)).toBe(
                 oldMessageId,
             );
-            expect(store.recordPrivateRecall(peerId, clientSequence, false, 700)).toBe(
+            expect(await store.recordPrivateRecall(peerId, clientSequence, false, 700)).toBe(
                 oldMessageId,
             );
-            expect(store.findEvent(oldMessageId)).toBeNull();
-            expect(store.findEvent(futureMessageId)).not.toBeNull();
-            expect(store.findPrivateMessageId(peerId, clientSequence, false)).toBe(futureMessageId);
+            expect(await store.findEvent(oldMessageId)).toBeNull();
+            expect(await store.findEvent(futureMessageId)).not.toBeNull();
+            expect(await store.findPrivateMessageId(peerId, clientSequence, false)).toBe(
+                futureMessageId,
+            );
         });
 
-        it('keeps the opposite direction when sender-local sequences collide', () => {
+        it('keeps the opposite direction when sender-local sequences collide', async () => {
             const peerId = 555;
-            store.recordPrivateRecall(peerId, 32743, false, 1700000700);
-            store.storeEvent(-22334455, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
+            await store.recordPrivateRecall(peerId, 32743, false, 1700000700);
+            await store.storeEvent(-22334455, false, peerId, 73214, PRIVATE_MESSAGE_EVENT, {
                 time: 1700000601,
                 post_type: 'message_sent',
                 message_type: 'private',
@@ -953,16 +996,16 @@ describe('MessageStore', () => {
                 target_id: peerId,
             });
 
-            expect(store.findEvent(-22334455)).not.toBeNull();
+            expect(await store.findEvent(-22334455)).not.toBeNull();
         });
 
-        it('rejects invalid recall identifiers instead of treating them as cache misses', () => {
-            expect(() => store.recordPrivateRecall(0, 32743, false, 1700000700)).toThrow(
-                'invalid private recall peer',
-            );
-            expect(() => store.recordPrivateRecall(555, 0, false, 1700000700)).toThrow(
-                'invalid private recall client sequence',
-            );
+        it('rejects invalid recall identifiers instead of treating them as cache misses', async () => {
+            await expect(
+                async () => await store.recordPrivateRecall(0, 32743, false, 1700000700),
+            ).rejects.toThrow('invalid private recall peer');
+            await expect(
+                async () => await store.recordPrivateRecall(555, 0, false, 1700000700),
+            ).rejects.toThrow('invalid private recall client sequence');
         });
     });
 
@@ -971,11 +1014,11 @@ describe('MessageStore', () => {
         const sendId = -12721351;
         const sentAt = 1_788_102_428;
 
-        function storeOutgoing(
+        async function storeOutgoing(
             clientSequence: number,
             direction: 'incoming' | 'outgoing' = 'outgoing',
         ) {
-            store.storeMeta(sendId, {
+            await store.storeMeta(sendId, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 682,
@@ -988,36 +1031,44 @@ describe('MessageStore', () => {
             });
         }
 
-        it('returns the send id when the quote sequence matches the stored client sequence', () => {
-            storeOutgoing(27_892);
-            expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt)).toBe(sendId);
-        });
-
-        it('returns the send id by timestamp when the quote sequence is not the local client sequence', () => {
-            storeOutgoing(201_616_628);
-            expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt)).toBe(sendId);
-        });
-
-        it('does not use timestamp fallback for incoming quotes', () => {
-            storeOutgoing(201_616_628, 'incoming');
-            expect(store.resolvePrivateReplyMessageId(peerId, 27_892, false, sentAt)).toBeNull();
-        });
-
-        it('returns the send id when the quote sequence matches the stored conversation sequence', () => {
-            storeOutgoing(201_616_628);
-            expect(store.resolvePrivateReplyMessageId(peerId, 682, true, sentAt + 2)).toBe(sendId);
-        });
-
-        it('returns the send id when the quote time drifts a few seconds from the send receipt', () => {
-            storeOutgoing(201_616_628);
-            expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBe(
+        it('returns the send id when the quote sequence matches the stored client sequence', async () => {
+            await storeOutgoing(27_892);
+            expect(await store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt)).toBe(
                 sendId,
             );
         });
 
-        it('does not guess by time when two outgoing messages share the quote window', () => {
-            storeOutgoing(201_616_628);
-            store.storeMeta(sendId + 1, {
+        it('returns the send id by timestamp when the quote sequence is not the local client sequence', async () => {
+            await storeOutgoing(201_616_628);
+            expect(await store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt)).toBe(
+                sendId,
+            );
+        });
+
+        it('does not use timestamp fallback for incoming quotes', async () => {
+            await storeOutgoing(201_616_628, 'incoming');
+            expect(
+                await store.resolvePrivateReplyMessageId(peerId, 27_892, false, sentAt),
+            ).toBeNull();
+        });
+
+        it('returns the send id when the quote sequence matches the stored conversation sequence', async () => {
+            await storeOutgoing(201_616_628);
+            expect(await store.resolvePrivateReplyMessageId(peerId, 682, true, sentAt + 2)).toBe(
+                sendId,
+            );
+        });
+
+        it('returns the send id when the quote time drifts a few seconds from the send receipt', async () => {
+            await storeOutgoing(201_616_628);
+            expect(await store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBe(
+                sendId,
+            );
+        });
+
+        it('does not guess by time when two outgoing messages share the quote window', async () => {
+            await storeOutgoing(201_616_628);
+            await store.storeMeta(sendId + 1, {
                 isGroup: false,
                 targetId: peerId,
                 sequence: 683,
@@ -1028,12 +1079,14 @@ describe('MessageStore', () => {
                 random: 2,
                 timestamp: sentAt + 1,
             });
-            expect(store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2)).toBeNull();
+            expect(
+                await store.resolvePrivateReplyMessageId(peerId, 27_892, true, sentAt + 2),
+            ).toBeNull();
         });
 
-        it('does not choose the latest same-second message without unique quoted content', () => {
+        it('does not choose the latest same-second message without unique quoted content', async () => {
             for (const id of [101, 102]) {
-                store.storeMeta(id, {
+                await store.storeMeta(id, {
                     isGroup: false,
                     targetId: peerId,
                     sequence: id,
@@ -1044,7 +1097,7 @@ describe('MessageStore', () => {
                     random: id,
                     timestamp: sentAt,
                 });
-                store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
+                await store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
                     time: sentAt,
                     post_type: 'message_sent',
                     message_type: 'private',
@@ -1053,19 +1106,19 @@ describe('MessageStore', () => {
                 });
             }
 
-            expect(store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt)).toBeNull();
+            expect(await store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt)).toBeNull();
             expect(
-                store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
+                await store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
                     { type: 'text', text: 'same text' },
                 ]),
             ).toBeNull();
             expect(
-                store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
+                await store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
                     { type: 'text', text: 'same' },
                 ]),
             ).toBeNull();
             expect(
-                store.resolvePrivateReplyMessageId(peerId, 1101, true, sentAt, [
+                await store.resolvePrivateReplyMessageId(peerId, 1101, true, sentAt, [
                     { type: 'text', text: 'same text' },
                 ]),
             ).toBe(101);
@@ -1074,42 +1127,45 @@ describe('MessageStore', () => {
         it.each([
             ['truncated text', 'short', { type: 'text', data: { text: 'short but longer' } }],
             ['media label', '[语音]', { type: 'record', data: { file: 'voice.amr' } }],
-        ])('does not confuse plain text with a competing %s preview', (_name, text, other) => {
-            for (const [id, message] of [
-                [101, [{ type: 'text', data: { text } }]],
-                [102, [other]],
-            ] as const) {
-                store.storeMeta(id, {
-                    isGroup: false,
-                    targetId: peerId,
-                    sequence: id,
-                    sequenceAuthoritative: true,
-                    eventName: PRIVATE_MESSAGE_EVENT,
-                    clientSequence: id + 1000,
-                    privateDirection: 'outgoing',
-                    random: id,
-                    timestamp: sentAt,
-                });
-                store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
-                    time: sentAt,
-                    post_type: 'message_sent',
-                    message_type: 'private',
-                    sub_type: 'friend',
-                    message: JSON.parse(JSON.stringify(message)),
-                });
-            }
+        ])(
+            'does not confuse plain text with a competing %s preview',
+            async (_name, text, other) => {
+                for (const [id, message] of [
+                    [101, [{ type: 'text', data: { text } }]],
+                    [102, [other]],
+                ] as const) {
+                    await store.storeMeta(id, {
+                        isGroup: false,
+                        targetId: peerId,
+                        sequence: id,
+                        sequenceAuthoritative: true,
+                        eventName: PRIVATE_MESSAGE_EVENT,
+                        clientSequence: id + 1000,
+                        privateDirection: 'outgoing',
+                        random: id,
+                        timestamp: sentAt,
+                    });
+                    await store.storeEvent(id, false, peerId, id, PRIVATE_MESSAGE_EVENT, {
+                        time: sentAt,
+                        post_type: 'message_sent',
+                        message_type: 'private',
+                        sub_type: 'friend',
+                        message: JSON.parse(JSON.stringify(message)),
+                    });
+                }
 
-            expect(
-                store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
-                    { type: 'text', text },
-                ]),
-            ).toBeNull();
-        });
+                expect(
+                    await store.resolvePrivateReplyMessageId(peerId, 999, true, sentAt, [
+                        { type: 'text', text },
+                    ]),
+                ).toBeNull();
+            },
+        );
     });
 
-    it('lets a real group event replace an older non-authoritative placeholder', () => {
+    it('lets a real group event replace an older non-authoritative placeholder', async () => {
         const groupId = 123456;
-        store.storeEvent(
+        await store.storeEvent(
             123,
             true,
             groupId,
@@ -1124,7 +1180,7 @@ describe('MessageStore', () => {
             },
             { sequenceAuthoritative: false },
         );
-        store.storeEvent(123, true, groupId, 100, GROUP_MESSAGE_EVENT, {
+        await store.storeEvent(123, true, groupId, 100, GROUP_MESSAGE_EVENT, {
             post_type: 'message',
             message_type: 'group',
             group_id: groupId,
@@ -1132,21 +1188,21 @@ describe('MessageStore', () => {
             message_seq: 100,
         });
 
-        expect(store.findMeta(123)).toMatchObject({
+        expect(await store.findMeta(123)).toMatchObject({
             sequence: 100,
             sequenceAuthoritative: true,
         });
     });
 
     describe('listReadSessions', () => {
-        it('uses current groups and only genuine incoming friend sessions', () => {
+        it('uses current groups and only genuine incoming friend sessions', async () => {
             const event = (postType: string, subType: string) => ({
                 time: 1700000000,
                 post_type: postType,
                 message_type: 'private',
                 sub_type: subType,
             });
-            store.storeEvent(
+            await store.storeEvent(
                 1001,
                 false,
                 40001,
@@ -1154,7 +1210,7 @@ describe('MessageStore', () => {
                 PRIVATE_MESSAGE_EVENT,
                 event('message', 'friend'),
             );
-            store.storeEvent(
+            await store.storeEvent(
                 1002,
                 false,
                 40001,
@@ -1162,7 +1218,7 @@ describe('MessageStore', () => {
                 PRIVATE_MESSAGE_EVENT,
                 event('message', 'friend'),
             );
-            store.storeEvent(
+            await store.storeEvent(
                 1003,
                 false,
                 40002,
@@ -1170,7 +1226,7 @@ describe('MessageStore', () => {
                 PRIVATE_MESSAGE_EVENT,
                 event('message', 'group'),
             );
-            store.storeEvent(
+            await store.storeEvent(
                 1004,
                 false,
                 40003,
@@ -1179,14 +1235,16 @@ describe('MessageStore', () => {
                 event('message_sent', 'friend'),
             );
 
-            expect(store.listReadSessions([30002, 30001, 30002])).toEqual({
+            expect(await store.listReadSessions([30002, 30001, 30002])).toEqual({
                 groupIds: [30002, 30001],
                 privateUserIds: [40001],
             });
         });
 
-        it('fails on a corrupt current group target', () => {
-            expect(() => store.listReadSessions([0])).toThrow('invalid group id 0');
+        it('fails on a corrupt current group target', async () => {
+            await expect(async () => await store.listReadSessions([0])).rejects.toThrow(
+                'invalid group id 0',
+            );
         });
     });
 });

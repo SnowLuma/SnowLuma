@@ -147,4 +147,18 @@ describe('SingleFlightCache', () => {
         await cache.get('b');
         expect(load).toHaveBeenCalledTimes(5);
     });
+
+    it('allows retry when a loader throws before returning its promise', async () => {
+        const load = vi
+            .fn<() => Promise<string>>()
+            .mockImplementationOnce(() => {
+                throw new Error('failed before request');
+            })
+            .mockResolvedValue('recovered');
+        const cache = createSingleFlightCache({ ttlMs: 1000, load });
+
+        await expect(cache.get('key')).rejects.toThrow('failed before request');
+        await expect(cache.get('key')).resolves.toBe('recovered');
+        expect(load).toHaveBeenCalledTimes(2);
+    });
 });

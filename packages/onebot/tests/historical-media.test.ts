@@ -57,7 +57,7 @@ function converter(media: MediaStore): ConverterContext {
         imageUrlResolver: null,
         mediaUrlResolver: null,
         messageIdResolver: null,
-        mediaSegmentSink: (...args) => indexer.remember(...args),
+        mediaSegmentSink: async (...args) => await indexer.remember(...args),
     };
 }
 
@@ -89,7 +89,9 @@ describe('durable historical media', () => {
         async (type) => {
             const { dbPath } = location();
             let messages = new MessageStore(dbPath);
+            await messages.initialization;
             let media = new MediaStore(dbPath, 2);
+            await media.initialization;
             const element = {
                 type,
                 fileId: 'same.png',
@@ -119,9 +121,9 @@ describe('durable historical media', () => {
                 elements: [element],
             });
             event!.message_id = 42;
-            messages.storeHistoryEvent(42, true, 123, 10, 'GroupMessage', event!);
+            await messages.storeHistoryEvent(42, true, 123, 10, 'GroupMessage', event!);
             expect(JSON.stringify(event)).not.toContain('md5Hex');
-            expect(JSON.stringify(messages.findEvent(42))).not.toContain('sha1Hex');
+            expect(JSON.stringify(await messages.findEvent(42))).not.toContain('sha1Hex');
 
             // Repeated names and many new resources must not change the old message.
             for (let i = 0; i < 80; i++) {
@@ -131,14 +133,16 @@ describe('durable historical media', () => {
                     true,
                     123,
                 );
-                media.rememberImage({ ...image, file: `other-${i}`, fileName: `other-${i}` });
-                media.findImage(`other-${i}`);
+                await media.rememberImage({ ...image, file: `other-${i}`, fileName: `other-${i}` });
+                await media.findImage(`other-${i}`);
             }
 
-            media.close();
-            messages.close();
+            await media.close();
+            await messages.close();
             messages = new MessageStore(dbPath);
+            await messages.initialization;
             media = new MediaStore(dbPath, 2);
+            await media.initialization;
 
             try {
                 const { ref, sendGroup, upload } = context(messages, media);
@@ -163,10 +167,10 @@ describe('durable historical media', () => {
                         ],
                     }),
                 ]);
-                expect(messages.findEvent(42)?.message_id).toBe(42);
+                expect((await messages.findEvent(42))?.message_id).toBe(42);
             } finally {
-                media.close();
-                messages.close();
+                await media.close();
+                await messages.close();
             }
         },
     );
@@ -174,7 +178,9 @@ describe('durable historical media', () => {
     it('stores the body and media snapshot atomically and strips inline bytes', async () => {
         const { dbPath } = location();
         const messages = new MessageStore(dbPath);
+        await messages.initialization;
         const media = new MediaStore(dbPath);
+        await media.initialization;
         const db = new DatabaseSync(dbPath);
 
         try {
@@ -196,25 +202,26 @@ describe('durable historical media', () => {
             db.exec(
                 "CREATE TRIGGER fail_media BEFORE INSERT ON messages WHEN NEW.media_data IS NOT NULL BEGIN SELECT RAISE(ABORT, 'test media write failure'); END",
             );
-            expect(() => messages.storeEvent(1, true, 123, 1, 'GroupMessage', event)).toThrow(
-                'test media write failure',
-            );
-            expect(messages.findEvent(1)).toBeNull();
+            await expect(
+                async () => await messages.storeEvent(1, true, 123, 1, 'GroupMessage', event),
+            ).rejects.toThrow('test media write failure');
+            expect(await messages.findEvent(1)).toBeNull();
             db.exec('DROP TRIGGER fail_media');
-            messages.storeEvent(1, true, 123, 1, 'GroupMessage', event);
-            expect(messages.findMedia(1)?.[0].md5Hex).toBe(image.md5Hex);
-            expect(JSON.stringify(messages.findMedia(1))).not.toContain('base64://');
+            await messages.storeEvent(1, true, 123, 1, 'GroupMessage', event);
+            expect((await messages.findMedia(1))?.[0].md5Hex).toBe(image.md5Hex);
+            expect(JSON.stringify(await messages.findMedia(1))).not.toContain('base64://');
         } finally {
             db.close();
-            media.close();
-            messages.close();
+            await media.close();
+            await messages.close();
         }
     });
 
     it('propagates media persistence failures instead of silently skipping segments', async () => {
         const { dbPath } = location();
         const media = new MediaStore(dbPath);
-        media.close();
+        await media.initialization;
+        await media.close();
         await expect(
             elementsToOneBotSegments(
                 converter(media),
@@ -228,7 +235,9 @@ describe('durable historical media', () => {
     it('does not substitute another same-named resource for an incomplete snapshot', async () => {
         const { dbPath } = location();
         const messages = new MessageStore(dbPath);
+        await messages.initialization;
         const media = new MediaStore(dbPath);
+        await media.initialization;
 
         try {
             const segments = await elementsToOneBotSegments(
@@ -237,28 +246,30 @@ describe('durable historical media', () => {
                 true,
                 123,
             );
-            messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: segments });
-            media.rememberImage(image);
+            await messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: segments });
+            await media.rememberImage(image);
             const { ref, sendGroup } = context(messages, media);
             await expect(forwardSingleMessage(ref, 42, { groupId: 999 })).rejects.toThrow(
                 'metadata is incomplete',
             );
             expect(sendGroup).not.toHaveBeenCalled();
         } finally {
-            media.close();
-            messages.close();
+            await media.close();
+            await messages.close();
         }
     });
 
     it('preserves complete metadata across an incomplete repeat and rejects conflicting resources', async () => {
         const { dbPath } = location();
         let messages = new MessageStore(dbPath);
+        await messages.initialization;
         let media = new MediaStore(dbPath);
+        await media.initialization;
         const complete: MessageElement = { type: 'image', ...image, fileId: image.file };
 
         const save = async (element: MessageElement) => {
             const segments = await elementsToOneBotSegments(converter(media), [element], true, 123);
-            messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: segments });
+            await messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: segments });
         };
 
         await save(complete);
@@ -270,10 +281,12 @@ describe('durable historical media', () => {
             height: 0,
         });
         await expect(save({ ...complete, md5Hex: 'cc'.repeat(16) })).rejects.toThrow('conflicting');
-        media.close();
-        messages.close();
+        await media.close();
+        await messages.close();
         messages = new MessageStore(dbPath);
+        await messages.initialization;
         media = new MediaStore(dbPath);
+        await media.initialization;
 
         try {
             const { ref, sendGroup } = context(messages, media);
@@ -287,15 +300,17 @@ describe('durable historical media', () => {
                 }),
             ]);
         } finally {
-            media.close();
-            messages.close();
+            await media.close();
+            await messages.close();
         }
     });
 
     it('does not combine disjoint image fingerprints merely because fileId is the same filename', async () => {
         const { dbPath } = location();
         const messages = new MessageStore(dbPath);
+        await messages.initialization;
         const media = new MediaStore(dbPath);
+        await media.initialization;
 
         try {
             const original = await elementsToOneBotSegments(
@@ -304,43 +319,53 @@ describe('durable historical media', () => {
                 true,
                 123,
             );
-            messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: original });
+            await messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: original });
             const different = await elementsToOneBotSegments(
                 converter(media),
                 [{ type: 'image', fileId: 'photo.jpg', sha1Hex: image.sha1Hex, width: 64 }],
                 true,
                 123,
             );
-            expect(() =>
-                messages.storeEvent(42, true, 123, 1, 'GroupMessage', { message: different }),
-            ).toThrow('unverified media association');
-            expect(messages.findMedia(42)).toEqual([
+            await expect(
+                async () =>
+                    await messages.storeEvent(42, true, 123, 1, 'GroupMessage', {
+                        message: different,
+                    }),
+            ).rejects.toThrow('unverified media association');
+            expect(await messages.findMedia(42)).toEqual([
                 { type: 'image', fileId: 'photo.jpg', md5Hex: image.md5Hex, width: 32 },
             ]);
         } finally {
-            media.close();
-            messages.close();
+            await media.close();
+            await messages.close();
         }
     });
 
-    it('rejects corrupt and oversized metadata without deleting history', () => {
+    it('rejects corrupt and oversized metadata without deleting history', async () => {
         const { dbPath } = location();
         const media = new MediaStore(dbPath);
+        await media.initialization;
         const db = new DatabaseSync(dbPath);
 
         try {
-            expect(() =>
-                media.rememberImage({ ...image, summary: 'x'.repeat(MEDIA_DATA_MAX_CHARS) }),
-            ).toThrow('storage limit');
-            media.rememberImage(image);
+            await expect(
+                async () =>
+                    await media.rememberImage({
+                        ...image,
+                        summary: 'x'.repeat(MEDIA_DATA_MAX_CHARS),
+                    }),
+            ).rejects.toThrow('storage limit');
+            await media.rememberImage(image);
             db.exec("UPDATE media_entries SET data = '{broken'");
-            expect(() => media.findImage(image.file)).toThrow();
+            await expect(async () => await media.findImage(image.file)).rejects.toThrow();
             db.exec("UPDATE media_entries SET data = 'null'");
-            expect(() => media.findImage(image.file)).toThrow('invalid persisted');
-            expect(media.size().images).toBe(1);
+            await expect(async () => await media.findImage(image.file)).rejects.toThrow(
+                'invalid persisted',
+            );
+            expect((await media.size()).images).toBe(1);
         } finally {
             db.close();
-            media.close();
+            await media.close();
         }
     });
 
@@ -349,6 +374,7 @@ describe('durable historical media', () => {
         async (type) => {
             const { dbPath, legacyPath } = location();
             const old = new MediaStore(legacyPath);
+            await old.initialization;
             const element = {
                 type,
                 fileId: 'same.png',
@@ -364,10 +390,11 @@ describe('durable historical media', () => {
                 videoFormat: 0,
             } as MessageElement;
             await elementsToOneBotSegments(converter(old), [element], true, 123);
-            old.close();
+            await old.close();
             const source = fs.readFileSync(legacyPath);
             const messages = new MessageStore(dbPath);
-            messages.storeEvent(42, true, 123, 1, 'GroupMessage', {
+            await messages.initialization;
+            await messages.storeEvent(42, true, 123, 1, 'GroupMessage', {
                 user_id: 456,
                 message_id: 42,
                 message_type: 'group',
@@ -378,6 +405,7 @@ describe('durable historical media', () => {
             fs.rmSync(legacyPath);
             await migrateLegacyMedia(dbPath);
             const media = new MediaStore(dbPath);
+            await media.initialization;
 
             try {
                 await elementsToOneBotSegments(
@@ -392,8 +420,8 @@ describe('durable historical media', () => {
                     expect.objectContaining({ md5Hex: image.md5Hex }),
                 ]);
             } finally {
-                media.close();
-                messages.close();
+                await media.close();
+                await messages.close();
             }
         },
     );
@@ -401,15 +429,17 @@ describe('durable historical media', () => {
     it('rolls back a failed legacy batch and resumes after the source is repaired', async () => {
         const { dbPath, legacyPath } = location();
         const old = new MediaStore(legacyPath);
-        old.rememberImage(image);
-        old.close();
+        await old.initialization;
+        await old.rememberImage(image);
+        await old.close();
         const source = new DatabaseSync(legacyPath);
         source.prepare("INSERT INTO media_entries VALUES ('image', 'broken', ?, 1)").run('{broken');
         source.close();
         await expect(migrateLegacyMedia(dbPath)).rejects.toThrow();
         const destination = new MediaStore(dbPath);
-        expect(destination.size().images).toBe(0);
-        destination.close();
+        await destination.initialization;
+        expect((await destination.size()).images).toBe(0);
+        await destination.close();
         const repaired = new DatabaseSync(legacyPath);
         repaired
             .prepare("UPDATE media_entries SET data = ? WHERE primary_key = 'broken'")
@@ -417,14 +447,16 @@ describe('durable historical media', () => {
         repaired.close();
         await migrateLegacyMedia(dbPath);
         const reopened = new MediaStore(dbPath);
-        expect(reopened.size().images).toBe(2);
-        reopened.close();
+        await reopened.initialization;
+        expect((await reopened.size()).images).toBe(2);
+        await reopened.close();
     });
 
     it('normalizes legacy inline payloads without discarding their metadata', async () => {
         const { dbPath, legacyPath } = location();
         const old = new MediaStore(legacyPath);
-        old.close();
+        await old.initialization;
+        await old.close();
         const inline = `base64://${'Z'.repeat(100000)}`;
         const source = new DatabaseSync(legacyPath);
         source
@@ -434,37 +466,41 @@ describe('durable historical media', () => {
         source.close();
         await migrateLegacyMedia(dbPath);
         const media = new MediaStore(dbPath);
+        await media.initialization;
 
         try {
-            expect(media.findImage(inline)).toMatchObject({
+            expect(await media.findImage(inline)).toMatchObject({
                 md5Hex: image.md5Hex,
                 url: '',
                 imageUrl: '',
             });
-            expect(JSON.stringify(media.findImage(inline))).not.toContain('base64://');
+            expect(JSON.stringify(await media.findImage(inline))).not.toContain('base64://');
         } finally {
-            media.close();
+            await media.close();
         }
     });
 
     it('resumes a cancelled migration from its committed batch cursor', async () => {
         const { dbPath, legacyPath } = location();
         const old = new MediaStore(legacyPath);
+        await old.initialization;
 
         for (let i = 0; i < 205; i++) {
-            old.rememberImage({ ...image, file: `entry-${i}` });
+            await old.rememberImage({ ...image, file: `entry-${i}` });
         }
 
-        old.close();
+        await old.close();
         let checks = 0;
         await migrateLegacyMedia(dbPath, () => ++checks > 1);
         const partial = new MediaStore(dbPath);
-        expect(partial.size().images).toBe(200);
-        partial.close();
+        await partial.initialization;
+        expect((await partial.size()).images).toBe(200);
+        await partial.close();
         await migrateLegacyMedia(dbPath);
         const complete = new MediaStore(dbPath);
-        expect(complete.size().images).toBe(205);
-        expect(complete.findImage('entry-204')?.md5Hex).toBe(image.md5Hex);
-        complete.close();
+        await complete.initialization;
+        expect((await complete.size()).images).toBe(205);
+        expect((await complete.findImage('entry-204'))?.md5Hex).toBe(image.md5Hex);
+        await complete.close();
     });
 });

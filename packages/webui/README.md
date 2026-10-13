@@ -20,6 +20,8 @@ status, OneBot configuration, logs, storage, and server settings.
   follows the actual drawer state.
 - Failures must remain visible in the affected control and in the operation
   result; do not convert failed responses into successful feedback.
+- JSON endpoints must return an object. Malformed or non-object responses are
+  reported as errors rather than displayed as empty lists or default settings.
 - Password change flows use floating labels and inline validation consistently.
 - Password strength details appear only while the new-password field has focus
   and leave with the same motion language when focus moves away.
@@ -29,6 +31,12 @@ status, OneBot configuration, logs, storage, and server settings.
   page-level crash screen; replayed consent and passwords are never persisted.
 
 ## Local development
+
+On Windows, the native API logs the process token and EXE integrity label once
+at startup. A Low (or lower) token triggers a WebUI warning; file labels and
+query failures alone do not. “临时关闭” lasts for the tab session, including
+reloads; “永久关闭” persists in this browser's site storage. Neither suppresses
+startup logs. Failed queries and preference writes remain visible.
 
 From the repository root:
 

@@ -1,4 +1,5 @@
 import { isRealUin } from '@snowluma/common/uin';
+import { isObject } from '@snowluma/common/coerce';
 import type { Hono } from 'hono';
 import {
     StorageAccountOnlineError,
@@ -366,8 +367,4 @@ function cleanupFailureItem(failure: StorageCleanupResult['failures'][number]): 
     }
 
     return failure.item;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -776,218 +776,72 @@ describe('getImageInfo', () => {
 });
 
 describe('getRecordInfo', () => {
-    it('returns null when the record is not cached', async () => {
+    it('returns null when the record is not indexed', async () => {
         await expect(
             getRecordInfo(fakeBridge(), fakeRecordStore(null), 'missing.silk'),
         ).resolves.toBeNull();
     });
 
-    it('returns the stored url without refetching', async () => {
-        const getPttUrl = vi.fn(async () => 'https://ptt.example/should-not-run');
-        const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/should-not-run');
-        const updateRecordUrl = vi.fn();
-
-        await expect(
-            getRecordInfo(
-                fakeBridge({ getPttUrl, getPrivatePttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        url: 'https://ptt.example/cached.silk',
-                        mediaNode: { fileUuid: 'uuid-1' },
+    it.each([true, false])(
+        'requests a fresh URL even when one is stored (group=%s)',
+        async (isGroup) => {
+            const mediaNode = { fileUuid: 'voice-uuid', storeId: 1 };
+            const getPttUrl = vi.fn(async () => 'https://ptt.example/group-fresh');
+            const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/private-fresh');
+            const updateRecordUrl = vi.fn();
+            const url = `https://ptt.example/${isGroup ? 'group' : 'private'}-fresh`;
+            await expect(
+                getRecordInfo(
+                    fakeBridge({ getPttUrl, getPrivatePttUrl }),
+                    fakeRecordStore(cachedRecord({ isGroup, sessionId: GROUP_ID, mediaNode }), {
+                        updateRecordUrl,
                     }),
-                    { updateRecordUrl },
+                    'voice.silk',
                 ),
-                'voice.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'https://ptt.example/cached.silk',
-            url: 'https://ptt.example/cached.silk',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(getPttUrl).not.toHaveBeenCalled();
-        expect(getPrivatePttUrl).not.toHaveBeenCalled();
-        expect(updateRecordUrl).not.toHaveBeenCalled();
-    });
+            ).resolves.toEqual({ file: url, url, file_size: '4096', file_name: 'voice.silk' });
 
-    it('does not refetch when the url is empty and there is no mediaNode', async () => {
-        const getPttUrl = vi.fn(async () => 'https://ptt.example/group');
-        const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/private');
+            if (isGroup) {
+                expect(getPttUrl).toHaveBeenCalledWith(GROUP_ID, mediaNode);
+                expect(getPrivatePttUrl).not.toHaveBeenCalled();
+            } else {
+                expect(getPrivatePttUrl).toHaveBeenCalledWith(mediaNode);
+                expect(getPttUrl).not.toHaveBeenCalled();
+            }
 
+            expect(updateRecordUrl).toHaveBeenCalledWith('voice.silk', url);
+        },
+    );
+
+    it('rejects missing resource metadata even when an old URL exists', async () => {
         await expect(
-            getRecordInfo(
-                fakeBridge({ getPttUrl, getPrivatePttUrl }),
-                fakeRecordStore(cachedRecord({ url: '', mediaNode: undefined })),
-                'voice.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'voice.silk',
-            url: '',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(getPttUrl).not.toHaveBeenCalled();
-        expect(getPrivatePttUrl).not.toHaveBeenCalled();
+            getRecordInfo(fakeBridge(), fakeRecordStore(cachedRecord()), 'voice.silk'),
+        ).rejects.toThrow('record media metadata is missing');
     });
 
-    it('refetches a group ptt url and writes it back under the lookup key', async () => {
-        const mediaNode = { fileUuid: 'group-uuid', storeId: 1 };
-        const getPttUrl = vi.fn(async () => 'https://ptt.example/group-fresh');
-        const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/private');
-        const updateRecordUrl = vi.fn();
-
-        await expect(
-            getRecordInfo(
-                fakeBridge({ getPttUrl, getPrivatePttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        file: 'primary.silk',
-                        url: '',
-                        isGroup: true,
-                        sessionId: GROUP_ID,
-                        mediaNode,
-                    }),
-                    { updateRecordUrl },
-                ),
-                'alias.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'https://ptt.example/group-fresh',
-            url: 'https://ptt.example/group-fresh',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(getPttUrl).toHaveBeenCalledWith(710010, mediaNode);
-        expect(getPrivatePttUrl).not.toHaveBeenCalled();
-        expect(updateRecordUrl).toHaveBeenCalledWith(
-            'alias.silk',
-            'https://ptt.example/group-fresh',
-        );
-    });
-
-    it('refetches a private ptt url from the media node only', async () => {
-        const mediaNode = { fileUuid: 'c2c-uuid' };
-        const getPttUrl = vi.fn(async () => 'https://ptt.example/group');
-        const getPrivatePttUrl = vi.fn(async () => 'https://ptt.example/private-fresh');
-        const updateRecordUrl = vi.fn();
-
-        await expect(
-            getRecordInfo(
-                fakeBridge({ getPttUrl, getPrivatePttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        url: '',
-                        isGroup: false,
-                        mediaNode,
-                    }),
-                    { updateRecordUrl },
-                ),
-                'voice.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'https://ptt.example/private-fresh',
-            url: 'https://ptt.example/private-fresh',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(getPrivatePttUrl).toHaveBeenCalledWith(mediaNode);
-        expect(getPttUrl).not.toHaveBeenCalled();
-        expect(updateRecordUrl).toHaveBeenCalledWith(
-            'voice.silk',
-            'https://ptt.example/private-fresh',
-        );
-    });
-
-    it('does not write back an empty refetch result', async () => {
-        const updateRecordUrl = vi.fn();
-        const getPrivatePttUrl = vi.fn(async () => '');
-
+    it('propagates remote errors instead of returning the cached URL', async () => {
+        const failure = new Error('QQ resource expired');
+        const getPrivatePttUrl = vi.fn().mockRejectedValue(failure);
         await expect(
             getRecordInfo(
                 fakeBridge({ getPrivatePttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        url: '',
-                        mediaNode: { fileUuid: 'empty-uuid' },
-                    }),
-                    { updateRecordUrl },
-                ),
+                fakeRecordStore(cachedRecord({ mediaNode: { fileUuid: 'voice-uuid' } })),
                 'voice.silk',
             ),
-        ).resolves.toEqual({
-            file: 'voice.silk',
-            url: '',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(updateRecordUrl).not.toHaveBeenCalled();
-    });
-
-    it('returns the cached file after a refetch Error', async () => {
-        const updateRecordUrl = vi.fn();
-        const getPttUrl = vi.fn(async () => {
-            throw new Error('cdn timeout');
-        });
-
-        await expect(
-            getRecordInfo(
-                fakeBridge({ getPttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        file: 'keep.silk',
-                        url: '',
-                        isGroup: true,
-                        sessionId: GROUP_ID,
-                        mediaNode: { fileUuid: 'fail-uuid' },
-                    }),
-                    { updateRecordUrl },
-                ),
-                'keep.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'keep.silk',
-            url: '',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
-        expect(updateRecordUrl).not.toHaveBeenCalled();
-    });
-
-    it('returns the cached file after a non-Error refetch rejection', async () => {
-        const getPrivatePttUrl = vi.fn(async () => {
-            throw 'offline';
-        });
-
-        await expect(
-            getRecordInfo(
-                fakeBridge({ getPrivatePttUrl }),
-                fakeRecordStore(
-                    cachedRecord({
-                        url: '',
-                        isGroup: false,
-                        mediaNode: { fileUuid: 'offline-uuid' },
-                    }),
-                ),
-                'voice.silk',
-            ),
-        ).resolves.toEqual({
-            file: 'voice.silk',
-            url: '',
-            file_size: '4096',
-            file_name: 'voice.silk',
-        });
+        ).rejects.toBe(failure);
     });
 
     it('stringifies a missing fileSize as 0 and falls file_name back to file', async () => {
         await expect(
             getRecordInfo(
-                fakeBridge(),
+                fakeBridge({
+                    getPrivatePttUrl: vi.fn(async () => 'https://ptt.example/named.silk'),
+                }),
                 fakeRecordStore(
                     cachedRecord({
                         file: 'fallback.silk',
                         fileName: '',
                         fileSize: undefined as unknown as number,
-                        url: 'https://ptt.example/named.silk',
+                        mediaNode: { fileUuid: 'voice-uuid' },
                     }),
                 ),
                 'fallback.silk',

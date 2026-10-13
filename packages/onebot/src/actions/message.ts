@@ -1,6 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
-import type { ApiActionContext } from '../api-handler';
 import { defineAction, groupAction, f, type Field } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
 
@@ -20,60 +19,6 @@ function sendMsgOptionalGroupId(): Field<number | undefined> {
 }
 
 const log = createLogger('OneBot');
-
-/**
- * Re-sign image URLs in a stored message event at read time. `get_msg`
- * returns a copy persisted when the message first arrived, and image rkeys
- * expire — so walk the segment array and refresh each image URL through
- * `ctx.getImageInfo`, which mints a current rkey. Best-effort and in-place;
- * `findEvent` returns a fresh parse, so mutating the array is safe.
- */
-async function refreshStoredImageUrls(event: JsonObject, ctx: ApiActionContext): Promise<void> {
-    const segments = event.message;
-
-    if (!Array.isArray(segments)) {
-        return;
-    }
-
-    for (const seg of segments) {
-        if (!seg || typeof seg !== 'object') {
-            continue;
-        }
-
-        const segment = seg as { type?: unknown; data?: Record<string, JsonValue> };
-
-        if (segment.type !== 'image') {
-            continue;
-        }
-
-        const data = segment.data;
-
-        if (!data || typeof data !== 'object') {
-            continue;
-        }
-
-        const file =
-            typeof data.file === 'string'
-                ? data.file
-                : typeof data.file_id === 'string'
-                  ? data.file_id
-                  : '';
-
-        if (!file) {
-            continue;
-        }
-
-        try {
-            const info = await ctx.getImageInfo(file);
-
-            if (info && typeof info.url === 'string' && info.url) {
-                data.url = info.url;
-            }
-        } catch {
-            // Keep the stored URL when the refresh fails.
-        }
-    }
-}
 
 export const actions = [
     defineAction({
@@ -204,10 +149,10 @@ export const actions = [
         summary: '获取消息',
         readOnly: true,
         returns:
-            '消息事件对象（首次收到时存储的副本，已去除 post_type/self_id、附带 real_id 字段并刷新图片 URL）。',
+            '消息事件对象（去除 post_type/self_id，附带 real_id）；逐个尝试刷新图片、语音和视频 URL，成功使用新地址，失败保留该段原地址并继续返回消息；地址更新时同步 raw_message。',
         params: { message_id: f.messageId() },
         run: async (p, ctx) => {
-            const data = ctx.getMessage(p.message_id);
+            const data = await ctx.getMessage(p.message_id);
 
             if (!data) {
                 log.warn('[get_msg] miss message_id=%d', p.message_id);
@@ -218,7 +163,7 @@ export const actions = [
             delete result.post_type;
             delete result.self_id;
             result.real_id = (result.message_id ?? p.message_id) as JsonValue;
-            await refreshStoredImageUrls(result, ctx);
+            await ctx.refreshMessageMedia(p.message_id, result);
             return okResponse(result);
         },
     }),
@@ -228,7 +173,7 @@ export const actions = [
         summary: '撤回消息',
         params: { message_id: f.messageId() },
         run: async (p, ctx) => {
-            const meta = ctx.getMessageMeta(p.message_id);
+            const meta = await ctx.getMessageMeta(p.message_id);
 
             if (!meta) {
                 return failedResponse(

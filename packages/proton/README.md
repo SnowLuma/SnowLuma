@@ -4,8 +4,7 @@ Compile-time protobuf encoder/decoder generator for SnowLuma. TypeScript
 interfaces in, fully-inlined zero-runtime codec functions out.
 
 > Vendored from [SnowLuma/protobuf-dsl](https://github.com/SnowLuma/protobuf-dsl)
-> with edge-case fixes applied. The unmodified upstream is kept under
-> `dev/protobuf-dsl/` as a reference copy.
+> with edge-case fixes applied.
 
 ## What it does
 

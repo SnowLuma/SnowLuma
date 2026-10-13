@@ -65,18 +65,27 @@ describe('face animation results', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-face-animation-'));
         const dbPath = path.join(dir, 'messages.db');
         let store = new MessageStore(dbPath);
+        await store.initialization;
 
         try {
-            store.storeEvent(Number(event.message_id), true, 30001, 42, GROUP_MESSAGE_EVENT, event);
-            store.close();
+            await store.storeEvent(
+                Number(event.message_id),
+                true,
+                30001,
+                42,
+                GROUP_MESSAGE_EVENT,
+                event,
+            );
+            await store.close();
             store = new MessageStore(dbPath);
-            expect(store.findEvent(Number(event.message_id))?.message).toEqual(message);
+            await store.initialization;
+            expect((await store.findEvent(Number(event.message_id)))?.message).toEqual(message);
             const history = await getGroupMsgHistory(store, 30001, undefined, 20);
             expect(history).toHaveLength(1);
             expect(history[0].message).toEqual(message);
             expect(history[0].raw_message).toBe(event.raw_message);
         } finally {
-            store.close();
+            await store.close();
             fs.rmSync(dir, { recursive: true, force: true });
         }
     });

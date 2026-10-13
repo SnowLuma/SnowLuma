@@ -96,9 +96,9 @@ describe('MediaStore basic semantics', () => {
         return max !== undefined ? new MediaStore(dbPath, max) : new MediaStore(dbPath);
     }
 
-    it('indexes images by file, fileName, and url', () => {
+    it('indexes images by file, fileName, and url', async () => {
         const store = open('img-keys');
-        store.rememberImage({
+        await store.rememberImage({
             file: 'abc.png',
             url: 'https://example.com/abc.png',
             fileSize: 4242,
@@ -110,18 +110,18 @@ describe('MediaStore basic semantics', () => {
             sessionId: GROUP_ID,
         });
 
-        expect(store.findImage('abc.png')?.fileSize).toBe(4242);
-        expect(store.findImage('https://example.com/abc.png')?.url).toBe(
+        expect((await store.findImage('abc.png'))?.fileSize).toBe(4242);
+        expect((await store.findImage('https://example.com/abc.png'))?.url).toBe(
             'https://example.com/abc.png',
         );
-        expect(store.findImage('missing.png')).toBeNull();
-        expect(store.findImage('')).toBeNull();
-        store.close();
+        expect(await store.findImage('missing.png')).toBeNull();
+        expect(await store.findImage('')).toBeNull();
+        await store.close();
     });
 
-    it('indexes records by file, fileName, fileId, and url', () => {
+    it('indexes records by file, fileName, fileId, and url', async () => {
         const store = open('rec-keys');
-        store.rememberRecord({
+        await store.rememberRecord({
             file: 'silk_test.amr',
             fileId: 'uuid-base64-fake',
             url: 'https://example.com/voice.amr',
@@ -134,18 +134,18 @@ describe('MediaStore basic semantics', () => {
             sessionId: PEER_UIN,
         });
 
-        expect(store.findRecord('silk_test.amr')?.duration).toBe(3);
-        expect(store.findRecord('uuid-base64-fake')?.fileId).toBe('uuid-base64-fake');
-        expect(store.findRecord('https://example.com/voice.amr')?.url).toBe(
+        expect((await store.findRecord('silk_test.amr'))?.duration).toBe(3);
+        expect((await store.findRecord('uuid-base64-fake'))?.fileId).toBe('uuid-base64-fake');
+        expect((await store.findRecord('https://example.com/voice.amr'))?.url).toBe(
             'https://example.com/voice.amr',
         );
-        expect(store.findRecord('nope')).toBeNull();
-        store.close();
+        expect(await store.findRecord('nope')).toBeNull();
+        await store.close();
     });
 
-    it('updates URLs in place across all alias keys', () => {
+    it('updates URLs in place across all alias keys', async () => {
         const store = open('url-update');
-        store.rememberRecord({
+        await store.rememberRecord({
             file: 'silk_test.amr',
             fileId: 'uuid-base64-fake',
             url: '',
@@ -157,24 +157,25 @@ describe('MediaStore basic semantics', () => {
             isGroup: false,
             sessionId: PEER_UIN,
         });
-        store.updateRecordUrl('silk_test.amr', 'https://refreshed.example.com/voice.amr');
+        await store.updateRecordUrl('silk_test.amr', 'https://refreshed.example.com/voice.amr');
 
-        expect(store.findRecord('silk_test.amr')?.url).toBe(
+        expect((await store.findRecord('silk_test.amr'))?.url).toBe(
             'https://refreshed.example.com/voice.amr',
         );
-        expect(store.findRecord('uuid-base64-fake')?.url).toBe(
+        expect((await store.findRecord('uuid-base64-fake'))?.url).toBe(
             'https://refreshed.example.com/voice.amr',
         );
-        store.close();
+        await store.close();
     });
 
-    it('survives close+reopen against the same db path', () => {
+    it('survives close+reopen against the same db path', async () => {
         const dbPath = tempDbPath('persist');
         dbs.push(dbPath);
 
         {
             const store = new MediaStore(dbPath);
-            store.rememberImage({
+            await store.initialization;
+            await store.rememberImage({
                 file: 'abc.png',
                 url: 'https://example.com/abc.png',
                 fileSize: 99,
@@ -185,27 +186,28 @@ describe('MediaStore basic semantics', () => {
                 isGroup: true,
                 sessionId: GROUP_ID,
             });
-            store.close();
+            await store.close();
         }
 
         {
             const store = new MediaStore(dbPath);
-            const found = store.findImage('abc.png');
+            await store.initialization;
+            const found = await store.findImage('abc.png');
             expect(found).not.toBeNull();
             expect(found!.fileSize).toBe(99);
             // Alias index must also persist.
-            expect(store.findImage('https://example.com/abc.png')?.fileSize).toBe(99);
-            store.close();
+            expect((await store.findImage('https://example.com/abc.png'))?.fileSize).toBe(99);
+            await store.close();
         }
     });
 
-    it('retains durable entries beyond the memory cache cap', () => {
+    it('retains durable entries beyond the memory cache cap', async () => {
         // Lookups can be evicted from memory, but historical metadata survives.
         const cap = 80;
         const store = open('evict', cap);
 
         for (let i = 0; i < 200; i++) {
-            store.rememberImage({
+            await store.rememberImage({
                 file: `file-${i}.png`,
                 url: `https://example.com/${i}.png`,
                 fileSize: i,
@@ -218,23 +220,23 @@ describe('MediaStore basic semantics', () => {
             });
         }
 
-        const { images } = store.size();
+        const { images } = await store.size();
         expect(images).toBe(200);
 
         for (let i = 0; i < 200; i++) {
-            expect(store.findImage(`file-${i}.png`)?.fileSize).toBe(i);
+            expect((await store.findImage(`file-${i}.png`))?.fileSize).toBe(i);
         }
 
-        expect(store.findImage('file-0.png')?.fileSize).toBe(0);
+        expect((await store.findImage('file-0.png'))?.fileSize).toBe(0);
         // Most recent entries should still be present.
-        expect(store.findImage('file-199.png')?.fileSize).toBe(199);
-        store.close();
+        expect((await store.findImage('file-199.png'))?.fileSize).toBe(199);
+        await store.close();
     });
 
-    it('does not persist inline base64 as a key or JSON payload (#463)', () => {
+    it('does not persist inline base64 as a key or JSON payload (#463)', async () => {
         const store = open('inline-b64');
         const payload = `base64://${'A'.repeat(8192)}`;
-        store.rememberImage({
+        await store.rememberImage({
             file: payload,
             url: payload,
             fileSize: 99,
@@ -249,7 +251,7 @@ describe('MediaStore basic semantics', () => {
             height: 600,
         });
 
-        const found = store.findImage(payload);
+        const found = await store.findImage(payload);
         expect(found).not.toBeNull();
         expect(found!.fileSize).toBe(99);
         expect(found!.md5Hex).toBe('aa'.repeat(16));
@@ -258,7 +260,7 @@ describe('MediaStore basic semantics', () => {
         expect(found!.file.startsWith('inline:')).toBe(true);
         expect(found!.file.includes('base64://')).toBe(false);
 
-        store.close();
+        await store.close();
         const rows = inspectMediaDb(dbs[dbs.length - 1]!);
         expect(rows.longestKey).toBeLessThanOrEqual(MEDIA_KEY_MAX_CHARS);
         expect(rows.longestData).toBeLessThanOrEqual(MEDIA_DATA_MAX_CHARS);
@@ -267,10 +269,10 @@ describe('MediaStore basic semantics', () => {
         expect(rows.concatenated).not.toContain('A'.repeat(64));
     });
 
-    it('folds oversized non-inline keys the same way', () => {
+    it('folds oversized non-inline keys the same way', async () => {
         const store = open('long-url');
         const url = `https://cdn.example/${'a'.repeat(3000)}.png`;
-        store.rememberImage({
+        await store.rememberImage({
             file: 'short.png',
             url,
             fileSize: 12,
@@ -282,18 +284,18 @@ describe('MediaStore basic semantics', () => {
             sessionId: GROUP_ID,
         });
 
-        expect(store.findImage('short.png')?.fileSize).toBe(12);
-        expect(store.findImage(url)?.fileSize).toBe(12);
-        expect(store.findImage('short.png')?.url).toBe('');
-        store.close();
+        expect((await store.findImage('short.png'))?.fileSize).toBe(12);
+        expect((await store.findImage(url))?.fileSize).toBe(12);
+        expect((await store.findImage('short.png'))?.url).toBe('');
+        await store.close();
         const rows = inspectMediaDb(dbs[dbs.length - 1]!);
         expect(rows.longestKey).toBeLessThanOrEqual(MEDIA_KEY_MAX_CHARS);
         expect(rows.concatenated).not.toContain('a'.repeat(64));
     });
 
-    it('ignores an inline URL refresh so eviction cannot be re-poisoned', () => {
+    it('ignores an inline URL refresh so eviction cannot be re-poisoned', async () => {
         const store = open('no-inline-refresh');
-        store.rememberImage({
+        await store.rememberImage({
             file: 'abc.png',
             url: 'https://example.com/abc.png',
             fileSize: 7,
@@ -304,12 +306,12 @@ describe('MediaStore basic semantics', () => {
             isGroup: true,
             sessionId: GROUP_ID,
         });
-        store.updateImageUrl('abc.png', `base64://${'B'.repeat(100)}`);
-        expect(store.findImage('abc.png')?.url).toBe('https://example.com/abc.png');
-        store.close();
+        await store.updateImageUrl('abc.png', `base64://${'B'.repeat(100)}`);
+        expect((await store.findImage('abc.png'))?.url).toBe('https://example.com/abc.png');
+        await store.close();
     });
 
-    it('does not destructively purge existing metadata on open', () => {
+    it('does not destructively purge existing metadata on open', async () => {
         const dbPath = tempDbPath('legacy-overflow');
         dbs.push(dbPath);
         fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -340,9 +342,10 @@ describe('MediaStore basic semantics', () => {
         raw.close();
 
         const store = new MediaStore(dbPath);
-        expect(store.findImage(poisonKey)).toBeNull();
-        expect(store.size().images).toBe(1);
-        store.close();
+        await store.initialization;
+        expect(await store.findImage(poisonKey)).toBeNull();
+        expect((await store.size()).images).toBe(1);
+        await store.close();
         const rows = inspectMediaDb(dbPath);
         expect(rows.entryCount).toBe(1);
         expect(rows.keyCount).toBe(1);
@@ -432,17 +435,18 @@ describe('convertEvent media segment sink → MediaStore wiring', () => {
         dbs.push(dbPath);
 
         const store = new MediaStore(dbPath);
+        await store.initialization;
         const ctx: ConverterContext = {
             selfId: SELF_ID,
             imageUrlResolver: (element) => element.imageUrl ?? '',
             mediaUrlResolver: async (element) => element.url ?? '',
             messageIdResolver: null,
-            mediaSegmentSink: (type, element, data, isGroup, sessionId) => {
+            mediaSegmentSink: async (type, element, data, isGroup, sessionId) => {
                 const url = typeof data.url === 'string' ? data.url : '';
                 const file = typeof data.file === 'string' ? data.file : '';
 
                 if (type === 'image') {
-                    store.rememberImage({
+                    await store.rememberImage({
                         file: file || element.fileId || '',
                         url,
                         fileSize: element.fileSize ?? 0,
@@ -454,7 +458,7 @@ describe('convertEvent media segment sink → MediaStore wiring', () => {
                         sessionId,
                     });
                 } else {
-                    store.rememberRecord({
+                    await store.rememberRecord({
                         file: file || element.fileName || element.fileId || '',
                         fileId: element.fileId ?? '',
                         url,
@@ -473,22 +477,22 @@ describe('convertEvent media segment sink → MediaStore wiring', () => {
         await convertEvent(ctx, makeGroupMessage([imageElement()]));
         await convertEvent(ctx, makeFriendMessage([recordElement()]));
 
-        const img = store.findImage('abc.png');
+        const img = await store.findImage('abc.png');
         expect(img).not.toBeNull();
         expect(img!.url).toBe('https://example.com/abc.png');
         expect(img!.fileSize).toBe(4242);
         expect(img!.isGroup).toBe(true);
         expect(img!.sessionId).toBe(GROUP_ID);
 
-        const rec = store.findRecord('silk_test.amr');
+        const rec = await store.findRecord('silk_test.amr');
         expect(rec).not.toBeNull();
         expect(rec!.fileId).toBe('uuid-base64-fake');
         expect(rec!.duration).toBe(3);
         expect(rec!.isGroup).toBe(false);
         expect(rec!.sessionId).toBe(PEER_UIN);
         // Alias lookup by fileUuid still works.
-        expect(store.findRecord('uuid-base64-fake')?.fileName).toBe('silk_test.amr');
-        store.close();
+        expect((await store.findRecord('uuid-base64-fake'))?.fileName).toBe('silk_test.amr');
+        await store.close();
     });
 
     it('does not invoke the sink when no media segments are present', async () => {

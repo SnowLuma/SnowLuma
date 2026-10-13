@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { positiveIntEnv } from '@snowluma/common/env';
 import { readFile } from 'node:fs/promises';
 import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
@@ -398,6 +399,13 @@ function primitiveText(value: unknown): string {
     return '';
 }
 
+const forwardMessagesField = f
+    .message()
+    .optional()
+    .describe(
+        '转发节点数组；节点 content 内的 reply.data.message 可提供自定义引用内容（字符串或消息段），qq/time/seq 可选；仅用于转发内引用预览。',
+    );
+
 const forwardPreviewParams = {
     source: f.string().optional(),
     summary: f.string().optional(),
@@ -451,7 +459,7 @@ async function groupTodoRun(
     ctx: ApiActionContext,
     op: (groupId: number, msgSeq: bigint) => Promise<void>,
 ) {
-    const meta = ctx.getMessageMeta(p.message_id);
+    const meta = await ctx.getMessageMeta(p.message_id);
 
     if (!meta) {
         return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
@@ -624,7 +632,7 @@ export const actions = [
                     .filter((message): message is GroupEssenceMessage => message !== null)
                     .map((message) => projectEssenceMessage(message, p.group_id));
 
-                ctx.cacheMessageMetas(
+                await ctx.cacheMessageMetas(
                     projections.map(({ messageId, meta }) => ({
                         messageId,
                         meta,
@@ -649,7 +657,7 @@ export const actions = [
             is_set: f.bool().default(true),
         },
         run: async (p, ctx) => {
-            const meta = ctx.getMessageMeta(p.message_id);
+            const meta = await ctx.getMessageMeta(p.message_id);
 
             if (!meta || !meta.isGroup) {
                 return failedResponse(
@@ -829,7 +837,7 @@ export const actions = [
             group_id: f.groupId().optional(),
         },
         run: async (p, ctx) => {
-            const meta = ctx.getMessageMeta(p.message_id);
+            const meta = await ctx.getMessageMeta(p.message_id);
 
             if (!meta || !meta.isGroup) {
                 return failedResponse(
@@ -858,7 +866,7 @@ export const actions = [
             user_id: f.userId().optional(),
         },
         run: async (p, ctx) => {
-            const meta = ctx.getMessageMeta(p.message_id);
+            const meta = await ctx.getMessageMeta(p.message_id);
 
             if (!meta || meta.isGroup) {
                 return failedResponse(
@@ -887,7 +895,7 @@ export const actions = [
             target_id: f.uint().optional(),
         },
         run: async (p, ctx) => {
-            const meta = ctx.getMessageMeta(p.message_id);
+            const meta = await ctx.getMessageMeta(p.message_id);
 
             if (!meta) {
                 return failedResponse(RETCODE.ACTION_FAILED, 'message not found');
@@ -989,8 +997,8 @@ export const actions = [
         name: 'upload_forward_msg',
         summary: '上传转发消息',
         params: {
-            messages: f.message().optional(),
-            message: f.message().optional(),
+            messages: forwardMessagesField,
+            message: forwardMessagesField,
             group_id: f.groupId().optional(),
         },
         run: async (p, ctx) => {
@@ -1021,8 +1029,8 @@ export const actions = [
         name: 'upload_foward_msg',
         summary: '上传转发消息（别名拼写）',
         params: {
-            messages: f.message().optional(),
-            message: f.message().optional(),
+            messages: forwardMessagesField,
+            message: forwardMessagesField,
             group_id: f.groupId().optional(),
         },
         run: async (p, ctx) => {
@@ -1072,6 +1080,8 @@ export const actions = [
         name: 'get_record',
         summary: '获取语音信息；传 out_format 则服务端转码并附带 base64',
         readOnly: true,
+        returns:
+            '语音信息（file/url 为向 QQ 获取的当前下载地址）；资源元数据缺失或远端获取失败时返回错误。out_format 指定时附带转码后的 base64。',
         params: {
             file: f.string().default('').role('record'),
             file_id: f.string().default('').role('file_id'),
@@ -1264,7 +1274,7 @@ export const actions = [
         summary: '标记全部已读',
         params: {},
         run: async (_p, ctx) => {
-            const sessions = ctx.listReadSessions();
+            const sessions = await ctx.listReadSessions();
             await ctx.bridge.apis.message.markAllRead(sessions.groupIds, sessions.privateUserIds);
             return okResponse();
         },
@@ -2911,8 +2921,8 @@ export const actions = [
         // group_id/user_id are routing hints, not identity: 0 means "this branch
         // does not apply" and must not error. int({min:0}) optional, not groupId.
         params: {
-            messages: f.message().optional(),
-            message: f.message().optional(),
+            messages: forwardMessagesField,
+            message: forwardMessagesField,
             message_type: f.string().optional(),
             group_id: f.int({ min: 0 }).optional(),
             user_id: f.int({ min: 0 }).optional(),
@@ -2969,8 +2979,8 @@ export const actions = [
         summary: '发送群合并转发',
         returns: '{ message_id, res_id, forward_id }',
         params: {
-            messages: f.message().optional(),
-            message: f.message().optional(),
+            messages: forwardMessagesField,
+            message: forwardMessagesField,
             ...forwardPreviewParams,
         },
         run: async (p, ctx) => {
@@ -2999,8 +3009,8 @@ export const actions = [
         returns: '{ message_id, res_id, forward_id }',
         params: {
             user_id: f.userId(),
-            messages: f.message().optional(),
-            message: f.message().optional(),
+            messages: forwardMessagesField,
+            message: forwardMessagesField,
             ...forwardPreviewParams,
         },
         run: async (p, ctx) => {
@@ -3027,7 +3037,8 @@ export const actions = [
         name: 'get_forward_msg',
         summary: '获取合并转发消息（id 或 message_id）',
         readOnly: true,
-        returns: '{ messages }：转发内的消息节点数组（每项为 OneBot 消息事件，内部字段不固定）。',
+        returns:
+            '{ messages }：转发内的消息节点数组（每项为 OneBot 消息事件）；reply 保留 id，有内嵌引用内容时附带 message 和可用的 qq/time/seq，可作为转发节点 content 再次发送。',
         returnsSchema: {
             type: 'object',
             properties: {
@@ -3047,7 +3058,7 @@ export const actions = [
                 const numericMessageId = integerFromDecimalString(p.message_id);
 
                 if (numericMessageId > 0) {
-                    const event = ctx.getMessage(numericMessageId);
+                    const event = await ctx.getMessage(numericMessageId);
                     const segments = Array.isArray(event?.message) ? event.message : [];
 
                     for (const seg of segments) {
@@ -3306,7 +3317,7 @@ export const actions = [
                 return { todo, messageId, meta };
             });
 
-            ctx.cacheMessageMetas(
+            await ctx.cacheMessageMetas(
                 projections.map(({ messageId, meta }) => ({
                     messageId,
                     meta,
@@ -3314,8 +3325,8 @@ export const actions = [
             );
 
             return okResponse(
-                projections.map(({ todo, messageId }) => {
-                    const cached = ctx.getMessage(messageId)?.message;
+                await mapWithConcurrency(projections, 8, async ({ todo, messageId }) => {
+                    const cached = (await ctx.getMessage(messageId))?.message;
                     return {
                         message_id: messageId,
                         message_seq: todo.sequence,

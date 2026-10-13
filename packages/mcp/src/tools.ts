@@ -252,10 +252,14 @@ async function execute(
         );
     }
 
-    const params =
-        args.params && typeof args.params === 'object' && !Array.isArray(args.params)
-            ? (args.params as Record<string, unknown>)
-            : {};
+    if (
+        args.params !== undefined &&
+        (args.params === null || typeof args.params !== 'object' || Array.isArray(args.params))
+    ) {
+        return asError('params 必须是对象。');
+    }
+
+    const params = (args.params ?? {}) as Record<string, unknown>;
     let inputFile: string | undefined;
 
     if (args.execution !== undefined) {

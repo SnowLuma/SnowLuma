@@ -38,6 +38,7 @@ describe('forward metadata through upload and cached reads', () => {
             const ctx = {
                 selfId: 10001,
                 bridge: {
+                    identity: { nickname: 'SnowLuma' },
                     apis: {
                         forward,
                         message: {
@@ -51,7 +52,7 @@ describe('forward metadata through upload and cached reads', () => {
                         },
                     },
                 },
-                messageStore: { findEvent: () => null, findMedia: () => null },
+                messageStore: { findEvent: () => null, findMedia: () => null, storeEvent: vi.fn() },
                 cacheMessageMeta: vi.fn(),
                 converterCtx: {
                     selfId: 10001,
@@ -104,9 +105,7 @@ describe('forward metadata through upload and cached reads', () => {
             if (nested) {
                 expect(
                     (await api.getForwardMsg(`metadata-true-${enrich}-1`))[0]!.sender,
-                ).toMatchObject({
-                    title: 'inner title',
-                });
+                ).toMatchObject({ title: 'inner title' });
             }
 
             const fetched = await forward.fetch(forwardId!);

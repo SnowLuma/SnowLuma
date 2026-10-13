@@ -56,24 +56,12 @@ export function findDatalineDeviceByTerType(terType: number): DatalineDeviceCont
     return BY_TER.get(terType);
 }
 
-export function isDatalineDeviceUin(uin: number): boolean {
-    return BY_UIN.has(uin);
-}
-
 export function datalineFriendListEntries(): DatalineFriendEntry[] {
     return DATALINE_DEVICES.map((device) => ({
         user_id: device.uin,
         nickname: device.name,
         remark: device.name,
     }));
-}
-
-export function appendDatalineFriendEntries<T extends { user_id: number }>(
-    friends: readonly T[],
-): Array<T | DatalineFriendEntry> {
-    const occupied = new Set(friends.map((friend) => friend.user_id));
-    const extras = datalineFriendListEntries().filter((entry) => !occupied.has(entry.user_id));
-    return extras.length === 0 ? [...friends] : [...friends, ...extras];
 }
 
 export function appIdForTerType(terType: number): number {

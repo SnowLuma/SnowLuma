@@ -37,7 +37,10 @@ describe('probeQqLoginInfo — bounded execution', () => {
                 callback(null, { stdout: '', stderr: '' });
             })
             .mockImplementationOnce((_command, _options, callback) => {
-                callback(null, { stdout: '1\n', stderr: '' });
+                callback(null, {
+                    stdout: process.platform === 'win32' ? 'QQ.exe 4242 Console 1 1234 K\n' : '1\n',
+                    stderr: '',
+                });
             });
 
         await expect(probeQqLoginInfo(4242)).resolves.toEqual({
@@ -51,12 +54,21 @@ describe('probeQqLoginInfo — bounded execution', () => {
         execMock
             .mockImplementationOnce((_command, _options, callback) => {
                 callback(null, {
-                    stdout: 'LISTEN 0 128 127.0.0.1:9218 0.0.0.0:* users:(("qq",pid=4242,fd=12))\n',
+                    stdout:
+                        process.platform === 'win32'
+                            ? 'TCP 127.0.0.1:9218 0.0.0.0:0 LISTENING 4242\n'
+                            : 'LISTEN 0 128 127.0.0.1:9218 0.0.0.0:* users:(("qq",pid=4242,fd=12))\n',
                     stderr: '',
                 });
             })
             .mockImplementationOnce((_command, _options, callback) => {
-                callback(null, { stdout: '8\n', stderr: '' });
+                callback(null, {
+                    stdout:
+                        process.platform === 'win32'
+                            ? 'QQ.exe 4242 Console 1 1234 K\n'.repeat(8)
+                            : '8\n',
+                    stderr: '',
+                });
             });
 
         await expect(probeQqLoginInfo(4242)).resolves.toBeNull();

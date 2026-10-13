@@ -76,7 +76,7 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
     }
 
     reply(this: MessageChain<false>, id: number | string): MessageChain<true> {
-        return this.addSegment(segments.reply(id), 'reply') as MessageChain<true>;
+        return this.addSegment<true>(segments.reply(id));
     }
 
     image(file: string, options: Omit<ImageSegment['data'], 'file'> = {}): MessageChain<THasReply> {
@@ -134,7 +134,7 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
         type: TType,
         data: TData,
     ): MessageChain<THasReply> {
-        return this.addSegment(segments.raw(type, data), type);
+        return this.addSegment(segments.raw(type, data));
     }
 
     append(messageInput: OutgoingMessage): MessageChain<THasReply> {
@@ -146,7 +146,7 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
         }
 
         for (const segment of normalized) {
-            next = next.addFromSegment(segment);
+            next = next.addSegment(segment);
         }
 
         return next;
@@ -192,24 +192,16 @@ export class MessageChain<THasReply extends boolean = false> implements MessageC
         return this.items[Symbol.iterator]();
     }
 
-    private addFromSegment(segment: AnyMessageSegment): MessageChain<THasReply> {
-        return this.addSegment(segment, segment.type);
-    }
-
     private addSegment<TNextReply extends boolean = THasReply>(
         segment: AnyMessageSegment,
-        singleUseType?: string,
     ): MessageChain<TNextReply> {
-        if (singleUseType && SINGLE_USE_TYPES.has(singleUseType) && this.used.has(singleUseType)) {
-            throw new Error(`Message segment "${singleUseType}" can only appear once in a chain`);
+        const singleUse = SINGLE_USE_TYPES.has(segment.type);
+
+        if (singleUse && this.used.has(segment.type)) {
+            throw new Error(`Message segment "${segment.type}" can only appear once in a chain`);
         }
 
-        const nextUsed = new Set(this.used);
-
-        if (singleUseType && SINGLE_USE_TYPES.has(singleUseType)) {
-            nextUsed.add(singleUseType);
-        }
-
+        const nextUsed = singleUse ? new Set(this.used).add(segment.type) : this.used;
         return new MessageChain<TNextReply>([...this.items, segment], nextUsed);
     }
 }

@@ -93,17 +93,6 @@ function persist(): void {
     }
 }
 
-/** Drop every cached contact list (the data layer's "清缓存" button). */
-export function clearDebugContactsCache(): void {
-    mem.clear();
-
-    try {
-        localStorage.removeItem(LS_KEY);
-    } catch {
-        /* ignore */
-    }
-}
-
 type ParseRow = (row: Record<string, unknown>) => PickerOption | null;
 
 interface ListState {

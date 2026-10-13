@@ -10,7 +10,6 @@ import { stageSourceToDisk } from '@snowluma/protocol/highway/stage';
 import { hashFileStreaming } from '@snowluma/protocol/highway/hash-file';
 import { protobuf_encode } from '@snowluma/proton';
 import { promises as fsp } from 'fs';
-import type { Bridge } from '../bridge';
 import type { BridgeContext } from '../bridge-context';
 import { resolveSelfUid, toInt, type MediaIndexNode } from './shared';
 
@@ -39,10 +38,6 @@ import { UploadPrivateFileRequest } from '@snowluma/protocol/oidb-services/group
 import { ensureRetCodeZero } from '@snowluma/protocol/oidb-services/shared';
 
 const log = createLogger('GroupFile');
-
-function asBridge(ctx: BridgeContext): Bridge {
-    return ctx as unknown as Bridge;
-}
 
 // ─────────────── public result types ───────────────
 
@@ -296,7 +291,7 @@ export class GroupFileApi {
         uploadFile = true,
         publishFile = uploadFile,
     ): Promise<UploadFileResult> {
-        const bridge = asBridge(this.ctx);
+        const bridge = this.ctx;
         // Group/private files may legitimately be up to 4 GiB on QQ's wire, so
         // override the default 1 GiB cap with the protocol ceiling. Stage onto a
         // local disk path and stream-hash it — the (up to 4 GiB) file is never
@@ -430,7 +425,7 @@ export class GroupFileApi {
         uploadFile = true,
         publishFile = uploadFile,
     ): Promise<UploadFileResult> {
-        const bridge = asBridge(this.ctx);
+        const bridge = this.ctx;
         // Stage onto a local disk path + stream-hash — the (up to 4 GiB) file is
         // never buffered in RAM. headLimit = MD5_HEAD_LIMIT yields the offline-file
         // md510MCheckSum in the same single pass.
@@ -724,8 +719,7 @@ export class GroupFileApi {
     }
 
     async getPrivateUrl(userId: number, fileId: string, fileHash: string): Promise<string> {
-        const bridge = asBridge(this.ctx);
-        const selfUid = await resolveSelfUid(bridge);
+        const selfUid = await resolveSelfUid(this.ctx);
         void userId;
         return GetPrivateFileUrl.invoke(this.ctx, { selfUid, fileId, fileHash });
     }
@@ -784,8 +778,7 @@ export class GroupFileApi {
     }
 
     async getPrivatePttUrl(node: MediaIndexNode): Promise<string> {
-        const bridge = asBridge(this.ctx);
-        const selfUid = await resolveSelfUid(bridge);
+        const selfUid = await resolveSelfUid(this.ctx);
         return GetPrivatePttUrl.invoke(this.ctx, { selfUid, node });
     }
 
@@ -794,8 +787,7 @@ export class GroupFileApi {
     }
 
     async getPrivateVideoUrl(node: MediaIndexNode): Promise<string> {
-        const bridge = asBridge(this.ctx);
-        const selfUid = await resolveSelfUid(bridge);
+        const selfUid = await resolveSelfUid(this.ctx);
         return GetPrivateVideoUrl.invoke(this.ctx, { selfUid, node });
     }
 }

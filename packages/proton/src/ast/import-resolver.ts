@@ -5,6 +5,7 @@ import { collectInterface, collectGenericInterface } from './collector.js';
 import { PRIMITIVE_TYPE_MAP, type ProtobufMessage, type GenericProtobufTemplate } from './types.js';
 import {
     createImportedTypeNameResolver,
+    getCallableName,
     isKeywordTypeNode,
     type ImportedTypeNameResolver,
 } from './utils.js';
@@ -42,18 +43,6 @@ interface ImportClause {
     importedName: string;
     localName: string;
     specifier: string;
-}
-
-function getCallableName(expr: ts.Expression): string | null {
-    if (ts.isIdentifier(expr)) {
-        return expr.text;
-    }
-
-    if (ts.isPropertyAccessExpression(expr)) {
-        return expr.name.text;
-    }
-
-    return null;
 }
 
 /** Extract all named imports from the source file (both type and value imports). */

@@ -19,6 +19,44 @@ const runtimeLog = createLogger('Bridge.Runtime');
 export class BridgeManager {
     private sessions_ = new Map<string, QQSession>();
     private pidToUin_ = new Map<number, string>();
+    private readonly closingSessions_ = new Map<string, Promise<void>>();
+    private readonly closeErrors_: unknown[] = [];
+
+    /** Hook callbacks remain synchronous; shutdown awaits every detached account. */
+    async dispose(): Promise<void> {
+        for (const [uin, session] of this.sessions_) {
+            this.closeSession(uin, session.bridge);
+        }
+
+        this.sessions_.clear();
+        this.pidToUin_.clear();
+        await Promise.allSettled(this.closingSessions_.values());
+
+        if (this.closeErrors_.length) {
+            throw new AggregateError(this.closeErrors_, 'Bridge persistence shutdown failed');
+        }
+    }
+
+    private closeSession(uin: string, bridge: Bridge): void {
+        const previous = this.closingSessions_.get(uin);
+        const closing = Promise.all([previous, bridge.dispose()]).then(() => undefined);
+        this.closingSessions_.set(uin, closing);
+        void closing.then(
+            () => {
+                if (this.closingSessions_.get(uin) === closing) {
+                    this.closingSessions_.delete(uin);
+                }
+            },
+            (error) => {
+                this.closeErrors_.push(error);
+                log.error(
+                    'identity close failed: UIN=%s err=%s',
+                    uin,
+                    error instanceof Error ? (error.stack ?? error.message) : String(error),
+                );
+            },
+        );
+    }
 
     private sessionStartedListeners_: SessionStartedCallback[] = [];
     private sessionClosedListeners_: SessionClosedCallback[] = [];
@@ -378,7 +416,7 @@ export class BridgeManager {
         log.debug('session closed: UIN=%s', uin);
         // Fire before dispose() so listeners can still read bridge.identity.
         this.fireSessionClosed(uin, session.bridge);
-        session.bridge.dispose();
+        this.closeSession(uin, session.bridge);
         return true;
     }
 
@@ -389,7 +427,9 @@ export class BridgeManager {
             return { session, created: false };
         }
 
-        const bridge = new Bridge(IdentityService.openForUin(uin));
+        const bridge = new Bridge(
+            IdentityService.openForUin(uin, 'data', this.closingSessions_.get(uin)),
+        );
         session = { bridge };
         this.sessions_.set(uin, session);
 

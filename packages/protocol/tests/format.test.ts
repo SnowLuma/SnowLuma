@@ -420,16 +420,16 @@ describe('formatReply', () => {
         members: { '778899:20001': { card: '冬至' } },
     });
 
-    it('renders [回复:0] when the reply id is missing', () => {
-        expect(formatReply(stubStore({}), identity, 0)).toBe('[回复:0]');
-        expect(formatReply(stubStore({}), identity, Number.NaN)).toBe('[回复:0]');
+    it('renders [回复:0] when the reply id is missing', async () => {
+        expect(await formatReply(stubStore({}), identity, 0)).toBe('[回复:0]');
+        expect(await formatReply(stubStore({}), identity, Number.NaN)).toBe('[回复:0]');
     });
 
-    it('renders [回复:<id>] when the store has no matching event', () => {
-        expect(formatReply(stubStore({}), identity, 4100)).toBe('[回复:4100]');
+    it('renders [回复:<id>] when the store has no matching event', async () => {
+        expect(await formatReply(stubStore({}), identity, 4100)).toBe('[回复:4100]');
     });
 
-    it('resolves a group reply from the identity roster', () => {
+    it('resolves a group reply from the identity roster', async () => {
         const store = stubStore({
             4100: {
                 message_type: 'group',
@@ -438,10 +438,10 @@ describe('formatReply', () => {
                 message: [{ type: 'text', data: { text: '霜降好' } }],
             },
         });
-        expect(formatReply(store, identity, 4100)).toBe('[回复 [冬至(20001)]: 霜降好]');
+        expect(await formatReply(store, identity, 4100)).toBe('[回复 [冬至(20001)]: 霜降好]');
     });
 
-    it('coerces string user_id / group_id and uses the stored sender card on cache miss', () => {
+    it('coerces string user_id / group_id and uses the stored sender card on cache miss', async () => {
         const store = stubStore({
             4101: {
                 message_type: 'group',
@@ -451,10 +451,10 @@ describe('formatReply', () => {
                 message: '晚风',
             },
         });
-        expect(formatReply(store, stubIdentity(), 4101)).toBe('[回复 [处暑(20003)]: 晚风]');
+        expect(await formatReply(store, stubIdentity(), 4101)).toBe('[回复 [处暑(20003)]: 晚风]');
     });
 
-    it('does not treat private messages as group and ignores a whitespace-only card', () => {
+    it('does not treat private messages as group and ignores a whitespace-only card', async () => {
         const store = stubStore({
             4102: {
                 message_type: 'private',
@@ -466,10 +466,10 @@ describe('formatReply', () => {
         });
         // Fallback is `(card || nickname).trim()`: a whitespace card is truthy
         // before trim, so the nickname is not used.
-        expect(formatReply(store, stubIdentity(), 4102)).toBe('[回复 20001: 私聊一句]');
+        expect(await formatReply(store, stubIdentity(), 4102)).toBe('[回复 20001: 私聊一句]');
     });
 
-    it('uses sender.nickname when card is absent', () => {
+    it('uses sender.nickname when card is absent', async () => {
         const store = stubStore({
             4102: {
                 message_type: 'private',
@@ -478,10 +478,12 @@ describe('formatReply', () => {
                 message: [{ type: 'text', data: { text: '私聊一句' } }],
             },
         });
-        expect(formatReply(store, stubIdentity(), 4102)).toBe('[回复 [寒露(20001)]: 私聊一句]');
+        expect(await formatReply(store, stubIdentity(), 4102)).toBe(
+            '[回复 [寒露(20001)]: 私聊一句]',
+        );
     });
 
-    it('keeps the bare uin when sender is not a usable object', () => {
+    it('keeps the bare uin when sender is not a usable object', async () => {
         const noSender = stubStore({
             4103: {
                 message_type: 'private',
@@ -490,7 +492,7 @@ describe('formatReply', () => {
                 message: 'x',
             },
         });
-        expect(formatReply(noSender, stubIdentity(), 4103)).toBe('[回复 20004: x]');
+        expect(await formatReply(noSender, stubIdentity(), 4103)).toBe('[回复 20004: x]');
 
         const arraySender = stubStore({
             4104: {
@@ -500,10 +502,10 @@ describe('formatReply', () => {
                 message: 'y',
             },
         });
-        expect(formatReply(arraySender, stubIdentity(), 4104)).toBe('[回复 20004: y]');
+        expect(await formatReply(arraySender, stubIdentity(), 4104)).toBe('[回复 20004: y]');
     });
 
-    it('maps non-numeric user_id to 0 and skips the sender-name fallback', () => {
+    it('maps non-numeric user_id to 0 and skips the sender-name fallback', async () => {
         const store = stubStore({
             4105: {
                 message_type: 'private',
@@ -512,10 +514,10 @@ describe('formatReply', () => {
                 message: 'z',
             },
         });
-        expect(formatReply(store, stubIdentity(), 4105)).toBe('[回复 0: z]');
+        expect(await formatReply(store, stubIdentity(), 4105)).toBe('[回复 0: z]');
     });
 
-    it('truncates the body preview to 30 characters after segment rendering', () => {
+    it('truncates the body preview to 30 characters after segment rendering', async () => {
         const store = stubStore({
             4106: {
                 message_type: 'private',
@@ -523,12 +525,12 @@ describe('formatReply', () => {
                 message: [{ type: 'text', data: { text: '正'.repeat(80) } }],
             },
         });
-        expect(formatReply(store, stubIdentity(), 4106)).toBe(
+        expect(await formatReply(store, stubIdentity(), 4106)).toBe(
             `[回复 20004: ${'正'.repeat(30)}...]`,
         );
     });
 
-    it('renders referenced reply segments as tokens instead of recursing', () => {
+    it('renders referenced reply segments as tokens instead of recursing', async () => {
         const store = stubStore({
             4107: {
                 message_type: 'private',
@@ -539,16 +541,16 @@ describe('formatReply', () => {
                 ],
             },
         });
-        expect(formatReply(store, stubIdentity(), 4107)).toBe('[回复 20004: [回复:1] 外层]');
+        expect(await formatReply(store, stubIdentity(), 4107)).toBe('[回复 20004: [回复:1] 外层]');
     });
 
-    it('returns [回复:<id>] when findEvent throws', () => {
+    it('returns [回复:<id>] when findEvent throws', async () => {
         const store: ReplyEventLookup = {
             findEvent: () => {
                 throw new Error('store unavailable');
             },
         };
-        expect(formatReply(store, identity, 4100)).toBe('[回复:4100]');
+        expect(await formatReply(store, identity, 4100)).toBe('[回复:4100]');
     });
 });
 

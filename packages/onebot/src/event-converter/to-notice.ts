@@ -84,8 +84,11 @@ export function convertGroupAdmin(ctx: ConverterContext, event: GroupAdmin): Jso
     });
 }
 
-export function convertFriendRecall(ctx: ConverterContext, event: FriendRecall): JsonObject {
-    const messageId = applyMessageIdResolver(
+export async function convertFriendRecall(
+    ctx: ConverterContext,
+    event: FriendRecall,
+): Promise<JsonObject> {
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         false,
         event.userUin,
@@ -100,8 +103,11 @@ export function convertFriendRecall(ctx: ConverterContext, event: FriendRecall):
     });
 }
 
-export function convertGroupRecall(ctx: ConverterContext, event: GroupRecall): JsonObject {
-    const messageId = applyMessageIdResolver(
+export async function convertGroupRecall(
+    ctx: ConverterContext,
+    event: GroupRecall,
+): Promise<JsonObject> {
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         true,
         event.groupId,
@@ -143,8 +149,11 @@ export function convertGroupPoke(ctx: ConverterContext, event: GroupPoke): JsonO
     });
 }
 
-export function convertGroupEssence(ctx: ConverterContext, event: GroupEssence): JsonObject {
-    const messageId = applyMessageIdResolver(
+export async function convertGroupEssence(
+    ctx: ConverterContext,
+    event: GroupEssence,
+): Promise<JsonObject> {
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         true,
         event.groupId,
@@ -265,11 +274,11 @@ export function convertFriendInputStatus(
     });
 }
 
-export function convertGroupMsgEmojiLike(
+export async function convertGroupMsgEmojiLike(
     ctx: ConverterContext,
     event: GroupMsgEmojiLike,
-): JsonObject {
-    const messageId = applyMessageIdResolver(
+): Promise<JsonObject> {
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         true,
         event.groupId,

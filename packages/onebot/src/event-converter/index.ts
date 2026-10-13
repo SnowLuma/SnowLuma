@@ -40,7 +40,7 @@ export type MessageIdResolver = (
     eventName: string,
     timestamp?: number,
     replyElements?: readonly MessageElement[],
-) => number;
+) => number | Promise<number>;
 
 export type MediaSegmentSink = (
     mediaType: 'image' | 'record' | 'video',
@@ -48,7 +48,7 @@ export type MediaSegmentSink = (
     data: JsonObject,
     isGroup: boolean,
     sessionId: number,
-) => void;
+) => void | Promise<void>;
 
 // ─────────────── context ───────────────
 

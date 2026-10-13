@@ -100,12 +100,19 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
                 event: JsonObject,
             ) => {
                 events.set(messageId, event);
+                return true;
             },
         },
         mediaStore: {},
         reactionStore: {},
         tempSessions: new TempSessionStore(),
-        converterCtx: {},
+        converterCtx: {
+            selfId: SELF_ID,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            messageIdResolver: null,
+            mediaSegmentSink: null,
+        },
         config: {
             networks: { httpServers: [], httpClients: [], wsServers: [], wsClients: [] },
         } as OneBotConfig,
@@ -117,7 +124,7 @@ function makeContext(receiptOrReceipts: Receipt | Receipt[] = RECEIPT): {
 }
 
 interface InstanceHarness {
-    dispatch(event: JsonObject, source: 'send' | 'bridge'): void;
+    dispatch(event: JsonObject, source: 'send' | 'bridge'): Promise<void>;
     emitEvent: ReturnType<typeof vi.fn<(event: JsonObject) => Promise<void>>>;
     stored: Map<number, JsonObject>;
 }
@@ -161,6 +168,7 @@ function makeInstanceHarness(
                 event: JsonObject,
             ) => {
                 stored.set(messageId, event);
+                return true;
             },
         },
         networkManager: { emitEvent },
@@ -171,7 +179,7 @@ function makeInstanceHarness(
     });
     const dispatch = (
         instance as unknown as {
-            dispatchEvent(event: JsonObject, source: 'send' | 'bridge'): void;
+            dispatchEvent(event: JsonObject, source: 'send' | 'bridge'): Promise<void>;
         }
     ).dispatchEvent.bind(instance);
     return { dispatch, emitEvent, stored };
@@ -196,6 +204,29 @@ function privateSentEvent(overrides: JsonObject = {}): JsonObject {
 }
 
 describe('OneBot self-sent events', () => {
+    it('does not publish an event suppressed by the persistence recall check', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        // The event's cache operation is the final authority after asynchronous
+        // conversion: a recall may have committed while media was resolving.
+        const event = privateSentEvent();
+        const original = OneBotInstance.prototype;
+        const cache = vi
+            .spyOn(
+                original as unknown as {
+                    cacheMessageEvent(event: JsonObject): Promise<boolean>;
+                },
+                'cacheMessageEvent',
+            )
+            .mockResolvedValueOnce(false);
+
+        try {
+            await dispatch(event, 'bridge');
+            expect(emitEvent).not.toHaveBeenCalled();
+        } finally {
+            cache.mockRestore();
+        }
+    });
+
     it('reports upload_private_file as a private self-sent message', async () => {
         const { ctx, dispatchEvent } = makeContext();
         const handler = new ApiHandler(buildApiContext(ctx));
@@ -308,6 +339,35 @@ describe('OneBot self-sent events', () => {
             }),
             'send',
         );
+    });
+
+    it('reports storage failure without failing or repeating an already successful send', async () => {
+        const { ctx, dispatchEvent, events } = makeContext();
+        vi.spyOn(ctx.messageStore, 'storeEvent').mockImplementation(() => {
+            throw new Error('disk full');
+        });
+        const handler = new ApiHandler(buildApiContext(ctx));
+        const entries: LogEntry[] = [];
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+
+        try {
+            const response = await handler.handle('send_private_msg', {
+                user_id: PEER_ID,
+                message: 'hello',
+            });
+            expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+            expect(ctx.bridge.apis.message.sendPrivate).toHaveBeenCalledOnce();
+            expect(events.size).toBe(0);
+            expect(dispatchEvent).not.toHaveBeenCalled();
+            expect(entries).toContainEqual(
+                expect.objectContaining({
+                    level: 'warn',
+                    message: expect.stringMatching(/failed to cache self-sent message.*disk full/),
+                }),
+            );
+        } finally {
+            unsubscribe();
+        }
     });
 
     it('[#288] reports a private forward built through an action', async () => {
@@ -565,7 +625,7 @@ describe('OneBot self-sent events', () => {
         ).toEqual(['first-file', 'second-file']);
     });
 
-    it('does not report a later QQ echo after the action event', () => {
+    it('does not report a later QQ echo after the action event', async () => {
         const { dispatch, emitEvent, stored } = makeInstanceHarness();
         const sentEvent = privateSentEvent();
         const qqEcho: JsonObject = {
@@ -574,14 +634,14 @@ describe('OneBot self-sent events', () => {
             sender: { user_id: SELF_ID, nickname: 'Server profile' },
         };
 
-        dispatch(sentEvent, 'send');
-        dispatch(qqEcho, 'bridge');
+        await dispatch(sentEvent, 'send');
+        await dispatch(qqEcho, 'bridge');
 
         expect(emitEvent).toHaveBeenCalledOnce();
         expect(stored.get(987654)?.raw_message).toBe('canonical echo');
     });
 
-    it('records one truthful handoff terminal for reporting, duplicate suppression, and status suppression', () => {
+    it('records one truthful handoff terminal for reporting, duplicate suppression, and status suppression', async () => {
         const previousLevel = getLogLevel();
         const entries: LogEntry[] = [];
         const unsubscribe = subscribeLogs((entry) => entries.push(entry));
@@ -590,13 +650,13 @@ describe('OneBot self-sent events', () => {
         try {
             const logger = createLogger('Event').child({ uin: SELF_ID });
             const reporting = makeInstanceHarness({ logger });
-            runWithRequestId(6001, () => reporting.dispatch(privateSentEvent(), 'send'));
+            await runWithRequestId(6001, () => reporting.dispatch(privateSentEvent(), 'send'));
             expect(reporting.emitEvent).toHaveBeenCalledOnce();
 
             const duplicate = makeInstanceHarness({ logger });
-            runWithRequestId(6002, () => {
-                duplicate.dispatch(privateSentEvent(), 'send');
-                duplicate.dispatch(privateSentEvent({ raw_message: 'canonical' }), 'bridge');
+            await runWithRequestId(6002, async () => {
+                await duplicate.dispatch(privateSentEvent(), 'send');
+                await duplicate.dispatch(privateSentEvent({ raw_message: 'canonical' }), 'bridge');
             });
             expect(duplicate.emitEvent).toHaveBeenCalledOnce();
 
@@ -604,7 +664,7 @@ describe('OneBot self-sent events', () => {
                 logger,
                 statusCommand: { enabled: true, swallow: true, cooldownSeconds: 5, trigger: '#sl' },
             });
-            runWithRequestId(6003, () =>
+            await runWithRequestId(6003, () =>
                 status.dispatch(
                     privateSentEvent({
                         post_type: 'message',
@@ -701,7 +761,7 @@ describe('OneBot self-sent events', () => {
         expect(dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it('does not suppress a bridge echo that was cached but never reported', () => {
+    it('does not suppress a bridge echo that was cached but never reported', async () => {
         const { dispatch, emitEvent, stored } = makeInstanceHarness();
         const cached: JsonObject = {
             time: RECEIPT.timestamp,
@@ -719,18 +779,18 @@ describe('OneBot self-sent events', () => {
         };
         stored.set(7654321, cached);
 
-        dispatch({ ...cached, raw_message: 'canonical echo' }, 'bridge');
+        await dispatch({ ...cached, raw_message: 'canonical echo' }, 'bridge');
 
         expect(emitEvent).toHaveBeenCalledOnce();
         expect(stored.get(7654321)?.raw_message).toBe('canonical echo');
     });
 
-    it('does not suppress a hash collision from another conversation', () => {
+    it('does not suppress a hash collision from another conversation', async () => {
         const { dispatch, emitEvent } = makeInstanceHarness();
         const sentEvent = privateSentEvent();
 
-        dispatch(sentEvent, 'send');
-        dispatch({ ...sentEvent, target_id: PEER_ID + 1 }, 'bridge');
+        await dispatch(sentEvent, 'send');
+        await dispatch({ ...sentEvent, target_id: PEER_ID + 1 }, 'bridge');
 
         expect(emitEvent).toHaveBeenCalledTimes(2);
     });

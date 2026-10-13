@@ -14,6 +14,7 @@
 // inside the real implementation; mocks see only the top call).
 
 import { describe, expect, it, vi } from 'vitest';
+import type { ForwardNodePayload, MessageElement } from '@snowluma/protocol/events';
 import type { BridgeInterface } from '../../src/bridge/bridge-interface';
 import type { OneBotInstanceContext } from '../src/instance-context';
 import {
@@ -23,7 +24,7 @@ import {
 } from '../src/modules/message-actions';
 
 function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-    return new Proxy(overrides as BridgeInterface, {
+    return new Proxy({ identity: { nickname: 'SnowLuma' }, ...overrides } as BridgeInterface, {
         get(target, prop) {
             if (prop in target) {
                 return (target as any)[prop];
@@ -39,9 +40,16 @@ function makeCtx(bridge: BridgeInterface): OneBotInstanceContext {
         uin: '10001',
         selfId: 10001,
         bridge,
-        messageStore: { findMedia: () => null, findEvent: () => null } as any,
+        messageStore: { findMedia: () => null, findEvent: () => null, storeEvent: vi.fn() } as any,
         cacheMessageMeta: vi.fn(),
         mediaStore: {} as any,
+        converterCtx: {
+            selfId: 10001,
+            imageUrlResolver: null,
+            mediaUrlResolver: null,
+            messageIdResolver: null,
+            mediaSegmentSink: null,
+        },
         musicSignUrl: '',
     } as unknown as OneBotInstanceContext;
 }
@@ -402,6 +410,7 @@ describe('forward — nested {type:"node"} content', () => {
         } as any);
         const ctx = makeCtx(bridge);
         (ctx as any).messageStore = {
+            ...ctx.messageStore,
             findMedia: () => null,
             findEvent: () => ({
                 message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
@@ -419,6 +428,119 @@ describe('forward — nested {type:"node"} content', () => {
         ]);
     });
 
+    it.each(['image', 'record', 'video'] as const)(
+        'prepares fetched %s fingerprints at every nesting level (#437)',
+        async (type) => {
+            const fingerprint = {
+                fileId: 'source-id',
+                fileSize: 120,
+                md5Hex: 'ab'.repeat(16),
+                sha1Hex: 'cd'.repeat(20),
+            };
+            const media: MessageElement =
+                type === 'image'
+                    ? { ...fingerprint, type, width: 32, height: 24, picFormat: 1001 }
+                    : { ...fingerprint, type, duration: 3 };
+            const leaf: ForwardNodePayload = { userUin: 111, nickname: 'leaf', elements: [media] };
+            // QQ only accepts standalone video nodes; exercise mixed content with
+            // images/voice and use a text sibling for the video case.
+            const sibling: MessageElement =
+                type === 'video' ? { type: 'text', text: 'nested video' } : media;
+            const mixed: ForwardNodePayload = {
+                userUin: 222,
+                nickname: 'mixed',
+                elements: [sibling, { type: 'forward', resId: 'INNER' }],
+            };
+            const outer: ForwardNodePayload[] = [
+                leaf,
+                mixed,
+                {
+                    userUin: 333,
+                    nickname: 'nested',
+                    elements: [{ type: 'forward', resId: 'INNER' }],
+                },
+            ];
+            const before = structuredClone(outer);
+            const fetch = vi.fn(async (resId: string) => (resId === 'OUTER' ? outer : [leaf]));
+            const upload = vi.fn(
+                async (_nodes: ForwardNodePayload[], _groupId?: number, _userId?: number) =>
+                    'NEW_RES',
+            );
+            const sendPrivate = vi.fn(async () => ({
+                sequence: 1,
+                clientSequence: 2,
+                random: 3,
+                timestamp: 1700000000,
+            }));
+            const ctx = makeCtx(
+                fakeBridge({
+                    apis: { forward: { fetch, upload }, message: { sendPrivate } },
+                } as any),
+            );
+            ctx.messageStore.findEvent = () => ({
+                message: [{ type: 'forward', data: { id: 'OUTER' } }],
+            });
+
+            await forwardSingleMessage(ctx, 77, { userId: 10001 });
+
+            const expected = expect.objectContaining({
+                ...fingerprint,
+                type,
+                noByteFallback: true,
+            });
+            const finalNodes = upload.mock.calls.at(-1)![0];
+            expect(finalNodes[0]!.elements).toEqual([expected]);
+            expect(finalNodes[1]!.elements[0]).toEqual(type === 'video' ? sibling : expected);
+            expect(finalNodes[2]!.innerForward![0]!.elements).toEqual([expected]);
+            expect(upload.mock.calls[0]![0][0]!.elements).toEqual([expected]);
+
+            for (const [, groupId, userId] of upload.mock.calls) {
+                expect(groupId).toBeUndefined();
+                expect(userId).toBe(10001);
+            }
+
+            expect(outer).toEqual(before);
+            expect(sendPrivate).toHaveBeenCalledOnce();
+        },
+    );
+
+    it.each([
+        { type: 'image', imageUrl: 'https://example.com/legacy.png', md5Hex: 'ab'.repeat(16) },
+        {
+            type: 'image',
+            imageUrl: 'https://example.com/partial.png',
+            md5Hex: 'ab'.repeat(16),
+            sha1Hex: 'cd'.repeat(20),
+            width: 0,
+            height: 0,
+        },
+    ] satisfies MessageElement[])(
+        'keeps the source upload path for incomplete image fingerprints ($imageUrl)',
+        async (media) => {
+            const upload = vi.fn(async (_nodes: ForwardNodePayload[]) => 'NEW_RES');
+            const fetch = vi.fn(async () => [
+                { userUin: 111, nickname: 'alice', elements: [media] },
+            ]);
+            const sendGroup = vi.fn(async () => ({
+                sequence: 1,
+                clientSequence: 0,
+                random: 2,
+                timestamp: 1700000000,
+            }));
+            const ctx = makeCtx(
+                fakeBridge({ apis: { forward: { fetch, upload }, message: { sendGroup } } } as any),
+            );
+            ctx.messageStore.findEvent = () => ({
+                message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
+            });
+
+            await forwardSingleMessage(ctx, 77, { groupId: 12345 });
+
+            expect(upload.mock.calls[0]![0][0]!.elements).toEqual([media]);
+            expect(upload.mock.calls[0]![0][0]!.elements[0]!.noByteFallback).toBeUndefined();
+        },
+    );
+
     it('fails a merged-forward single send when the inner tree cannot be fetched (#437)', async () => {
         const fetch = vi.fn(async () => {
             throw new Error('download forward message failed');
@@ -430,6 +552,7 @@ describe('forward — nested {type:"node"} content', () => {
         } as any);
         const ctx = makeCtx(bridge);
         (ctx as any).messageStore = {
+            ...ctx.messageStore,
             findMedia: () => null,
             findEvent: () => ({
                 message: [{ type: 'forward', data: { id: 'OLD_RES' } }],
@@ -492,6 +615,7 @@ describe('forward — nested {type:"node"} content', () => {
         } as any);
         const ctx = makeCtx(bridge);
         (ctx as any).messageStore = {
+            ...ctx.messageStore,
             findMedia: () => null,
             findEvent: () => ({
                 message: [{ type: 'forward', data: { id: 'OUTER' } }],
@@ -514,6 +638,7 @@ describe('forward — nested {type:"node"} content', () => {
         const bridge = fakeBridge({ apis: { message: { sendGroup: sendGroupMessage } } } as any);
         const ctx = makeCtx(bridge);
         (ctx as any).messageStore = {
+            ...ctx.messageStore,
             findMedia: () => null,
             findEvent: () => ({
                 message: [
@@ -605,6 +730,7 @@ describe('forward — nested {type:"node"} content', () => {
         } as any);
         const ctx = makeCtx(bridge);
         (ctx as any).messageStore = {
+            ...ctx.messageStore,
             findMedia: () => null,
             findEvent: () => ({
                 user_id: 0,
@@ -661,7 +787,7 @@ describe('forward — nested {type:"node"} content', () => {
             },
         } as any);
         const ctx = makeCtx(bridge);
-        (ctx as any).messageStore = { findEvent, findMedia: () => null };
+        (ctx as any).messageStore = { ...ctx.messageStore, findEvent, findMedia: () => null };
 
         await sendGroupForwardMessage(ctx, 12345, [{ type: 'node', data: { id: -123 } }] as any);
 
@@ -719,7 +845,7 @@ describe('forward — nested {type:"node"} content', () => {
             },
         } as any);
         const ctx = makeCtx(bridge);
-        (ctx as any).messageStore = { findEvent, findMedia: () => null };
+        (ctx as any).messageStore = { ...ctx.messageStore, findEvent, findMedia: () => null };
 
         await sendGroupForwardMessage(ctx, 12345, [
             { type: 'node', data: { id: 7, nickname: 'node-override' } },

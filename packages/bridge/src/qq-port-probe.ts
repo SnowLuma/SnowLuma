@@ -28,8 +28,7 @@ const EXEC_OPTIONS = { timeout: COMMAND_TIMEOUT_MS, killSignal: 'SIGKILL' as con
 // logged-in client surfaces roughly this many processes. When no usable
 // probe port is found, a count BELOW this implies the target PID is still at
 // the login screen; AT/ABOVE it the environment is ambiguous (multiple or
-// unrelated `qq` processes), so we fall through to deep-link probing rather
-// than guess "logged out".
+// unrelated `qq` processes), so the passive probe returns no conclusion.
 const LOGGED_OUT_PROCESS_COUNT_MAX = 6;
 
 export interface QqPortLoginInfo {
@@ -56,7 +55,7 @@ interface PtloginUin {
  * the port could not be reached / the body was not a usable pt_get_uins
  * response (connect refused, timeout, unparseable). Callers MUST distinguish
  * the two: `[]` feeds the logged-in/out decision, `null` means "network
- * problem, no answer" and should fall through to the deep-link fallback.
+ * problem, no answer". Neither outcome triggers interactive probing.
  */
 async function fetchPtlogin(port: number, useHttps: boolean): Promise<PtloginUin[] | null> {
     return new Promise((resolve) => {
@@ -101,14 +100,14 @@ async function fetchPtlogin(port: number, useHttps: boolean): Promise<PtloginUin
     });
 }
 
-async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | 'fallback'> {
+async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | null> {
     const useHttps = port % 2 !== 0;
 
     const res1 = await fetchPtlogin(port, useHttps);
     const res2 = await fetchPtlogin(port, useHttps);
 
     if (res1 === null && res2 === null) {
-        return 'fallback';
+        return null;
     }
 
     const usable = [res1, res2].filter((r): r is PtloginUin[] => r !== null);
@@ -124,7 +123,7 @@ async function tryPtloginMethod(port: number): Promise<QqPortLoginInfo | 'fallba
         };
     }
 
-    return 'fallback';
+    return null;
 }
 
 async function getQqProcessCount(): Promise<number> {
@@ -242,7 +241,7 @@ async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | 
         for (const port of ptPortsToTry) {
             const ptResult = await tryPtloginMethod(port);
 
-            if (ptResult !== 'fallback') {
+            if (ptResult !== null) {
                 return ptResult;
             }
         }
@@ -252,7 +251,7 @@ async function probeQqLoginInfoInternal(pid: number): Promise<QqPortLoginInfo | 
         if (totalPids < LOGGED_OUT_PROCESS_COUNT_MAX) {
             noteProbe(pid, 'no-ports', ports.length, totalPids);
             return {
-                port: ports[0] || 0,
+                port: ports[0],
                 uin: '',
                 identityKnown: false,
             };

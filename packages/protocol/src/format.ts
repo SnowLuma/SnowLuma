@@ -11,7 +11,7 @@ import type { JsonObject, JsonValue } from '@snowluma/common/json';
  * callers pass it through with zero adaptation.
  */
 export interface ReplyEventLookup {
-    findEvent(messageId: number): JsonObject | null;
+    findEvent(messageId: number): JsonObject | null | Promise<JsonObject | null>;
 }
 
 const MAX_TEXT_PREVIEW = 50;
@@ -282,17 +282,17 @@ function readTitle(node: unknown): string | null {
  * and a 1-level peek catches 90% of real-world "what's this referring
  * to" questions.
  */
-export function formatReply(
+export async function formatReply(
     messageStore: ReplyEventLookup,
     identity: IdentityService,
     replyId: number,
-): string {
+): Promise<string> {
     try {
         if (!replyId) {
             return '[回复:0]';
         }
 
-        const event = messageStore.findEvent(replyId);
+        const event = await messageStore.findEvent(replyId);
 
         if (!event) {
             return `[回复:${replyId}]`;

@@ -1,4 +1,4 @@
-import type { KnownMessageSegment, MessageSegment } from '../types/index';
+import type { AnyMessageSegment } from '../types/index';
 
 export function escapeCqText(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
@@ -8,13 +8,21 @@ export function escapeCqParam(text: string): string {
     return escapeCqText(text).replace(/,/g, '&#44;');
 }
 
-export function segmentsToCQString(segments: Array<KnownMessageSegment | MessageSegment>): string {
+export function segmentsToCQString(segments: AnyMessageSegment[]): string {
     return segments.map(segmentToCq).join('');
 }
 
-function segmentToCq(segment: KnownMessageSegment | MessageSegment): string {
+function segmentToCq(segment: AnyMessageSegment): string {
     if (segment.type === 'text') {
         return escapeCqText(String(segment.data.text ?? ''));
+    }
+
+    if (
+        segment.type === 'reply' &&
+        segment.data.message !== undefined &&
+        typeof segment.data.message !== 'string'
+    ) {
+        throw new TypeError('reply.message containing message segments must be sent as JSON');
     }
 
     const params = Object.entries(segment.data)

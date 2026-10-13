@@ -300,8 +300,8 @@ describe('convertGroupMsgEmojiLike — OneBot notice shape', () => {
         mediaSegmentSink: null,
     } as never;
 
-    it('produces a group_msg_emoji_like notice with sub_type=add and resolved message_id', () => {
-        const out = convertGroupMsgEmojiLike(ctx, baseEvent);
+    it('produces a group_msg_emoji_like notice with sub_type=add and resolved message_id', async () => {
+        const out = await convertGroupMsgEmojiLike(ctx, baseEvent);
         expect(out.post_type).toBe('notice');
         expect(out.notice_type).toBe('group_msg_emoji_like');
         expect(out.sub_type).toBe('add');
@@ -313,8 +313,8 @@ describe('convertGroupMsgEmojiLike — OneBot notice shape', () => {
         expect(out.likes).toEqual([{ emoji_id: '76', count: 1 }]);
     });
 
-    it('flips sub_type to remove when isAdd is false', () => {
-        const out = convertGroupMsgEmojiLike(ctx, { ...baseEvent, isAdd: false });
+    it('flips sub_type to remove when isAdd is false', async () => {
+        const out = await convertGroupMsgEmojiLike(ctx, { ...baseEvent, isAdd: false });
         expect(out.sub_type).toBe('remove');
     });
 });

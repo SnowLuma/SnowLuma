@@ -29,10 +29,12 @@ function createControlPort(): {
     preparations: MessageStoreMigrationPreparation[];
     send(message: unknown): void;
     listenerCount(): number;
+    waitForMessages(count: number): Promise<void>;
 } {
     const messages: MessageStoreMigrationWorkerMessage[] = [];
     const preparations: MessageStoreMigrationPreparation[] = [];
     const events = new EventEmitter();
+    const waiters: Array<() => void> = [];
     return {
         port: {
             on: events.on.bind(events),
@@ -43,6 +45,10 @@ function createControlPort(): {
                 } else {
                     messages.push(message);
                 }
+
+                for (const check of [...waiters]) {
+                    check();
+                }
             },
         } as unknown as MessagePort,
         messages,
@@ -50,14 +56,34 @@ function createControlPort(): {
         send(message: unknown) {
             events.emit('message', message);
         },
+        waitForMessages(count) {
+            return new Promise<void>((resolve) => {
+                const check = () => {
+                    if (messages.length < count) {
+                        return;
+                    }
+
+                    const index = waiters.indexOf(check);
+
+                    if (index >= 0) {
+                        waiters.splice(index, 1);
+                    }
+
+                    resolve();
+                };
+
+                waiters.push(check);
+                check();
+            });
+        },
         listenerCount() {
             return events.listenerCount('message');
         },
     };
 }
 
-function seedUnclassified(dbPath: string, count: number): void {
-    prepareMessageStoreDatabase(dbPath);
+async function seedUnclassified(dbPath: string, count: number): Promise<void> {
+    await prepareMessageStoreDatabase(dbPath);
     const db = new DatabaseSync(dbPath);
     const insert = db.prepare(`
     INSERT INTO messages (
@@ -146,7 +172,7 @@ describe('runMessageStoreMigrationWorker', () => {
         const close = vi.spyOn(MessageStoreMigrator.prototype, 'close');
 
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
         expect(control.messages).toEqual([{ kind: 'ready' }]);
         expect(control.listenerCount()).toBe(1);
 
@@ -158,12 +184,12 @@ describe('runMessageStoreMigrationWorker', () => {
             {
                 kind: 'progress',
                 status: { phase: 'complete', processed: 0, total: 0 },
-                elapsedMs: 0,
+                elapsedMs: expect.any(Number),
             },
         ]);
         expect(control.listenerCount()).toBe(0);
         expect(close).toHaveBeenCalledOnce();
-        expect(inspectMessageStoreMigration(dbPath)).toEqual({
+        expect(await inspectMessageStoreMigration(dbPath)).toEqual({
             phase: 'complete',
             processed: 0,
             total: 0,
@@ -174,7 +200,7 @@ describe('runMessageStoreMigrationWorker', () => {
         const dbPath = path.join(tmpDir, 'messages.db');
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('go');
         control.send({ kind: 'start' });
@@ -188,7 +214,7 @@ describe('runMessageStoreMigrationWorker', () => {
             {
                 kind: 'progress',
                 status: { phase: 'complete', processed: 0, total: 0 },
-                elapsedMs: 0,
+                elapsedMs: expect.any(Number),
             },
         ]);
     });
@@ -202,7 +228,7 @@ describe('runMessageStoreMigrationWorker', () => {
         const unsubscribe = subscribeLogs((entry) => logs.push(entry.scope));
         vi.stubEnv('SNOWLUMA_LOG_FILE', '1');
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 1);
+        await seedUnclassified(dbPath, 1);
         const control = createControlPort();
 
         try {
@@ -231,11 +257,11 @@ describe('runMessageStoreMigrationWorker', () => {
 
     it('returns after cancel without posting progress', async () => {
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 1);
+        await seedUnclassified(dbPath, 1);
         const control = createControlPort();
         const runBatch = vi.spyOn(MessageStoreMigrator.prototype, 'runBatch');
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('cancel');
         await running;
@@ -243,7 +269,7 @@ describe('runMessageStoreMigrationWorker', () => {
         expect(control.messages).toEqual([{ kind: 'ready' }]);
         expect(runBatch).not.toHaveBeenCalled();
         expect(control.listenerCount()).toBe(0);
-        expect(inspectMessageStoreMigration(dbPath)).toEqual({
+        expect(await inspectMessageStoreMigration(dbPath)).toEqual({
             phase: 'migrating',
             processed: 0,
             total: 1,
@@ -252,11 +278,11 @@ describe('runMessageStoreMigrationWorker', () => {
 
     it('treats start then cancel in the same turn as a cancel', async () => {
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 1);
+        await seedUnclassified(dbPath, 1);
         const control = createControlPort();
         const runBatch = vi.spyOn(MessageStoreMigrator.prototype, 'runBatch');
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
         control.send('cancel');
@@ -268,10 +294,10 @@ describe('runMessageStoreMigrationWorker', () => {
 
     it('migrates pending rows in one batch and posts complete progress', async () => {
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 1);
+        await seedUnclassified(dbPath, 1);
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
         await running;
@@ -281,10 +307,10 @@ describe('runMessageStoreMigrationWorker', () => {
             {
                 kind: 'progress',
                 status: { phase: 'complete', processed: 1, total: 1 },
-                elapsedMs: 0,
+                elapsedMs: expect.any(Number),
             },
         ]);
-        expect(inspectMessageStoreMigration(dbPath)).toEqual({
+        expect(await inspectMessageStoreMigration(dbPath)).toEqual({
             phase: 'complete',
             processed: 1,
             total: 1,
@@ -293,10 +319,10 @@ describe('runMessageStoreMigrationWorker', () => {
 
     it('posts a second progress after the batch pause when more than 200 rows remain', async () => {
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 201);
+        await seedUnclassified(dbPath, 201);
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
         await running;
@@ -306,7 +332,7 @@ describe('runMessageStoreMigrationWorker', () => {
         expect(control.messages[1]).toEqual({
             kind: 'progress',
             status: { phase: 'migrating', processed: 200, total: 201 },
-            elapsedMs: 0,
+            elapsedMs: expect.any(Number),
         });
         expect(control.messages[2]).toMatchObject({
             kind: 'progress',
@@ -319,7 +345,7 @@ describe('runMessageStoreMigrationWorker', () => {
             expect(last.elapsedMs).toBeGreaterThanOrEqual(0);
         }
 
-        expect(inspectMessageStoreMigration(dbPath)).toEqual({
+        expect(await inspectMessageStoreMigration(dbPath)).toEqual({
             phase: 'complete',
             processed: 201,
             total: 201,
@@ -329,19 +355,19 @@ describe('runMessageStoreMigrationWorker', () => {
     it('stops after cancel between batches', async () => {
         vi.useFakeTimers();
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 201);
+        await seedUnclassified(dbPath, 201);
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
-        await Promise.resolve();
+        await control.waitForMessages(2);
         expect(control.messages).toEqual([
             { kind: 'ready' },
             {
                 kind: 'progress',
                 status: { phase: 'migrating', processed: 200, total: 201 },
-                elapsedMs: 0,
+                elapsedMs: expect.any(Number),
             },
         ]);
 
@@ -354,10 +380,10 @@ describe('runMessageStoreMigrationWorker', () => {
             {
                 kind: 'progress',
                 status: { phase: 'migrating', processed: 200, total: 201 },
-                elapsedMs: 0,
+                elapsedMs: expect.any(Number),
             },
         ]);
-        expect(inspectMessageStoreMigration(dbPath)).toEqual({
+        expect(await inspectMessageStoreMigration(dbPath)).toEqual({
             phase: 'migrating',
             processed: 200,
             total: 201,
@@ -389,7 +415,7 @@ describe('runMessageStoreMigrationWorker', () => {
         const dbPath = path.join(tmpDir, 'messages.db');
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
         expect(control.messages).toEqual([{ kind: 'ready' }]);
 
         const db = new DatabaseSync(dbPath);
@@ -401,13 +427,13 @@ describe('runMessageStoreMigrationWorker', () => {
 
         expect(control.messages).toEqual([
             { kind: 'ready' },
-            { kind: 'failed', message: 'no such table: main.messages' },
+            { kind: 'failed', message: expect.stringContaining('no such table: main.messages') },
         ]);
     });
 
     it('posts failed when a batch update is aborted', async () => {
         const dbPath = path.join(tmpDir, 'messages.db');
-        seedUnclassified(dbPath, 1);
+        await seedUnclassified(dbPath, 1);
         const db = new DatabaseSync(dbPath);
         db.exec(`
       CREATE TRIGGER fail_classify BEFORE UPDATE ON messages
@@ -420,14 +446,14 @@ describe('runMessageStoreMigrationWorker', () => {
         const control = createControlPort();
         const close = vi.spyOn(MessageStoreMigrator.prototype, 'close');
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
         await running;
 
         expect(control.messages).toEqual([
             { kind: 'ready' },
-            { kind: 'failed', message: 'classified row rejected' },
+            { kind: 'failed', message: expect.stringContaining('classified row rejected') },
         ]);
         expect(close).toHaveBeenCalledOnce();
     });
@@ -439,7 +465,7 @@ describe('runMessageStoreMigrationWorker', () => {
         });
         const control = createControlPort();
         const running = runMessageStoreMigrationWorker(workerPayload(dbPath), control.port);
-        await Promise.resolve(); // Account readiness follows asynchronous media preparation.
+        await control.waitForMessages(1);
 
         control.send('start');
         await running;

@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     GROUP_MESSAGE_EVENT,
@@ -60,12 +61,13 @@ function friendMessage(sequence: number, senderUin: number, clientSequence = seq
 describe('history direction plumbing', () => {
     let messageStore: MessageStore;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         messageStore = new MessageStore(':memory:');
+        await messageStore.initialization;
     });
 
-    afterEach(() => {
-        messageStore.close();
+    afterEach(async () => {
+        await messageStore.close();
     });
 
     it('returns the group anchor followed by newer server messages', async () => {
@@ -74,7 +76,7 @@ describe('history direction plumbing', () => {
                 ? [groupMessage(500), groupMessage(501)]
                 : [groupMessage(499), groupMessage(500)],
         );
-        messageStore.storeMeta(-123456789, {
+        await messageStore.storeMeta(-123456789, {
             isGroup: true,
             targetId: GROUP_ID,
             sequence: 500,
@@ -104,7 +106,7 @@ describe('history direction plumbing', () => {
                 ? [friendMessage(700, SELF_ID), friendMessage(701, FRIEND_ID)]
                 : [friendMessage(699, FRIEND_ID), friendMessage(700, SELF_ID)],
         );
-        messageStore.storeMeta(-987654321, {
+        await messageStore.storeMeta(-987654321, {
             isGroup: false,
             targetId: FRIEND_ID,
             sequence: 700,
@@ -138,7 +140,7 @@ describe('history direction plumbing', () => {
             friendMessage(63213, FRIEND_ID, 32742),
             friendMessage(63214, SELF_ID, 32743),
         ]);
-        messageStore.storeMeta(-222222222, {
+        await messageStore.storeMeta(-222222222, {
             isGroup: false,
             targetId: FRIEND_ID,
             sequence: 99999,
@@ -176,7 +178,7 @@ describe('history direction plumbing', () => {
             { sender: FRIEND_ID, sequence: 32742 },
             { sender: SELF_ID, sequence: 32743 },
         ]);
-        expect(messageStore.findMeta(Number(messages[0]!.message_id))).toMatchObject({
+        expect(await messageStore.findMeta(Number(messages[0]!.message_id))).toMatchObject({
             sequence: 63213,
             clientSequence: 32742,
             sequenceAuthoritative: true,
@@ -220,33 +222,56 @@ describe('history direction plumbing', () => {
             hashMessageIdInt32(63214, FRIEND_ID, PRIVATE_NT_MESSAGE_EVENT),
         ]);
         expect(new Set(ids).size).toBe(2);
-        expect(ids.map((id) => messageStore.findEvent(id)?.message_id)).toEqual(ids);
+        expect(
+            await mapWithConcurrency(
+                ids,
+                8,
+                async (id) => (await messageStore.findEvent(id))?.message_id,
+            ),
+        ).toEqual(ids);
     });
 
-    it('does not return or re-cache a private message covered by a recall tombstone', async () => {
-        messageStore.recordPrivateRecall(FRIEND_ID, 32742, false, 1700000010);
-        const fetchLatestHistory = vi.fn(async () => [
-            friendMessage(63213, FRIEND_ID, 32742),
-            friendMessage(63214, SELF_ID, 32743),
-        ]);
-        const ref = {
-            selfId: SELF_ID,
-            bridge: {
-                resolveUserUid: vi.fn(async () => 'u_friend'),
-                apis: { message: { getC2cLatestHistory: fetchLatestHistory } },
-            },
-            messageStore,
-            converterCtx,
-        } as any;
+    it.each(['before reading', 'before persistence'] as const)(
+        'does not return or re-cache a private message recalled %s',
+        async (timing) => {
+            const recall = () =>
+                messageStore.recordPrivateRecall(FRIEND_ID, 32742, false, 1700000010);
 
-        const messages = await getFriendHistory(ref, FRIEND_ID, undefined, 20);
+            if (timing === 'before reading') {
+                await recall();
+            } else {
+                const persist = messageStore.storeHistoryEvent.bind(messageStore);
+                vi.spyOn(messageStore, 'storeHistoryEvent').mockImplementationOnce(
+                    async (...args) => {
+                        await recall();
+                        return persist(...args);
+                    },
+                );
+            }
 
-        expect(messages.map((message) => message.message_seq)).toEqual([32743]);
-        expect(messageStore.listSessionEvents(false, FRIEND_ID, 20)).toHaveLength(1);
-    });
+            const fetchLatestHistory = vi.fn(async () => [
+                friendMessage(63213, FRIEND_ID, 32742),
+                friendMessage(63214, SELF_ID, 32743),
+            ]);
+            const ref = {
+                selfId: SELF_ID,
+                bridge: {
+                    resolveUserUid: vi.fn(async () => 'u_friend'),
+                    apis: { message: { getC2cLatestHistory: fetchLatestHistory } },
+                },
+                messageStore,
+                converterCtx,
+            } as any;
+
+            const messages = await getFriendHistory(ref, FRIEND_ID, undefined, 20);
+
+            expect(messages.map((message) => message.message_seq)).toEqual([32743]);
+            expect(await messageStore.listSessionEvents(false, FRIEND_ID, 20)).toHaveLength(1);
+        },
+    );
 
     it('surfaces an unanchored server failure instead of returning incomplete local history', async () => {
-        messageStore.storeEvent(1, false, FRIEND_ID, 12, PRIVATE_MESSAGE_EVENT, {
+        await messageStore.storeEvent(1, false, FRIEND_ID, 12, PRIVATE_MESSAGE_EVENT, {
             time: 12,
             post_type: 'message',
             message_type: 'private',
@@ -282,14 +307,14 @@ describe('history direction plumbing', () => {
                 ? [groupMessage(899), groupMessage(900)]
                 : [groupMessage(900), groupMessage(901)],
         );
-        messageStore.storeEvent(1, true, GROUP_ID, 900, GROUP_MESSAGE_EVENT, {
+        await messageStore.storeEvent(1, true, GROUP_ID, 900, GROUP_MESSAGE_EVENT, {
             post_type: 'message',
             message_type: 'group',
             group_id: GROUP_ID,
             message_id: 1,
             message_seq: 900,
         });
-        messageStore.storeEvent(
+        await messageStore.storeEvent(
             2,
             true,
             GROUP_ID,
@@ -323,7 +348,7 @@ describe('history direction plumbing', () => {
 
     it('does not use an explicitly requested local-only id as a server history anchor', async () => {
         const fetchHistory = vi.fn(async () => [groupMessage(1799283572)]);
-        messageStore.storeEvent(
+        await messageStore.storeEvent(
             2,
             true,
             GROUP_ID,
@@ -355,7 +380,7 @@ describe('history direction plumbing', () => {
 
     it('rejects a private anchor from a different friend conversation', async () => {
         const fetchHistory = vi.fn(async () => [friendMessage(800, FRIEND_ID)]);
-        messageStore.storeMeta(-111111111, {
+        await messageStore.storeMeta(-111111111, {
             isGroup: false,
             targetId: 987654321,
             sequence: 800,

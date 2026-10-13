@@ -46,7 +46,7 @@ async function convertPrivateMessage(
         event.kind === 'friend_message'
             ? privateMessageEventName(isSelf, hasCanonicalNtSequence)
             : PRIVATE_MESSAGE_EVENT;
-    const messageId = applyMessageIdResolver(
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         false,
         sessionId,
@@ -104,7 +104,7 @@ export async function convertGroupMessage(
 ): Promise<JsonObject> {
     const isSelf = event.senderUin === ctx.selfId;
     const postType = isSelf ? 'message_sent' : 'message';
-    const messageId = applyMessageIdResolver(
+    const messageId = await applyMessageIdResolver(
         ctx.messageIdResolver,
         true,
         event.groupId,

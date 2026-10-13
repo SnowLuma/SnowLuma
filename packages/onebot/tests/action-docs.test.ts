@@ -76,4 +76,26 @@ describe('action-docs', () => {
         expect(md).toContain('`set_group_ban`');
         expect(md).toContain('| 参数 | 类型 | 必填 | 默认 | 说明 |');
     });
+
+    it('documents custom reply content on every forward entry point', () => {
+        for (const name of [
+            'upload_forward_msg',
+            'upload_foward_msg',
+            'send_forward_msg',
+            'send_group_forward_msg',
+            'send_private_forward_msg',
+        ]) {
+            const action = docs.find((doc) => doc.name === name)!;
+
+            for (const field of ['messages', 'message']) {
+                expect(action.params.find((param) => param.name === field)?.desc).toContain(
+                    'reply.data.message',
+                );
+            }
+        }
+
+        expect(docs.find((doc) => doc.name === 'get_forward_msg')?.returns).toContain(
+            'qq/time/seq',
+        );
+    });
 });

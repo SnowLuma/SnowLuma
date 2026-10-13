@@ -233,6 +233,7 @@ describe('apis/friend', () => {
 
     it('approves a filtered stranger through Identity without requiring a shared roster', async () => {
         const identity = new IdentityService('10001', null);
+        await identity.initialization;
         const bridge = mockBridge();
         const fetchProfile = vi.fn(async (uin: number) => ({
             uin,
@@ -250,7 +251,7 @@ describe('apis/friend', () => {
             const env = protobuf_decode<OidbBase<OidbDoubtApprovalReq>>(bytes);
             expect(env.body).toMatchObject({ selfUid: 'u_self', targetUid: 'u_stranger' });
         } finally {
-            identity.close();
+            await identity.close();
         }
     });
 

@@ -210,12 +210,13 @@ export interface OidbRenameGroup {
 }
 export interface OidbSpecialTitleBody {
     targetUid?: pb<1, string>;
-    specialTitle?: pb<5, string>;
+    // Empty strings clear the title; an absent field leaves it unchanged (#517).
+    specialTitle?: pb_optional<5, string>;
     expireTime?: pb<6, int_32>;
     // The server requires uinName (tag 7) set to the same title, else it accepts
     // the request (errorCode 0) but silently never applies it. Both NapCat and
     // Lagrange send uinName = title (Lagrange 0x8FC body @7, NapCat Oidb.0x8FC_2).
-    uinName?: pb<7, string>;
+    uinName?: pb_optional<7, string>;
 }
 export interface OidbSpecialTitle {
     groupUin?: pb<1, uint_32>;

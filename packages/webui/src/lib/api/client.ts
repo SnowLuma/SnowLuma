@@ -53,11 +53,29 @@ interface ErrorPayload {
 }
 
 async function readJson<T>(res: Response): Promise<T> {
+    let payload: unknown;
+
     try {
-        return (await res.json()) as T;
-    } catch {
-        return {} as T;
+        payload = await res.json();
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
+        }
+
+        throw invalidJsonResponse(res);
     }
+
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw invalidJsonResponse(res);
+    }
+
+    return payload as T;
+}
+
+function invalidJsonResponse(res: Response): ApiError {
+    return res.ok
+        ? new ApiError(502, '服务端返回了无效的 JSON 响应', 'INVALID_RESPONSE')
+        : new ApiError(res.status, res.statusText || '请求失败');
 }
 
 function extractErrorMessage(payload: ErrorPayload, fallback: string): string {
@@ -1088,7 +1106,7 @@ class HttpApiClient implements ApiClient {
         }
 
         if (!res.ok || !res.body) {
-            const payload = await readJson<ErrorPayload>(res).catch(() => ({}) as ErrorPayload);
+            const payload = await readJson<ErrorPayload>(res);
             throw new ApiError(
                 res.status,
                 extractErrorMessage(payload, '流式调用失败'),

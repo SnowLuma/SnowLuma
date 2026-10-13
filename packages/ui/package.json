@@ -53,7 +53,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "peerDependencies": {
     "react": "^19.0.0",

@@ -1,4 +1,4 @@
-import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { SqliteDatabase, type SqliteStatement } from '@snowluma/sqlite';
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, MessageMeta } from './types';
 import type { MessageElement } from '@snowluma/protocol/events';
@@ -8,6 +8,7 @@ import {
     mergeMessageMedia,
     parseMessageMedia,
     serializeMessageMedia,
+    snapshotMessageEvent,
     type MessageMedia,
 } from './message-media';
 import { createMessageStoreIndexes, prepareMessageStoreSchema } from './message-store-migration';
@@ -33,219 +34,225 @@ export interface StoreHistoryEventOptions extends StoreEventOptions {
 }
 
 export class MessageStore {
-    private readonly db: DatabaseSync;
-    private readonly stmtStoreEvent: StatementSync;
-    private readonly stmtStoreMeta: StatementSync;
-    private readonly stmtFindEvent: StatementSync;
-    private readonly stmtFindMedia: StatementSync;
-    private readonly stmtFindMeta: StatementSync;
-    private readonly stmtResolveReplyGroup: StatementSync;
-    private readonly stmtResolveReplyPrivate: StatementSync;
-    private readonly stmtListEventsAnchored: StatementSync;
-    private readonly stmtListEventsAnchoredForward: StatementSync;
-    private readonly stmtListEventsLatest: StatementSync;
-    private readonly stmtFindLatestAuthoritativeSequence: StatementSync;
-    private readonly stmtFindLatestPersistedAuthoritativeSequence: StatementSync;
-    private readonly stmtListIncomingC2CSessions: StatementSync;
-    private readonly stmtFindPrivateRecall: StatementSync;
-    private readonly stmtFindPrivateMessageAtTime: StatementSync;
-    private readonly stmtFindPrivateMessageBySequence: StatementSync;
-    private readonly stmtFindPrivateOutgoingNearTime: StatementSync;
-    private readonly stmtFindPrivateRecallTombstone: StatementSync;
-    private readonly stmtUpsertPrivateRecallTombstone: StatementSync;
-    private readonly stmtDeleteMessage: StatementSync;
+    private readonly db: SqliteDatabase;
+    private stmtStoreEvent!: SqliteStatement;
+    private stmtStoreMeta!: SqliteStatement;
+    private stmtFindEvent!: SqliteStatement;
+    private stmtFindMedia!: SqliteStatement;
+    private stmtFindMeta!: SqliteStatement;
+    private stmtResolveReplyGroup!: SqliteStatement;
+    private stmtResolveReplyPrivate!: SqliteStatement;
+    private stmtListEventsAnchored!: SqliteStatement;
+    private stmtListEventsAnchoredForward!: SqliteStatement;
+    private stmtListEventsLatest!: SqliteStatement;
+    private stmtFindLatestAuthoritativeSequence!: SqliteStatement;
+    private stmtFindLatestPersistedAuthoritativeSequence!: SqliteStatement;
+    private stmtListIncomingC2CSessions!: SqliteStatement;
+    private stmtFindPrivateRecall!: SqliteStatement;
+    private stmtFindPrivateMessageAtTime!: SqliteStatement;
+    private stmtFindPrivateMessageBySequence!: SqliteStatement;
+    private stmtFindPrivateOutgoingNearTime!: SqliteStatement;
+    private stmtFindPrivateRecallTombstone!: SqliteStatement;
+    private stmtUpsertPrivateRecallTombstone!: SqliteStatement;
+    private stmtDeleteMessage!: SqliteStatement;
+
+    readonly initialization: Promise<void>;
 
     constructor(dbPath: string) {
         // Replace .json extension with .db if present
         const finalPath = dbPath.replace(/\.json$/, '.db');
         this.db = openSqliteDb(finalPath);
-        this.initSchema();
+        this.initialization = this.db.serial(async () => {
+            await this.initSchema();
 
-        // Prepare once. Statements survive for the lifetime of the
-        // Database instance — `close()` finalizes them automatically.
-        this.stmtStoreEvent = this.db.prepare(
-            `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data, media_data, classification_version)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, 1)
-       ON CONFLICT(message_hash) DO UPDATE SET
-         is_group = excluded.is_group,
-         session_id = excluded.session_id,
-         sequence = CASE WHEN excluded.is_group = 1 THEN excluded.sequence ELSE messages.sequence END,
-         sequence_authoritative = CASE WHEN excluded.is_group = 1 THEN excluded.sequence_authoritative ELSE messages.sequence_authoritative END,
-         event_name = CASE
-           WHEN excluded.is_group = 1 THEN excluded.event_name
-           ELSE messages.event_name
-         END,
-         private_direction = CASE
-           WHEN excluded.private_direction >= 0 THEN excluded.private_direction
-           ELSE messages.private_direction
-         END,
-         timestamp = excluded.timestamp,
-         data = excluded.data,
-         media_data = excluded.media_data,
-         classification_version = CASE
-           WHEN excluded.is_group = 1 THEN excluded.classification_version
-           ELSE messages.classification_version
-         END`,
-        );
+            // Prepare once. Statements survive for the lifetime of the
+            // Database instance — `close()` finalizes them automatically.
+            this.stmtStoreEvent = this.db.prepare(
+                `INSERT INTO messages
+         (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, data, media_data, classification_version)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, 1)
+         ON CONFLICT(message_hash) DO UPDATE SET
+           is_group = excluded.is_group,
+           session_id = excluded.session_id,
+           sequence = CASE WHEN excluded.is_group = 1 THEN excluded.sequence ELSE messages.sequence END,
+           sequence_authoritative = CASE WHEN excluded.is_group = 1 THEN excluded.sequence_authoritative ELSE messages.sequence_authoritative END,
+           event_name = CASE
+             WHEN excluded.is_group = 1 THEN excluded.event_name
+             ELSE messages.event_name
+           END,
+           private_direction = CASE
+             WHEN excluded.private_direction >= 0 THEN excluded.private_direction
+             ELSE messages.private_direction
+           END,
+           timestamp = excluded.timestamp,
+           data = excluded.data,
+           media_data = excluded.media_data,
+           classification_version = CASE
+             WHEN excluded.is_group = 1 THEN excluded.classification_version
+             ELSE messages.classification_version
+           END`,
+            );
 
-        this.stmtStoreMeta = this.db.prepare(
-            `INSERT INTO messages
-       (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, classification_version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-       ON CONFLICT(message_hash) DO UPDATE SET
-         is_group = excluded.is_group,
-         session_id = excluded.session_id,
-         sequence = excluded.sequence,
-         sequence_authoritative = excluded.sequence_authoritative,
-         event_name = excluded.event_name,
-         client_sequence = excluded.client_sequence,
-         private_direction = excluded.private_direction,
-         random = excluded.random,
-         timestamp = excluded.timestamp,
-         classification_version = excluded.classification_version`,
-        );
+            this.stmtStoreMeta = this.db.prepare(
+                `INSERT INTO messages
+         (message_hash, is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp, classification_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         ON CONFLICT(message_hash) DO UPDATE SET
+           is_group = excluded.is_group,
+           session_id = excluded.session_id,
+           sequence = excluded.sequence,
+           sequence_authoritative = excluded.sequence_authoritative,
+           event_name = excluded.event_name,
+           client_sequence = excluded.client_sequence,
+           private_direction = excluded.private_direction,
+           random = excluded.random,
+           timestamp = excluded.timestamp,
+           classification_version = excluded.classification_version`,
+            );
 
-        this.stmtFindEvent = this.db.prepare(
-            'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
-        );
+            this.stmtFindEvent = this.db.prepare(
+                'SELECT data FROM messages WHERE message_hash = ? AND data IS NOT NULL',
+            );
 
-        this.stmtFindMedia = this.db.prepare(
-            'SELECT media_data FROM messages WHERE message_hash = ?',
-        );
+            this.stmtFindMedia = this.db.prepare(
+                'SELECT media_data FROM messages WHERE message_hash = ?',
+            );
 
-        this.stmtFindMeta = this.db.prepare(
-            'SELECT is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp FROM messages WHERE message_hash = ?',
-        );
+            this.stmtFindMeta = this.db.prepare(
+                'SELECT is_group, session_id, sequence, sequence_authoritative, event_name, client_sequence, private_direction, random, timestamp FROM messages WHERE message_hash = ?',
+            );
 
-        this.stmtResolveReplyGroup = this.db.prepare(
-            `SELECT sequence
+            this.stmtResolveReplyGroup = this.db.prepare(
+                `SELECT sequence
+           FROM messages
+           WHERE is_group = 1 AND session_id = ? AND message_hash = ? AND sequence_authoritative = 1
+           LIMIT 1`,
+            );
+
+            this.stmtResolveReplyPrivate = this.db.prepare(
+                `SELECT CASE
+             WHEN client_sequence > 0 THEN client_sequence
+             ELSE sequence
+           END AS sequence
+           FROM messages
+           WHERE is_group = 0 AND message_hash = ?
+             AND (client_sequence > 0 OR sequence_authoritative = 1)
+           LIMIT 1`,
+            );
+
+            this.stmtListEventsAnchored = this.db.prepare(
+                `SELECT data
          FROM messages
-         WHERE is_group = 1 AND session_id = ? AND message_hash = ? AND sequence_authoritative = 1
-         LIMIT 1`,
-        );
+         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+           AND sequence_authoritative = 1 AND sequence > 0 AND sequence <= ?
+         ORDER BY sequence DESC
+         LIMIT ?`,
+            );
 
-        this.stmtResolveReplyPrivate = this.db.prepare(
-            `SELECT CASE
-           WHEN client_sequence > 0 THEN client_sequence
-           ELSE sequence
-         END AS sequence
+            this.stmtListEventsAnchoredForward = this.db.prepare(
+                `SELECT data
          FROM messages
-         WHERE is_group = 0 AND message_hash = ?
-           AND (client_sequence > 0 OR sequence_authoritative = 1)
+         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+           AND sequence_authoritative = 1 AND sequence > 0 AND sequence >= ?
+         ORDER BY sequence ASC
+         LIMIT ?`,
+            );
+
+            this.stmtListEventsLatest = this.db.prepare(
+                `SELECT data
+         FROM messages
+         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+           AND sequence_authoritative = 1 AND sequence > 0
+         ORDER BY sequence DESC
+         LIMIT ?`,
+            );
+
+            this.stmtFindLatestAuthoritativeSequence = this.db.prepare(
+                `SELECT sequence
+         FROM messages
+         WHERE is_group = ? AND session_id = ? AND sequence_authoritative = 1 AND sequence > 0
+         ORDER BY sequence DESC
          LIMIT 1`,
-        );
+            );
 
-        this.stmtListEventsAnchored = this.db.prepare(
-            `SELECT data
-       FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
-         AND sequence_authoritative = 1 AND sequence > 0 AND sequence <= ?
-       ORDER BY sequence DESC
-       LIMIT ?`,
-        );
+            this.stmtFindLatestPersistedAuthoritativeSequence = this.db.prepare(
+                `SELECT sequence
+         FROM messages
+         WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
+           AND sequence_authoritative = 1 AND sequence > 0
+         ORDER BY sequence DESC
+         LIMIT 1`,
+            );
 
-        this.stmtListEventsAnchoredForward = this.db.prepare(
-            `SELECT data
-       FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
-         AND sequence_authoritative = 1 AND sequence > 0 AND sequence >= ?
-       ORDER BY sequence ASC
-       LIMIT ?`,
-        );
+            this.stmtListIncomingC2CSessions = this.db.prepare(
+                `SELECT session_id
+         FROM messages
+         WHERE is_group = 0
+           AND data IS NOT NULL
+           AND json_extract(data, '$.post_type') = 'message'
+           AND json_extract(data, '$.message_type') = 'private'
+           AND json_extract(data, '$.sub_type') = 'friend'
+         GROUP BY session_id
+         ORDER BY session_id ASC`,
+            );
 
-        this.stmtListEventsLatest = this.db.prepare(
-            `SELECT data
-       FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
-         AND sequence_authoritative = 1 AND sequence > 0
-       ORDER BY sequence DESC
-       LIMIT ?`,
-        );
+            this.stmtFindPrivateRecall = this.db.prepare(
+                `SELECT message_hash
+         FROM messages
+         WHERE is_group = 0 AND session_id = ? AND client_sequence = ?
+           AND private_direction = ? AND timestamp <= ?
+         ORDER BY timestamp DESC, sequence DESC
+         LIMIT 1`,
+            );
 
-        this.stmtFindLatestAuthoritativeSequence = this.db.prepare(
-            `SELECT sequence
-       FROM messages
-       WHERE is_group = ? AND session_id = ? AND sequence_authoritative = 1 AND sequence > 0
-       ORDER BY sequence DESC
-       LIMIT 1`,
-        );
+            this.stmtFindPrivateMessageAtTime = this.db.prepare(
+                `SELECT message_hash, data
+         FROM messages
+         WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?`,
+            );
 
-        this.stmtFindLatestPersistedAuthoritativeSequence = this.db.prepare(
-            `SELECT sequence
-       FROM messages
-       WHERE is_group = ? AND session_id = ? AND data IS NOT NULL
-         AND sequence_authoritative = 1 AND sequence > 0
-       ORDER BY sequence DESC
-       LIMIT 1`,
-        );
+            this.stmtFindPrivateMessageBySequence = this.db.prepare(
+                `SELECT message_hash
+         FROM messages
+         WHERE is_group = 0 AND session_id = ? AND sequence = ?
+           AND private_direction = ? AND sequence_authoritative = 1
+         LIMIT 1`,
+            );
 
-        this.stmtListIncomingC2CSessions = this.db.prepare(
-            `SELECT session_id
-       FROM messages
-       WHERE is_group = 0
-         AND data IS NOT NULL
-         AND json_extract(data, '$.post_type') = 'message'
-         AND json_extract(data, '$.message_type') = 'private'
-         AND json_extract(data, '$.sub_type') = 'friend'
-       GROUP BY session_id
-       ORDER BY session_id ASC`,
-        );
+            this.stmtFindPrivateOutgoingNearTime = this.db.prepare(
+                `SELECT message_hash
+         FROM messages
+         WHERE is_group = 0 AND session_id = ? AND private_direction = ?
+           AND timestamp BETWEEN ? AND ?
+         ORDER BY ABS(timestamp - ?) ASC, sequence DESC
+         LIMIT 2`,
+            );
 
-        this.stmtFindPrivateRecall = this.db.prepare(
-            `SELECT message_hash
-       FROM messages
-       WHERE is_group = 0 AND session_id = ? AND client_sequence = ?
-         AND private_direction = ? AND timestamp <= ?
-       ORDER BY timestamp DESC, sequence DESC
-       LIMIT 1`,
-        );
+            this.stmtFindPrivateRecallTombstone = this.db.prepare(
+                `SELECT recalled_at
+         FROM private_recall_tombstones
+         WHERE session_id = ? AND client_sequence = ? AND private_direction = ?`,
+            );
 
-        this.stmtFindPrivateMessageAtTime = this.db.prepare(
-            `SELECT message_hash, data
-       FROM messages
-       WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?`,
-        );
+            this.stmtUpsertPrivateRecallTombstone = this.db.prepare(
+                `INSERT INTO private_recall_tombstones
+           (session_id, client_sequence, private_direction, recalled_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(session_id, client_sequence, private_direction) DO UPDATE SET
+           recalled_at = MAX(private_recall_tombstones.recalled_at, excluded.recalled_at)`,
+            );
 
-        this.stmtFindPrivateMessageBySequence = this.db.prepare(
-            `SELECT message_hash
-       FROM messages
-       WHERE is_group = 0 AND session_id = ? AND sequence = ?
-         AND private_direction = ? AND sequence_authoritative = 1
-       LIMIT 1`,
-        );
-
-        this.stmtFindPrivateOutgoingNearTime = this.db.prepare(
-            `SELECT message_hash
-       FROM messages
-       WHERE is_group = 0 AND session_id = ? AND private_direction = ?
-         AND timestamp BETWEEN ? AND ?
-       ORDER BY ABS(timestamp - ?) ASC, sequence DESC
-       LIMIT 2`,
-        );
-
-        this.stmtFindPrivateRecallTombstone = this.db.prepare(
-            `SELECT recalled_at
-       FROM private_recall_tombstones
-       WHERE session_id = ? AND client_sequence = ? AND private_direction = ?`,
-        );
-
-        this.stmtUpsertPrivateRecallTombstone = this.db.prepare(
-            `INSERT INTO private_recall_tombstones
-         (session_id, client_sequence, private_direction, recalled_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(session_id, client_sequence, private_direction) DO UPDATE SET
-         recalled_at = MAX(private_recall_tombstones.recalled_at, excluded.recalled_at)`,
-        );
-
-        this.stmtDeleteMessage = this.db.prepare('DELETE FROM messages WHERE message_hash = ?');
+            this.stmtDeleteMessage = this.db.prepare('DELETE FROM messages WHERE message_hash = ?');
+        });
+        void this.initialization.catch(() => undefined);
     }
 
-    close(): void {
-        this.db.close();
+    async close(): Promise<void> {
+        await this.initialization.catch(() => undefined);
+        await this.db.close();
     }
 
-    storeEvent(
+    async storeEvent(
         messageId: number,
         isGroup: boolean,
         sessionId: number,
@@ -253,136 +260,163 @@ export class MessageStore {
         eventName: string,
         event: JsonObject,
         options: StoreEventOptions = {},
-    ): void {
-        if (!isValidMessageId(messageId)) {
-            return;
-        }
+    ): Promise<boolean> {
+        event = snapshotMessageEvent(event);
+        options = { ...options };
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const json = JSON.stringify(event);
-        const timestamp = toInt(event.time);
-        const privateDirection = eventPrivateDirection(isGroup, event);
+            if (!isValidMessageId(messageId)) {
+                return false;
+            }
 
-        if (privateDirection >= 0) {
-            const existing = this.stmtFindMeta.get(messageId) as
-                { client_sequence: number } | undefined;
-            const eventClientSequence = toInt(event.message_seq);
-            const clientSequence =
-                existing?.client_sequence && existing.client_sequence > 0
-                    ? existing.client_sequence
-                    : eventClientSequence;
+            const json = JSON.stringify(event);
+            const timestamp = toInt(event.time);
+            const privateDirection = eventPrivateDirection(isGroup, event);
+
+            if (privateDirection >= 0) {
+                const existing = (await this.stmtFindMeta.get(messageId)) as
+                    { client_sequence: number } | undefined;
+                const eventClientSequence = toInt(event.message_seq);
+                const clientSequence =
+                    existing?.client_sequence && existing.client_sequence > 0
+                        ? existing.client_sequence
+                        : eventClientSequence;
+
+                if (
+                    clientSequence > 0 &&
+                    (await this.isPrivateMessageRecalled(
+                        sessionId,
+                        clientSequence,
+                        privateDirection === 1,
+                        timestamp,
+                    ))
+                ) {
+                    await this.stmtDeleteMessage.run(messageId);
+                    log.debug(
+                        'suppressed recalled private event: peer=%d clientSeq=%d self=%s messageId=%d',
+                        sessionId,
+                        clientSequence,
+                        String(privateDirection === 1),
+                        messageId,
+                    );
+                    return false;
+                }
+            }
+
+            const previous = (await this.stmtFindMedia.get(messageId)) as
+                { media_data: string | null } | undefined;
+            const media = mergeMessageMedia(
+                previous?.media_data ?? null,
+                serializeMessageMedia(event),
+            );
+            await this.stmtStoreEvent.run(
+                messageId,
+                isGroup ? 1 : 0,
+                sessionId,
+                sequence,
+                options.sequenceAuthoritative === false ? 0 : 1,
+                eventName,
+                privateDirection,
+                timestamp,
+                json,
+                media,
+            );
+            return true;
+        });
+    }
+
+    async findMedia(messageId: number): Promise<MessageMedia[] | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
+
+            if (!isValidMessageId(messageId)) {
+                return null;
+            }
+
+            const row = (await this.stmtFindMedia.get(messageId)) as
+                { media_data: string | null } | undefined;
+            return row?.media_data != null ? parseMessageMedia(row.media_data) : null;
+        });
+    }
+
+    async storeMeta(messageId: number, meta: MessageMeta): Promise<void> {
+        meta = { ...meta };
+        return this.db.serial(async () => {
+            await this.initialization;
+
+            if (!isValidMessageId(messageId)) {
+                return;
+            }
+
+            const privateDirection = encodePrivateDirection(meta.privateDirection);
 
             if (
-                clientSequence > 0 &&
-                this.isPrivateMessageRecalled(
-                    sessionId,
-                    clientSequence,
+                !meta.isGroup &&
+                privateDirection >= 0 &&
+                meta.clientSequence > 0 &&
+                (await this.isPrivateMessageRecalled(
+                    meta.targetId,
+                    meta.clientSequence,
                     privateDirection === 1,
-                    timestamp,
-                )
+                    meta.timestamp,
+                ))
             ) {
-                this.stmtDeleteMessage.run(messageId);
+                await this.stmtDeleteMessage.run(messageId);
                 log.debug(
-                    'suppressed recalled private event: peer=%d clientSeq=%d self=%s messageId=%d',
-                    sessionId,
-                    clientSequence,
+                    'suppressed recalled private meta: peer=%d clientSeq=%d self=%s messageId=%d',
+                    meta.targetId,
+                    meta.clientSequence,
                     String(privateDirection === 1),
                     messageId,
                 );
                 return;
             }
-        }
 
-        const previous = this.stmtFindMedia.get(messageId) as
-            { media_data: string | null } | undefined;
-        const media = mergeMessageMedia(previous?.media_data ?? null, serializeMessageMedia(event));
-        this.stmtStoreEvent.run(
-            messageId,
-            isGroup ? 1 : 0,
-            sessionId,
-            sequence,
-            options.sequenceAuthoritative === false ? 0 : 1,
-            eventName,
-            privateDirection,
-            timestamp,
-            json,
-            media,
-        );
-    }
-
-    findMedia(messageId: number): MessageMedia[] | null {
-        if (!isValidMessageId(messageId)) {
-            return null;
-        }
-
-        const row = this.stmtFindMedia.get(messageId) as { media_data: string | null } | undefined;
-        return row?.media_data != null ? parseMessageMedia(row.media_data) : null;
-    }
-
-    storeMeta(messageId: number, meta: MessageMeta): void {
-        if (!isValidMessageId(messageId)) {
-            return;
-        }
-
-        const privateDirection = encodePrivateDirection(meta.privateDirection);
-
-        if (
-            !meta.isGroup &&
-            privateDirection >= 0 &&
-            meta.clientSequence > 0 &&
-            this.isPrivateMessageRecalled(
-                meta.targetId,
-                meta.clientSequence,
-                privateDirection === 1,
-                meta.timestamp,
-            )
-        ) {
-            this.stmtDeleteMessage.run(messageId);
-            log.debug(
-                'suppressed recalled private meta: peer=%d clientSeq=%d self=%s messageId=%d',
-                meta.targetId,
-                meta.clientSequence,
-                String(privateDirection === 1),
+            await this.stmtStoreMeta.run(
                 messageId,
+                meta.isGroup ? 1 : 0,
+                meta.targetId,
+                meta.sequence,
+                meta.sequenceAuthoritative === false ? 0 : 1,
+                meta.eventName,
+                meta.clientSequence,
+                privateDirection,
+                meta.random,
+                meta.timestamp,
             );
-            return;
-        }
-
-        this.stmtStoreMeta.run(
-            messageId,
-            meta.isGroup ? 1 : 0,
-            meta.targetId,
-            meta.sequence,
-            meta.sequenceAuthoritative === false ? 0 : 1,
-            meta.eventName,
-            meta.clientSequence,
-            privateDirection,
-            meta.random,
-            meta.timestamp,
-        );
-    }
-
-    storeMetas(entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>): void {
-        if (entries.length === 0) {
-            return;
-        }
-
-        this.runInImmediateTransaction(() => {
-            for (const { messageId, meta } of entries) {
-                this.storeMeta(messageId, meta);
-            }
         });
     }
 
-    private runInImmediateTransaction<T>(work: () => T): T {
-        this.db.exec('BEGIN IMMEDIATE');
+    async storeMetas(
+        entries: ReadonlyArray<{ messageId: number; meta: MessageMeta }>,
+    ): Promise<void> {
+        entries = structuredClone(entries);
+        return this.db.serial(async () => {
+            await this.initialization;
+
+            if (entries.length === 0) {
+                return;
+            }
+
+            await this.runInImmediateTransaction(async () => {
+                for (const { messageId, meta } of entries) {
+                    await this.storeMeta(messageId, meta);
+                }
+            });
+        });
+    }
+
+    private async runInImmediateTransaction<T>(work: () => T | Promise<T>): Promise<T> {
+        await this.db.exec('BEGIN IMMEDIATE');
 
         try {
-            const result = work();
-            this.db.exec('COMMIT');
+            const result = await work();
+            await this.db.exec('COMMIT');
             return result;
         } catch (error) {
             try {
-                this.db.exec('ROLLBACK');
+                await this.db.exec('ROLLBACK');
             } catch (rollbackError) {
                 const originalMessage = error instanceof Error ? error.message : String(error);
                 const rollbackMessage =
@@ -405,7 +439,7 @@ export class MessageStore {
      * in one transaction so a failed body write can never leave an authoritative
      * sequence that makes a later login skip the missing message.
      */
-    storeHistoryEvent(
+    async storeHistoryEvent(
         messageId: number,
         isGroup: boolean,
         sessionId: number,
@@ -413,115 +447,134 @@ export class MessageStore {
         eventName: string,
         event: JsonObject,
         options: StoreHistoryEventOptions = {},
-    ): void {
-        const { meta, ...eventOptions } = options;
+    ): Promise<boolean> {
+        return this.db.serial(async () => {
+            await this.initialization;
+            const { meta, ...eventOptions } = options;
 
-        if (!meta) {
-            this.storeEvent(
-                messageId,
-                isGroup,
-                sessionId,
-                sequence,
-                eventName,
-                event,
-                eventOptions,
-            );
-            return;
-        }
+            if (!meta) {
+                return this.storeEvent(
+                    messageId,
+                    isGroup,
+                    sessionId,
+                    sequence,
+                    eventName,
+                    event,
+                    eventOptions,
+                );
+            }
 
-        this.runInImmediateTransaction(() => {
-            this.storeMeta(messageId, meta);
-            this.storeEvent(
-                messageId,
-                isGroup,
-                sessionId,
-                sequence,
-                eventName,
-                event,
-                eventOptions,
-            );
+            return this.runInImmediateTransaction(async () => {
+                await this.storeMeta(messageId, meta);
+                return this.storeEvent(
+                    messageId,
+                    isGroup,
+                    sessionId,
+                    sequence,
+                    eventName,
+                    event,
+                    eventOptions,
+                );
+            });
         });
     }
 
-    findEvent(messageId: number): JsonObject | null {
-        if (!isValidMessageId(messageId)) {
-            return null;
-        }
+    async findEvent(messageId: number): Promise<JsonObject | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const row = this.stmtFindEvent.get(messageId) as { data: string } | undefined;
+            if (!isValidMessageId(messageId)) {
+                return null;
+            }
 
-        if (!row?.data) {
-            return null;
-        }
+            const row = (await this.stmtFindEvent.get(messageId)) as { data: string } | undefined;
 
-        try {
-            return JSON.parse(row.data) as JsonObject;
-        } catch {
-            return null;
-        }
+            if (!row?.data) {
+                return null;
+            }
+
+            try {
+                return JSON.parse(row.data) as JsonObject;
+            } catch {
+                return null;
+            }
+        });
     }
 
-    findMeta(messageId: number): MessageMeta | null {
-        if (!isValidMessageId(messageId)) {
-            return null;
-        }
+    async findMeta(messageId: number): Promise<MessageMeta | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const row = this.stmtFindMeta.get(messageId) as
-            | {
-                  is_group: number;
-                  session_id: number;
-                  sequence: number;
-                  sequence_authoritative: number;
-                  event_name: string;
-                  client_sequence: number;
-                  private_direction: number;
-                  random: number;
-                  timestamp: number;
-              }
-            | undefined;
+            if (!isValidMessageId(messageId)) {
+                return null;
+            }
 
-        if (!row) {
-            return null;
-        }
+            const row = (await this.stmtFindMeta.get(messageId)) as
+                | {
+                      is_group: number;
+                      session_id: number;
+                      sequence: number;
+                      sequence_authoritative: number;
+                      event_name: string;
+                      client_sequence: number;
+                      private_direction: number;
+                      random: number;
+                      timestamp: number;
+                  }
+                | undefined;
 
-        return {
-            isGroup: row.is_group === 1,
-            targetId: row.session_id,
-            sequence: row.sequence,
-            sequenceAuthoritative: row.sequence_authoritative === 1,
-            eventName: row.event_name,
-            clientSequence: row.client_sequence,
-            ...(row.private_direction === 0
-                ? { privateDirection: 'incoming' as const }
-                : row.private_direction === 1
-                  ? { privateDirection: 'outgoing' as const }
-                  : {}),
-            random: row.random,
-            timestamp: row.timestamp,
-        };
+            if (!row) {
+                return null;
+            }
+
+            return {
+                isGroup: row.is_group === 1,
+                targetId: row.session_id,
+                sequence: row.sequence,
+                sequenceAuthoritative: row.sequence_authoritative === 1,
+                eventName: row.event_name,
+                clientSequence: row.client_sequence,
+                ...(row.private_direction === 0
+                    ? { privateDirection: 'incoming' as const }
+                    : row.private_direction === 1
+                      ? { privateDirection: 'outgoing' as const }
+                      : {}),
+                random: row.random,
+                timestamp: row.timestamp,
+            };
+        });
     }
 
-    resolveReplySequence(isGroup: boolean, sessionId: number, messageId: number): number | null {
-        if (!Number.isInteger(sessionId) || sessionId <= 0 || !isValidMessageId(messageId)) {
-            return null;
-        }
+    async resolveReplySequence(
+        isGroup: boolean,
+        sessionId: number,
+        messageId: number,
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        // For private messages, we cannot rely on session_id matching because:
-        // - When receiving: session_id is the sender's UIN
-        // - When sending reply: sessionId parameter is the recipient's UIN (who we're sending to)
-        // So for private messages, we only match by message_hash and is_group flag.
-        // Replies use ContentHead field 5 (sender-local client sequence), while
-        // `sequence` stores field 11 for bidirectional history pagination.
-        const row = isGroup
-            ? (this.stmtResolveReplyGroup.get(sessionId, messageId) as
-                  { sequence: number } | undefined)
-            : (this.stmtResolveReplyPrivate.get(messageId) as { sequence: number } | undefined);
+            if (!Number.isInteger(sessionId) || sessionId <= 0 || !isValidMessageId(messageId)) {
+                return null;
+            }
 
-        if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
-            return null;
-        }
+            // For private messages, we cannot rely on session_id matching because:
+            // - When receiving: session_id is the sender's UIN
+            // - When sending reply: sessionId parameter is the recipient's UIN (who we're sending to)
+            // So for private messages, we only match by message_hash and is_group flag.
+            // Replies use ContentHead field 5 (sender-local client sequence), while
+            // `sequence` stores field 11 for bidirectional history pagination.
+            const row = isGroup
+                ? ((await this.stmtResolveReplyGroup.get(sessionId, messageId)) as
+                      { sequence: number } | undefined)
+                : ((await this.stmtResolveReplyPrivate.get(messageId)) as
+                      { sequence: number } | undefined);
 
-        return row.sequence;
+            if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
+                return null;
+            }
+
+            return row.sequence;
+        });
     }
 
     /**
@@ -529,32 +582,40 @@ export class MessageStore {
      * timestamp are part of the key because QQ can reuse the same client sequence
      * in the opposite direction and after a client restart.
      */
-    findPrivateMessageId(
+    async findPrivateMessageId(
         sessionId: number,
         clientSequence: number,
         sentBySelf: boolean,
         atOrBefore?: number,
-    ): number | null {
-        const upperTimestamp = atOrBefore === undefined ? Number.MAX_SAFE_INTEGER : atOrBefore;
-        validatePrivateRecallKey(sessionId, clientSequence, upperTimestamp, 'message lookup time');
-        const row = this.stmtFindPrivateRecall.get(
-            sessionId,
-            clientSequence,
-            sentBySelf ? 1 : 0,
-            upperTimestamp,
-        ) as { message_hash: number } | undefined;
-
-        if (!row) {
-            return null;
-        }
-
-        if (!isValidMessageId(row.message_hash)) {
-            throw new Error(
-                `private message lookup matched invalid message id ${String(row.message_hash)}`,
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
+            const upperTimestamp = atOrBefore === undefined ? Number.MAX_SAFE_INTEGER : atOrBefore;
+            validatePrivateRecallKey(
+                sessionId,
+                clientSequence,
+                upperTimestamp,
+                'message lookup time',
             );
-        }
+            const row = (await this.stmtFindPrivateRecall.get(
+                sessionId,
+                clientSequence,
+                sentBySelf ? 1 : 0,
+                upperTimestamp,
+            )) as { message_hash: number } | undefined;
 
-        return row.message_hash;
+            if (!row) {
+                return null;
+            }
+
+            if (!isValidMessageId(row.message_hash)) {
+                throw new Error(
+                    `private message lookup matched invalid message id ${String(row.message_hash)}`,
+                );
+            }
+
+            return row.message_hash;
+        });
     }
 
     /**
@@ -564,250 +625,294 @@ export class MessageStore {
      * quote sequence is often neither of those stored values, and the
      * quote time can drift a few seconds from the send receipt.
      */
-    resolvePrivateReplyMessageId(
+    async resolvePrivateReplyMessageId(
         sessionId: number,
         replySequence: number,
         sentBySelf: boolean,
         timestamp?: number,
         replyElements?: readonly MessageElement[],
-    ): number | null {
-        if (Number.isSafeInteger(replySequence) && replySequence > 0) {
-            const byClientSequence = this.findPrivateMessageId(
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
+
+            if (Number.isSafeInteger(replySequence) && replySequence > 0) {
+                const byClientSequence = await this.findPrivateMessageId(
+                    sessionId,
+                    replySequence,
+                    sentBySelf,
+                    timestamp,
+                );
+
+                if (byClientSequence !== null) {
+                    return byClientSequence;
+                }
+
+                const byConversationSequence = await this.findPrivateMessageIdBySequence(
+                    sessionId,
+                    replySequence,
+                    sentBySelf,
+                );
+
+                if (byConversationSequence !== null) {
+                    return byConversationSequence;
+                }
+            }
+
+            if (!sentBySelf) {
+                return null;
+            }
+
+            const byExactTime = await this.findPrivateMessageIdAtTime(
                 sessionId,
-                replySequence,
-                sentBySelf,
+                true,
                 timestamp,
+                replyElements,
             );
 
-            if (byClientSequence !== null) {
-                return byClientSequence;
+            if (byExactTime !== null) {
+                return byExactTime;
             }
 
-            const byConversationSequence = this.findPrivateMessageIdBySequence(
-                sessionId,
-                replySequence,
-                sentBySelf,
-            );
+            const byNearbyTime = await this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
 
-            if (byConversationSequence !== null) {
-                return byConversationSequence;
+            if (byNearbyTime !== null) {
+                return byNearbyTime;
             }
-        }
 
-        if (!sentBySelf) {
             return null;
-        }
-
-        const byExactTime = this.findPrivateMessageIdAtTime(
-            sessionId,
-            true,
-            timestamp,
-            replyElements,
-        );
-
-        if (byExactTime !== null) {
-            return byExactTime;
-        }
-
-        const byNearbyTime = this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
-
-        if (byNearbyTime !== null) {
-            return byNearbyTime;
-        }
-
-        return null;
+        });
     }
 
-    findPrivateMessageIdAtTime(
+    async findPrivateMessageIdAtTime(
         sessionId: number,
         sentBySelf: boolean,
         timestamp?: number,
         replyElements?: readonly MessageElement[],
-    ): number | null {
-        if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-            return null;
-        }
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        if (!isUsablePrivateQuoteTime(timestamp)) {
-            return null;
-        }
-
-        const rows = this.stmtFindPrivateMessageAtTime.all(
-            sessionId,
-            sentBySelf ? 1 : 0,
-            timestamp,
-        ) as { message_hash: number; data: string | null }[];
-
-        if (rows.length === 0) {
-            return null;
-        }
-
-        let matches = rows;
-
-        if (rows.length > 1) {
-            const text =
-                replyElements?.length && replyElements.every((e) => e.type === 'text')
-                    ? replyElements.map((e) => e.text ?? '').join('')
-                    : null;
-            const candidates = text
-                ? rows
-                      .map((row) => ({ row, preview: cachedQuoteText(row.data) }))
-                      .filter(({ preview }) => preview === null || preview.text.startsWith(text))
-                : [];
-            matches =
-                candidates.length === 1 &&
-                candidates[0]!.preview?.plain &&
-                candidates[0]!.preview.text === text
-                    ? [candidates[0]!.row]
-                    : [];
-
-            if (matches.length !== 1) {
-                log.debug(
-                    'private quote time is ambiguous: peer=%d time=%d candidates=%d contentMatches=%d',
-                    sessionId,
-                    timestamp,
-                    rows.length,
-                    matches.length,
-                );
+            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
                 return null;
             }
-        }
 
-        const row = matches[0]!;
+            if (!isUsablePrivateQuoteTime(timestamp)) {
+                return null;
+            }
 
-        if (!isValidMessageId(row.message_hash)) {
-            throw new Error(
-                `private message lookup matched invalid message id ${String(row.message_hash)}`,
-            );
-        }
+            const rows = (await this.stmtFindPrivateMessageAtTime.all(
+                sessionId,
+                sentBySelf ? 1 : 0,
+                timestamp,
+            )) as { message_hash: number; data: string | null }[];
 
-        return row.message_hash;
+            if (rows.length === 0) {
+                return null;
+            }
+
+            let matches = rows;
+
+            if (rows.length > 1) {
+                const text =
+                    replyElements?.length && replyElements.every((e) => e.type === 'text')
+                        ? replyElements.map((e) => e.text ?? '').join('')
+                        : null;
+                const candidates = text
+                    ? rows
+                          .map((row) => ({ row, preview: cachedQuoteText(row.data) }))
+                          .filter(
+                              ({ preview }) => preview === null || preview.text.startsWith(text),
+                          )
+                    : [];
+                matches =
+                    candidates.length === 1 &&
+                    candidates[0]!.preview?.plain &&
+                    candidates[0]!.preview.text === text
+                        ? [candidates[0]!.row]
+                        : [];
+
+                if (matches.length !== 1) {
+                    log.debug(
+                        'private quote time is ambiguous: peer=%d time=%d candidates=%d contentMatches=%d',
+                        sessionId,
+                        timestamp,
+                        rows.length,
+                        matches.length,
+                    );
+                    return null;
+                }
+            }
+
+            const row = matches[0]!;
+
+            if (!isValidMessageId(row.message_hash)) {
+                throw new Error(
+                    `private message lookup matched invalid message id ${String(row.message_hash)}`,
+                );
+            }
+
+            return row.message_hash;
+        });
     }
 
-    findPrivateMessageIdBySequence(
+    async findPrivateMessageIdBySequence(
         sessionId: number,
         sequence: number,
         sentBySelf: boolean,
-    ): number | null {
-        if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-            return null;
-        }
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        if (!Number.isSafeInteger(sequence) || sequence <= 0) {
-            return null;
-        }
-
-        const row = this.stmtFindPrivateMessageBySequence.get(
-            sessionId,
-            sequence,
-            sentBySelf ? 1 : 0,
-        ) as { message_hash: number } | undefined;
-
-        if (!row) {
-            return null;
-        }
-
-        if (!isValidMessageId(row.message_hash)) {
-            throw new Error(
-                `private message lookup matched invalid message id ${String(row.message_hash)}`,
-            );
-        }
-
-        return row.message_hash;
-    }
-
-    findUniquePrivateOutgoingNearTime(sessionId: number, timestamp?: number): number | null {
-        if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-            return null;
-        }
-
-        if (!isUsablePrivateQuoteTime(timestamp)) {
-            return null;
-        }
-
-        for (const windowSeconds of PRIVATE_REPLY_TIME_WINDOWS_SECONDS) {
-            const rows = this.stmtFindPrivateOutgoingNearTime.all(
-                sessionId,
-                1,
-                timestamp - windowSeconds,
-                timestamp + windowSeconds,
-                timestamp,
-            ) as Array<{ message_hash: number }>;
-
-            if (rows.length !== 1) {
-                continue;
+            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
+                return null;
             }
 
-            if (!isValidMessageId(rows[0].message_hash)) {
+            if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+                return null;
+            }
+
+            const row = (await this.stmtFindPrivateMessageBySequence.get(
+                sessionId,
+                sequence,
+                sentBySelf ? 1 : 0,
+            )) as { message_hash: number } | undefined;
+
+            if (!row) {
+                return null;
+            }
+
+            if (!isValidMessageId(row.message_hash)) {
                 throw new Error(
-                    `private message lookup matched invalid message id ${String(rows[0].message_hash)}`,
+                    `private message lookup matched invalid message id ${String(row.message_hash)}`,
                 );
             }
 
-            return rows[0].message_hash;
-        }
-
-        return null;
+            return row.message_hash;
+        });
     }
 
-    listSessionEvents(
+    async findUniquePrivateOutgoingNearTime(
+        sessionId: number,
+        timestamp?: number,
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
+
+            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
+                return null;
+            }
+
+            if (!isUsablePrivateQuoteTime(timestamp)) {
+                return null;
+            }
+
+            for (const windowSeconds of PRIVATE_REPLY_TIME_WINDOWS_SECONDS) {
+                const rows = (await this.stmtFindPrivateOutgoingNearTime.all(
+                    sessionId,
+                    1,
+                    timestamp - windowSeconds,
+                    timestamp + windowSeconds,
+                    timestamp,
+                )) as Array<{ message_hash: number }>;
+
+                if (rows.length !== 1) {
+                    continue;
+                }
+
+                if (!isValidMessageId(rows[0].message_hash)) {
+                    throw new Error(
+                        `private message lookup matched invalid message id ${String(rows[0].message_hash)}`,
+                    );
+                }
+
+                return rows[0].message_hash;
+            }
+
+            return null;
+        });
+    }
+
+    async listSessionEvents(
         isGroup: boolean,
         sessionId: number,
         count = 20,
         anchorSequence?: number,
         reverseOrder = true,
-    ): JsonObject[] {
-        if (!Number.isInteger(sessionId) || sessionId <= 0) {
-            return [];
-        }
+    ): Promise<JsonObject[]> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const limit = normalizePositiveInt(count, 20, 200);
-        const hasAnchor = Number.isInteger(anchorSequence) && (anchorSequence as number) > 0;
-        const anchor = hasAnchor ? (anchorSequence as number) : 0;
-
-        const rows = hasAnchor
-            ? reverseOrder
-                ? this.stmtListEventsAnchored.all(isGroup ? 1 : 0, sessionId, anchor, limit)
-                : this.stmtListEventsAnchoredForward.all(isGroup ? 1 : 0, sessionId, anchor, limit)
-            : this.stmtListEventsLatest.all(isGroup ? 1 : 0, sessionId, limit);
-
-        const result: JsonObject[] = [];
-
-        for (const row of rows as Array<{ data: string }>) {
-            if (!row?.data) {
-                continue;
+            if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                return [];
             }
 
-            try {
-                const parsed = JSON.parse(row.data) as JsonObject;
-                result.push(parsed);
-            } catch {
-                // Ignore malformed rows to avoid breaking history APIs.
+            const limit = normalizePositiveInt(count, 20, 200);
+            const hasAnchor = Number.isInteger(anchorSequence) && (anchorSequence as number) > 0;
+            const anchor = hasAnchor ? (anchorSequence as number) : 0;
+
+            const rows = hasAnchor
+                ? reverseOrder
+                    ? await this.stmtListEventsAnchored.all(
+                          isGroup ? 1 : 0,
+                          sessionId,
+                          anchor,
+                          limit,
+                      )
+                    : await this.stmtListEventsAnchoredForward.all(
+                          isGroup ? 1 : 0,
+                          sessionId,
+                          anchor,
+                          limit,
+                      )
+                : await this.stmtListEventsLatest.all(isGroup ? 1 : 0, sessionId, limit);
+
+            const result: JsonObject[] = [];
+
+            for (const row of rows as Array<{ data: string }>) {
+                if (!row?.data) {
+                    continue;
+                }
+
+                try {
+                    const parsed = JSON.parse(row.data) as JsonObject;
+                    result.push(parsed);
+                } catch {
+                    // Ignore malformed rows to avoid breaking history APIs.
+                }
             }
-        }
 
-        // Backward/latest queries are selected DESC, while forward queries already
-        // arrive ASC. Always expose chronological order to API consumers.
-        if (!hasAnchor || reverseOrder) {
-            result.reverse();
-        }
+            // Backward/latest queries are selected DESC, while forward queries already
+            // arrive ASC. Always expose chronological order to API consumers.
+            if (!hasAnchor || reverseOrder) {
+                result.reverse();
+            }
 
-        return result;
+            return result;
+        });
     }
 
-    findLatestAuthoritativeSequence(isGroup: boolean, sessionId: number): number | null {
-        if (!Number.isInteger(sessionId) || sessionId <= 0) {
-            return null;
-        }
+    async findLatestAuthoritativeSequence(
+        isGroup: boolean,
+        sessionId: number,
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const row = this.stmtFindLatestAuthoritativeSequence.get(isGroup ? 1 : 0, sessionId) as
-            { sequence: number } | undefined;
+            if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                return null;
+            }
 
-        if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
-            return null;
-        }
+            const row = (await this.stmtFindLatestAuthoritativeSequence.get(
+                isGroup ? 1 : 0,
+                sessionId,
+            )) as { sequence: number } | undefined;
 
-        return row.sequence;
+            if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
+                return null;
+            }
+
+            return row.sequence;
+        });
     }
 
     /**
@@ -815,21 +920,28 @@ export class MessageStore {
      * actually present. Automatic history backfill must use this cursor so a
      * metadata-only live row cannot hide a missing event body.
      */
-    findLatestPersistedAuthoritativeSequence(isGroup: boolean, sessionId: number): number | null {
-        if (!Number.isInteger(sessionId) || sessionId <= 0) {
-            return null;
-        }
+    async findLatestPersistedAuthoritativeSequence(
+        isGroup: boolean,
+        sessionId: number,
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
 
-        const row = this.stmtFindLatestPersistedAuthoritativeSequence.get(
-            isGroup ? 1 : 0,
-            sessionId,
-        ) as { sequence: number } | undefined;
+            if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                return null;
+            }
 
-        if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
-            return null;
-        }
+            const row = (await this.stmtFindLatestPersistedAuthoritativeSequence.get(
+                isGroup ? 1 : 0,
+                sessionId,
+            )) as { sequence: number } | undefined;
 
-        return row.sequence;
+            if (!row || !Number.isInteger(row.sequence) || row.sequence <= 0) {
+                return null;
+            }
+
+            return row.sequence;
+        });
     }
 
     /**
@@ -838,76 +950,82 @@ export class MessageStore {
      * carry the bidirectional NT sequence, so this lookup must happen before the
      * notice is converted.
      */
-    recordPrivateRecall(
+    async recordPrivateRecall(
         sessionId: number,
         clientSequence: number,
         recalledBySelf: boolean,
         recalledAt: number,
-    ): number | null {
-        validatePrivateRecallKey(sessionId, clientSequence, recalledAt);
-        const direction = recalledBySelf ? 1 : 0;
+    ): Promise<number | null> {
+        return this.db.serial(async () => {
+            await this.initialization;
+            validatePrivateRecallKey(sessionId, clientSequence, recalledAt);
+            const direction = recalledBySelf ? 1 : 0;
 
-        const removedMessageId = this.runInImmediateTransaction(() => {
-            this.stmtUpsertPrivateRecallTombstone.run(
-                sessionId,
-                clientSequence,
-                direction,
-                recalledAt,
-            );
-            const row = this.stmtFindPrivateRecall.get(
-                sessionId,
-                clientSequence,
-                direction,
-                recalledAt,
-            ) as { message_hash: number } | undefined;
+            const removedMessageId = await this.runInImmediateTransaction(async () => {
+                await this.stmtUpsertPrivateRecallTombstone.run(
+                    sessionId,
+                    clientSequence,
+                    direction,
+                    recalledAt,
+                );
+                const row = (await this.stmtFindPrivateRecall.get(
+                    sessionId,
+                    clientSequence,
+                    direction,
+                    recalledAt,
+                )) as { message_hash: number } | undefined;
 
-            if (!row) {
-                return null;
-            }
+                if (!row) {
+                    return null;
+                }
 
-            if (!isValidMessageId(row.message_hash)) {
-                throw new Error(
-                    `private recall matched invalid message id ${String(row.message_hash)}`,
+                if (!isValidMessageId(row.message_hash)) {
+                    throw new Error(
+                        `private recall matched invalid message id ${String(row.message_hash)}`,
+                    );
+                }
+
+                const deleted = await this.stmtDeleteMessage.run(row.message_hash);
+
+                if (Number(deleted.changes) !== 1) {
+                    throw new Error(
+                        `private recall cache deletion lost row message=${row.message_hash} peer=${sessionId} clientSeq=${clientSequence}`,
+                    );
+                }
+
+                return row.message_hash;
+            });
+
+            if (removedMessageId !== null) {
+                log.debug(
+                    'private recall removed cached message: peer=%d clientSeq=%d self=%s messageId=%d',
+                    sessionId,
+                    clientSequence,
+                    String(recalledBySelf),
+                    removedMessageId,
                 );
             }
 
-            const deleted = this.stmtDeleteMessage.run(row.message_hash);
-
-            if (Number(deleted.changes) !== 1) {
-                throw new Error(
-                    `private recall cache deletion lost row message=${row.message_hash} peer=${sessionId} clientSeq=${clientSequence}`,
-                );
-            }
-
-            return row.message_hash;
+            return removedMessageId;
         });
-
-        if (removedMessageId !== null) {
-            log.debug(
-                'private recall removed cached message: peer=%d clientSeq=%d self=%s messageId=%d',
-                sessionId,
-                clientSequence,
-                String(recalledBySelf),
-                removedMessageId,
-            );
-        }
-
-        return removedMessageId;
     }
 
-    isPrivateMessageRecalled(
+    async isPrivateMessageRecalled(
         sessionId: number,
         clientSequence: number,
         sentBySelf: boolean,
         messageTime: number,
-    ): boolean {
-        validatePrivateRecallKey(sessionId, clientSequence, messageTime, 'message time');
-        const row = this.stmtFindPrivateRecallTombstone.get(
-            sessionId,
-            clientSequence,
-            sentBySelf ? 1 : 0,
-        ) as { recalled_at: number } | undefined;
-        return row !== undefined && row.recalled_at >= messageTime;
+    ): Promise<boolean> {
+        return this.db.serial(async () => {
+            await this.initialization;
+            validatePrivateRecallKey(sessionId, clientSequence, messageTime, 'message time');
+            const row = (await this.stmtFindPrivateRecallTombstone.get(
+                sessionId,
+                clientSequence,
+                sentBySelf ? 1 : 0,
+            )) as { recalled_at: number } | undefined;
+            return row !== undefined && row.recalled_at >= messageTime;
+        });
     }
 
     /**
@@ -916,40 +1034,47 @@ export class MessageStore {
      * the same storage lane, and sent-message echoes may be keyed by self UIN.
      * Only an incoming `sub_type=friend` event can represent unread C2C state.
      */
-    listReadSessions(currentGroupIds: readonly number[]): ReadSessionTargets {
-        const groupIds: number[] = [];
-        const seenGroups = new Set<number>();
+    async listReadSessions(currentGroupIds: readonly number[]): Promise<ReadSessionTargets> {
+        return this.db.serial(async () => {
+            await this.initialization;
+            const groupIds: number[] = [];
+            const seenGroups = new Set<number>();
 
-        for (const groupId of currentGroupIds) {
-            if (!Number.isSafeInteger(groupId) || groupId <= 0) {
-                throw new Error(`current group list contains invalid group id ${String(groupId)}`);
+            for (const groupId of currentGroupIds) {
+                if (!Number.isSafeInteger(groupId) || groupId <= 0) {
+                    throw new Error(
+                        `current group list contains invalid group id ${String(groupId)}`,
+                    );
+                }
+
+                if (!seenGroups.has(groupId)) {
+                    seenGroups.add(groupId);
+                    groupIds.push(groupId);
+                }
             }
 
-            if (!seenGroups.has(groupId)) {
-                seenGroups.add(groupId);
-                groupIds.push(groupId);
+            const rows = (await this.stmtListIncomingC2CSessions.all()) as Array<{
+                session_id: number;
+            }>;
+            const privateUserIds: number[] = [];
+
+            for (const row of rows) {
+                if (!Number.isSafeInteger(row.session_id) || row.session_id <= 0) {
+                    throw new Error(
+                        `messages database contains invalid session id ${String(row.session_id)}`,
+                    );
+                }
+
+                privateUserIds.push(row.session_id);
             }
-        }
 
-        const rows = this.stmtListIncomingC2CSessions.all() as Array<{ session_id: number }>;
-        const privateUserIds: number[] = [];
-
-        for (const row of rows) {
-            if (!Number.isSafeInteger(row.session_id) || row.session_id <= 0) {
-                throw new Error(
-                    `messages database contains invalid session id ${String(row.session_id)}`,
-                );
-            }
-
-            privateUserIds.push(row.session_id);
-        }
-
-        return { groupIds, privateUserIds };
+            return { groupIds, privateUserIds };
+        });
     }
 
-    private initSchema(): void {
+    private async initSchema(): Promise<void> {
         const messagesTableExists =
-            this.db
+            (await this.db
                 .prepare(
                     `
       SELECT 1 AS present
@@ -957,8 +1082,8 @@ export class MessageStore {
       WHERE type = 'table' AND name = 'messages'
     `,
                 )
-                .get() !== undefined;
-        this.db.exec(`
+                .get()) !== undefined;
+        await this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         message_hash    INTEGER PRIMARY KEY,
         is_group        INTEGER NOT NULL,
@@ -974,8 +1099,8 @@ export class MessageStore {
         classification_version INTEGER NOT NULL DEFAULT 1
       )
     `);
-        prepareMessageStoreSchema(this.db);
-        this.db.exec(`
+        await prepareMessageStoreSchema(this.db);
+        await this.db.exec(`
       CREATE TABLE IF NOT EXISTS private_recall_tombstones (
         session_id       INTEGER NOT NULL,
         client_sequence  INTEGER NOT NULL,
@@ -986,7 +1111,7 @@ export class MessageStore {
     `);
 
         if (!messagesTableExists) {
-            createMessageStoreIndexes(this.db);
+            await createMessageStoreIndexes(this.db);
         }
     }
 }

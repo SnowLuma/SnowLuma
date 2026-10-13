@@ -111,15 +111,6 @@ export function decompressData(
     return { ok: true, text: Buffer.from(data).toString('utf8'), outputBytes: data.length };
 }
 
-export function parseU64OrZero(value: string): number {
-    if (!value) {
-        return 0;
-    }
-
-    const n = parseInt(value, 10);
-    return isNaN(n) ? 0 : n;
-}
-
 /** Sync Identity lookup. Miss is unresolved (0). Decoder must not invent a UIN. */
 export function resolveUidToUin(identity: IdentityService, groupId: number, uid: string): number {
     if (!uid) {
@@ -203,9 +194,7 @@ export function decodeNestedOperatorUid(bytes: Uint8Array, context: string): str
     } catch (error) {
         throw new Error(
             `${context} operator info decode failed (${describeOperatorBytes(bytes)})`,
-            {
-                cause: error,
-            },
+            { cause: error },
         );
     }
 
