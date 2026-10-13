@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, it } from 'vitest';
 import { SqliteDatabase } from '../src/index';
 
@@ -20,23 +20,36 @@ async function filename(): Promise<string> {
 
 it('keeps the event loop responsive while SQLite waits for a write lock', async () => {
     const file = await filename();
-    const db = new SqliteDatabase(file);
+    const db = new SqliteDatabase(file, { busyTimeout: 0 });
     await db.exec('CREATE TABLE records (value INTEGER)');
-    const locker = new DatabaseSync(file);
-    locker.exec('BEGIN IMMEDIATE');
-    let timerRan = false;
-    const release = setTimeout(() => {
-        timerRan = true;
-        locker.exec('ROLLBACK');
-    }, 25);
+    const locker = new SqliteDatabase(file);
+    await locker.exec('BEGIN IMMEDIATE');
 
     try {
-        await db.prepare('INSERT INTO records VALUES (?)').run(7);
-        expect(timerRan).toBe(true);
-        expect(await db.prepare('SELECT value FROM records').get()).toEqual({ value: 7 });
+        const insert = db.prepare('INSERT INTO records VALUES (?)');
+        // Both connections must use the same SQLite library for in-process locks.
+        // Prove contention before checking whether waiting leaves timers responsive.
+        await expect(insert.run(7)).rejects.toMatchObject({ code: 'SQLITE_BUSY' });
+        await db.exec('PRAGMA busy_timeout = 1000');
+        let timerRan = false;
+        const release = delay(25).then(() => {
+            timerRan = true;
+            return locker.exec('ROLLBACK');
+        });
+
+        try {
+            await Promise.all([
+                insert.run(7).then(() => {
+                    expect(timerRan).toBe(true);
+                }),
+                release,
+            ]);
+            expect(await db.prepare('SELECT value FROM records').get()).toEqual({ value: 7 });
+        } finally {
+            await release;
+        }
     } finally {
-        clearTimeout(release);
-        locker.close();
+        await locker.close();
         await db.close();
     }
 });
