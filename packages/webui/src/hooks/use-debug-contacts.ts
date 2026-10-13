@@ -167,8 +167,9 @@ function useContactList(
             // cacheKey, which already varies on uin/group), so excluding them is
             // deliberate — including the fresh object/closure would reload every render.
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [api, cacheKey, uin, action],
-    ); // eslint-disable-line react-hooks/exhaustive-deps
+    );
 
     useEffect(() => {
         if (!cacheKey || !uin) {
