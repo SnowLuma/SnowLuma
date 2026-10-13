@@ -21,6 +21,7 @@ import type {
     GetGroupHonorInfoParams,
     GetGroupSystemMsgParams,
     GetGroupInfoParams,
+    GetGroupShareLinkParams,
     GetGroupListParams,
     GetGroupMemberInfoParams,
     GetGroupMemberListParams,
@@ -134,6 +135,7 @@ export interface SnowLumaActionMap {
     delete_friend: { params: DeleteFriendParams; data: EmptyData };
     get_group_list: { params: GetGroupListParams; data: JsonObject[] };
     get_group_info: { params: GetGroupInfoParams; data: JsonObject };
+    get_group_share_link: { params: GetGroupShareLinkParams; data: { url: string } };
     get_group_member_list: { params: GetGroupMemberListParams; data: JsonObject[] };
     get_group_member_info: { params: GetGroupMemberInfoParams; data: JsonObject };
     get_group_honor_info: { params: GetGroupHonorInfoParams; data: JsonValue };

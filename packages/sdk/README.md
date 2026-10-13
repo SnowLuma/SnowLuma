@@ -62,6 +62,8 @@ const bot = new SnowLumaHttpClient({
 
 await bot.sendPrivateMessage(10001, text('pong'));
 
+const { url } = await bot.getGroupShareLink(123456);
+
 await bot.sendGroupMessage(123456, [
   message.text('Hello'),
   message.at('all'),

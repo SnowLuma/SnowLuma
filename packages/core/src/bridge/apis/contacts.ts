@@ -25,6 +25,7 @@ import {
 } from '@snowluma/protocol/services/qidian/fetch-corp-info';
 import { GetBuddyRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-buddy-recommend-ark';
 import { GetGroupRecommendArk } from '@snowluma/protocol/oidb-services/contacts/get-group-recommend-ark';
+import { GetGroupShareLink } from '@snowluma/protocol/oidb-services/contacts/get-group-share-link';
 import {
     SendTuwenArk,
     type SendTuwenArkParams,
@@ -155,6 +156,20 @@ export class ContactsApi {
     /** Server-built ARK share card (JSON string) recommending a group. */
     getGroupRecommendArk(groupId: number): Promise<string> {
         return GetGroupRecommendArk.invoke(this.ctx, { groupId });
+    }
+
+    getGroupShareLink(
+        groupId: number,
+        needShortUrl = true,
+        srcId = 73,
+        additionalParam = '',
+    ): Promise<string> {
+        return GetGroupShareLink.invoke(this.ctx, {
+            groupId,
+            needShortUrl,
+            srcId,
+            additionalParam,
+        });
     }
 
     /** Send a custom 图文 ark card to a C2C peer or group (0xdc2_34). */

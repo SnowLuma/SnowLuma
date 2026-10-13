@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `getGroupShareLink()` and typed `get_group_share_link` support for group invitation links.
 - Breaking: require Node.js 24 or newer.
 - Add `CustomReplySegment` and `message.customReply()` for inline quote previews inside merged-forward nodes.
 - Expose optional inline content and quote metadata on received `ReplySegment` values.

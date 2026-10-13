@@ -31,6 +31,32 @@ export const groupInfoReturnsSchema = {
 };
 
 export const actions = [
+    groupAction({
+        name: 'get_group_share_link',
+        summary: '获取群分享链接',
+        readOnly: true,
+        params: {
+            need_short_url: f.bool().default(true).describe('是否获取短链接'),
+            src_id: f.int({ min: 0, max: 0xffffffff }).default(73).describe('来源标识（兼容参数）'),
+            additional_param: f.string().default('').describe('附加参数'),
+        },
+        returns: '用于分享或邀请加群的链接，可作为群二维码内容。',
+        returnsSchema: {
+            type: 'object',
+            properties: { url: { type: 'string', description: '加群分享链接' } },
+            required: ['url'],
+        },
+        run: async (p, ctx) =>
+            okResponse({
+                url: await ctx.bridge.apis.contacts.getGroupShareLink(
+                    p.group_id,
+                    p.need_short_url,
+                    p.src_id,
+                    p.additional_param,
+                ),
+            }),
+    }),
+
     defineAction({
         name: 'get_group_list',
         summary: '获取群列表',

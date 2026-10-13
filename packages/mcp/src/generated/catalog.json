@@ -5982,6 +5982,104 @@
       "category": "群文件"
     },
     {
+      "name": "get_group_share_link",
+      "aliases": [],
+      "summary": "获取群分享链接",
+      "returns": "用于分享或邀请加群的链接，可作为群二维码内容。",
+      "returnsSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "加群分享链接"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "readOnly": true,
+      "params": [
+        {
+          "name": "group_id",
+          "type": "uint",
+          "required": true,
+          "role": "group_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "群号"
+        },
+        {
+          "name": "need_short_url",
+          "type": "bool",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          },
+          "default": true,
+          "desc": "是否获取短链接"
+        },
+        {
+          "name": "src_id",
+          "type": "int",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "default": 73,
+          "desc": "来源标识（兼容参数）"
+        },
+        {
+          "name": "additional_param",
+          "type": "string",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "default": "",
+          "desc": "附加参数"
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "群号",
+            "x-role": "group_id"
+          },
+          "need_short_url": {
+            "type": "boolean",
+            "description": "是否获取短链接",
+            "default": true
+          },
+          "src_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295,
+            "description": "来源标识（兼容参数）",
+            "default": 73
+          },
+          "additional_param": {
+            "type": "string",
+            "description": "附加参数",
+            "default": ""
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "additionalProperties": true
+      },
+      "category": "群信息"
+    },
+    {
       "name": "get_group_shut_list",
       "aliases": [],
       "summary": "获取群禁言列表",
@@ -13326,7 +13424,7 @@
     },
     {
       "category": "群信息",
-      "count": 6
+      "count": 7
     },
     {
       "category": "群管理",

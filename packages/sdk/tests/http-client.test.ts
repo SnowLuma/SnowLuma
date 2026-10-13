@@ -7,6 +7,41 @@ import {
 } from '../src';
 
 describe('SnowLumaHttpClient', () => {
+    it('requests group share links with default and explicit options', async () => {
+        const url = 'https://qm.qq.com/q/example';
+        const fetchImpl = vi
+            .fn()
+            .mockImplementation(
+                async () =>
+                    new Response(JSON.stringify({ status: 'ok', retcode: 0, data: { url } })),
+            );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+
+        await expect(client.getGroupShareLink(12345)).resolves.toEqual({ url });
+        await expect(
+            client.getGroupShareLink(12345, {
+                needShortUrl: false,
+                srcId: 0,
+                additionalParam: 'source=二维码',
+            }),
+        ).resolves.toEqual({ url });
+
+        expect(
+            fetchImpl.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string)),
+        ).toEqual([
+            { action: 'get_group_share_link', params: { group_id: 12345 } },
+            {
+                action: 'get_group_share_link',
+                params: {
+                    group_id: 12345,
+                    need_short_url: false,
+                    src_id: 0,
+                    additional_param: 'source=二维码',
+                },
+            },
+        ]);
+    });
+
     it('maps extended group-info refresh options to OneBot field names', async () => {
         const fetchImpl = vi.fn().mockImplementation(
             async () =>

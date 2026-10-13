@@ -153,6 +153,26 @@ export abstract class SnowLumaApiClient {
         );
     }
 
+    getGroupShareLink(
+        groupId: number,
+        options?: RequestOptions & {
+            needShortUrl?: boolean;
+            srcId?: number;
+            additionalParam?: string;
+        },
+    ) {
+        return this.call(
+            'get_group_share_link',
+            {
+                group_id: groupId,
+                need_short_url: options?.needShortUrl,
+                src_id: options?.srcId,
+                additional_param: options?.additionalParam,
+            },
+            options,
+        );
+    }
+
     getGroupMemberInfo(
         groupId: number,
         userId: number,

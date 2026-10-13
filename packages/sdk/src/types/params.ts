@@ -52,6 +52,12 @@ export interface GetGroupInfoParams extends GroupIdParams {
     no_cache?: boolean;
 }
 
+export interface GetGroupShareLinkParams extends GroupIdParams {
+    need_short_url?: boolean;
+    src_id?: number;
+    additional_param?: string;
+}
+
 export interface GetGroupMemberListParams extends GroupIdParams {
     no_cache?: boolean;
 }
