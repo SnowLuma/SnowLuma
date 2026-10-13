@@ -14,8 +14,8 @@ import {
 import { PipeWatcher } from './pipe-watcher';
 import { createNativeProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
-import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
-import type { HookProcessInfo } from './types';
+import { detectAccountLogins, type AccountLoginState } from './qq-account';
+import type { HookProcessAccount, HookProcessInfo } from './types';
 
 const AUTO_LOAD_MAX_ATTEMPTS = 3;
 
@@ -54,6 +54,9 @@ export type HookManagerDeps = {
     watcherIntervalMs?: number;
     /** Native process lister used by `listProcesses()`. Defaults to the native addon. */
     listProcesses?: () => HookProcessBaseInfo[];
+    /** Local account detection used to label each process with the account QQ is
+     *  signed in as. Defaults to reading QQ's own account data. */
+    detectAccounts?: () => Promise<AccountLoginState[]>;
     /** When true, every newly-discovered QQ process is auto-injected (fires
      * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
      * Failed loads are logged and leave the session in the 'error' state.
@@ -101,6 +104,7 @@ export class HookManager {
     /** The owned enumerator (worker lifecycle), or null when a custom lister was
      *  injected (tests) — nothing to tear down in that case. */
     private readonly enumerator: ProcessEnumerator | null;
+    private readonly detectAccounts: () => Promise<AccountLoginState[]>;
     private readonly autoLoadOnDiscovery: boolean;
     private readonly onSessionsChangedRaw?: () => void;
     private readonly log: Logger;
@@ -127,6 +131,7 @@ export class HookManager {
             },
         };
         this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
+        this.detectAccounts = deps.detectAccounts ?? detectAccountLogins;
         this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
 
         // A custom lister (tests) is used directly — no worker, no isolation, just
@@ -181,7 +186,9 @@ export class HookManager {
         if (processes === null) {
             // Enumeration timed out / failed — report the last-known sessions rather
             // than an empty list (which the WebUI would render as "no QQ").
-            return [...this.sessions.values()].map((s) => s.toInfo()).sort((a, b) => a.pid - b.pid);
+            const known = [...this.sessions.values()].map((s) => s.toInfo());
+            const decorated = await this.decorateAccounts(known);
+            return decorated.sort((a, b) => a.pid - b.pid);
         }
 
         const result: HookProcessInfo[] = [];
@@ -192,7 +199,8 @@ export class HookManager {
             result.push(session.toInfo());
         }
 
-        return result.sort((a, b) => a.pid - b.pid);
+        const decorated = await this.decorateAccounts(result);
+        return decorated.sort((a, b) => a.pid - b.pid);
     }
 
     async loadProcess(pid: number): Promise<HookProcessInfo> {
@@ -204,7 +212,8 @@ export class HookManager {
         // Pull the next tick forward so a freshly-injected pipe gets noticed
         // within the next event-loop turn instead of after the full interval.
         this.pipeWatcher.wake();
-        return info;
+        const [decorated] = await this.decorateAccounts([info]);
+        return decorated!;
     }
 
     async unloadProcess(pid: number): Promise<HookProcessInfo> {
@@ -212,19 +221,16 @@ export class HookManager {
         await this.startPromise;
         this.autoLoadAttempts.delete(pid);
         const session = this.ensureSession(pid);
-        return session.unload();
+        const [decorated] = await this.decorateAccounts([await session.unload()]);
+        return decorated!;
     }
 
     async refreshProcess(pid: number): Promise<HookProcessInfo> {
         this.assertValidPid(pid);
         await this.startPromise;
         const session = this.ensureSession(pid);
-        return session.refresh();
-    }
-
-    async probeProcessLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
-        this.assertValidPid(pid);
-        return probeQqLoginInfo(pid);
+        const [decorated] = await this.decorateAccounts([await session.refresh()]);
+        return decorated!;
     }
 
     dispose(): void {
@@ -248,6 +254,25 @@ export class HookManager {
     }
 
     // ─────────────── wiring ───────────────
+
+    /** Label each process with the account QQ's local data reports for it. */
+    private async decorateAccounts(infos: HookProcessInfo[]): Promise<HookProcessInfo[]> {
+        const byPid = new Map<number, HookProcessAccount>();
+
+        try {
+            for (const state of await this.detectAccounts()) {
+                if (state.pid !== null) {
+                    byPid.set(state.pid, { uin: state.uin, nickname: state.nickname });
+                }
+            }
+        } catch (error) {
+            // Detection is best-effort: an unreadable login.db or a platform whose
+            // holder probe is not wired up yet leaves the processes unlabelled.
+            this.log.warn('account detection failed: %s', errMsg(error));
+        }
+
+        return infos.map((info) => ({ ...info, account: byPid.get(info.pid) ?? null }));
+    }
 
     private bindWatcher(): void {
         this.pipeWatcher.on('process-discovered', (info: HookProcessBaseInfo) => {
@@ -612,5 +637,4 @@ export function shouldAutoLoadPid(pid: number, log: Logger): boolean {
 }
 
 export type { HookProcessBaseInfo } from './injector';
-export type { QqPortLoginInfo } from './qq-port-probe';
-export type { HookProcessInfo, HookProcessStatus } from './types';
+export type { HookProcessAccount, HookProcessInfo, HookProcessStatus } from './types';

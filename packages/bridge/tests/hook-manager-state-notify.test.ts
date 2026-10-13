@@ -65,6 +65,7 @@ function makeManager(opts: { processes?: number[]; livePipes?: number[] } = {}):
         },
         makeClient: clientFactory,
         listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        detectAccounts: async () => [],
         onSessionsChanged,
     });
     return {
@@ -184,6 +185,7 @@ describe('HookManager.onSessionsChanged', () => {
                 return c;
             }),
             listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+            detectAccounts: async () => [],
             // onSessionsChanged deliberately omitted
         });
         await pipeWatcher.start();

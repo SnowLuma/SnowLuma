@@ -10,8 +10,8 @@ import { isRealUin } from '@snowluma/common/uin';
 import { EventEmitter } from 'events';
 import { HookPacketClient } from './hook-packet-client';
 import type { HookInjectResult } from './injector';
+import { detectUinForPid } from './qq-account';
 import type { QqHookClient, QqHookLoginState, QqHookPacket } from './qq-hook-client';
-import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
 import { statusFor } from './hook-status';
 import type { HookProcessInfo, HookProcessStatus } from './types';
 
@@ -36,10 +36,10 @@ export type HookSessionDeps = {
         unload: (pid: number, handle: HookInjectResult['handle']) => void;
     };
     makeClient: (pid: number) => QqHookClient;
-    /** Active, pipe-independent login probe (reads QQ's ptlogin/deeplink ports).
-     *  Drives the login-reconcile safety net; injectable for tests. Defaults to
-     *  `probeQqLoginInfo`. */
-    probeLogin?: (pid: number) => Promise<QqPortLoginInfo | null>;
+    /** Account QQ's local data reports as signed in on `pid`, or null. Drives the
+     *  login-reconcile safety net; injectable for tests. Defaults to
+     *  `detectUinForPid`. */
+    detectLoginUin?: (pid: number) => Promise<string | null>;
     /** Sync fast-path check used by load() to skip re-injection when a
      * prior SnowLuma run left a working pipe behind. `tickNow` forces a
      * fresh poll — used after unload to dodge the up-to-1500ms cache
@@ -80,7 +80,7 @@ export class HookSession extends EventEmitter {
 
     private readonly injector: HookSessionDeps['injector'];
     private readonly makeClient: HookSessionDeps['makeClient'];
-    private readonly probeLogin: (pid: number) => Promise<QqPortLoginInfo | null>;
+    private readonly detectLoginUin: (pid: number) => Promise<string | null>;
     private readonly pipeWatcher: HookSessionDeps['pipeWatcher'];
     private readonly onPacket: PacketSink | null;
     private readonly log: Logger;
@@ -101,9 +101,9 @@ export class HookSession extends EventEmitter {
     private bound = false;
     private opChain: Promise<unknown> = Promise.resolve();
     private disposed = false;
-    private loginProbeTimer: ReturnType<typeof setInterval> | null = null;
-    private probing = false;
-    private lastProbeFailure = '';
+    private loginReconcileTimer: ReturnType<typeof setInterval> | null = null;
+    private detecting = false;
+    private lastDetectFailure = '';
     private acceptedLoginHintUin = '';
     private loginHintAttemptUin = '';
     private loginHintAttempts = 0;
@@ -121,7 +121,7 @@ export class HookSession extends EventEmitter {
         this.pid = pid;
         this.injector = deps.injector;
         this.makeClient = deps.makeClient;
-        this.probeLogin = deps.probeLogin ?? probeQqLoginInfo;
+        this.detectLoginUin = deps.detectLoginUin ?? detectUinForPid;
         this.pipeWatcher = deps.pipeWatcher;
         this.onPacket = deps.onPacket ?? null;
         this.log = deps.log ?? createLogger('HookSession');
@@ -170,6 +170,8 @@ export class HookSession extends EventEmitter {
             status: this._status,
             error: this._error,
             method: this._method,
+            // Filled in by HookManager from the client's local account data.
+            account: null,
         };
     }
 
@@ -636,7 +638,7 @@ export class HookSession extends EventEmitter {
                     this.applyStatus();
                     // The native hook only PUSHES a loginState frame on the login edge;
                     // if QQ logged in before/around connect (Docker auto-login) that edge
-                    // is missed and we'd wait forever. Actively re-probe until logged in.
+                    // is missed and we'd wait forever. Keep re-detecting until logged in.
                     runWithoutRequestContext(() => this.startLoginReconcile());
                 }
 
@@ -796,35 +798,35 @@ export class HookSession extends EventEmitter {
     }
 
     // ─────────────── login reconcile (Docker auto-login safety net) ───────────
-    // The local endpoint can identify an auto-restored account before the
-    // runtime is ready. Forward identity for reconciliation, but never synthesize
-    // online state from the probe.
+    // QQ can restore an account on its own before the runtime is ready, and its
+    // local account data names that account. Forward the identity for
+    // reconciliation, but never synthesize online state from the detection.
 
     private startLoginReconcile(): void {
-        if (this.loginProbeTimer || this.disposed) {
+        if (this.loginReconcileTimer || this.disposed) {
             return;
         }
 
         this.log.info('awaiting login: PID=%d', this.pid);
-        void this.probeLoginOnce(); // immediate — catch already-logged-in fast
-        this.loginProbeTimer = setInterval(
-            () => void this.probeLoginOnce(),
+        void this.detectLoginOnce(); // immediate — catch already-logged-in fast
+        this.loginReconcileTimer = setInterval(
+            () => void this.detectLoginOnce(),
             LOGIN_RECONCILE_INTERVAL_MS,
         );
-        this.loginProbeTimer.unref?.();
+        this.loginReconcileTimer.unref?.();
     }
 
     private stopLoginReconcile(): void {
-        if (this.loginProbeTimer) {
-            clearInterval(this.loginProbeTimer);
-            this.loginProbeTimer = null;
+        if (this.loginReconcileTimer) {
+            clearInterval(this.loginReconcileTimer);
+            this.loginReconcileTimer = null;
         }
     }
 
-    private async probeLoginOnce(): Promise<void> {
-        // A port-scan probe can outlast the interval; skip overlapping ticks so a
-        // slow probe never stacks concurrent subprocess-spawning scans.
-        if (this.probing) {
+    private async detectLoginOnce(): Promise<void> {
+        // Detecting the account reads the filesystem; skip overlapping ticks so a
+        // slow read never stacks on top of the interval.
+        if (this.detecting) {
             return;
         }
 
@@ -837,20 +839,24 @@ export class HookSession extends EventEmitter {
             return;
         }
 
-        this.probing = true;
+        this.detecting = true;
 
         try {
-            let info: QqPortLoginInfo | null;
+            let uin: string | null;
 
             try {
-                info = await this.probeLogin(this.pid);
+                uin = await this.detectLoginUin(this.pid);
             } catch (error) {
                 const message = errMsg(error);
                 const note = `${this.pid}:${message}`;
 
-                if (this.lastProbeFailure !== note) {
-                    this.lastProbeFailure = note;
-                    this.log.warn('login probe failed: PID=%d err=%s', this.pid, message);
+                if (this.lastDetectFailure !== note) {
+                    this.lastDetectFailure = note;
+                    this.log.warn(
+                        'login identity detection failed: PID=%d err=%s',
+                        this.pid,
+                        message,
+                    );
                 }
 
                 return; // best-effort; the interval retries
@@ -862,21 +868,21 @@ export class HookSession extends EventEmitter {
                 return;
             }
 
-            if (info?.identityKnown && isRealUin(info.uin)) {
+            if (uin !== null && isRealUin(uin)) {
                 const client = this.client;
 
                 if (!client) {
                     return;
                 }
 
-                if (this.acceptedLoginHintUin === info.uin) {
+                if (this.acceptedLoginHintUin === uin) {
                     this.nextLoginIdentityObservationAt =
                         Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
                     return;
                 }
 
-                if (this.loginHintAttemptUin !== info.uin) {
-                    this.loginHintAttemptUin = info.uin;
+                if (this.loginHintAttemptUin !== uin) {
+                    this.loginHintAttemptUin = uin;
                     this.loginHintAttempts = 0;
                     this.nextLoginHintAt = 0;
                     this.nextLoginIdentityObservationAt = 0;
@@ -893,11 +899,11 @@ export class HookSession extends EventEmitter {
                 this.log.info(
                     'login identity discovered: PID=%d UIN=%s; awaiting readiness',
                     this.pid,
-                    info.uin,
+                    uin,
                 );
 
                 try {
-                    await client.reconcileLoginIdentity(info.uin);
+                    await client.reconcileLoginIdentity(uin);
 
                     if (
                         this.client !== client ||
@@ -908,7 +914,7 @@ export class HookSession extends EventEmitter {
                         return;
                     }
 
-                    this.acceptedLoginHintUin = info.uin;
+                    this.acceptedLoginHintUin = uin;
                     this.nextLoginIdentityObservationAt =
                         Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
                 } catch (error) {
@@ -920,7 +926,7 @@ export class HookSession extends EventEmitter {
                         this.log.warn(
                             'login identity reconciliation failed: PID=%d UIN=%s attempts=%d err=%s',
                             this.pid,
-                            info.uin,
+                            uin,
                             attempt,
                             errMsg(error),
                         );
@@ -932,7 +938,7 @@ export class HookSession extends EventEmitter {
                         this.log.trace(
                             'login identity hint failed: PID=%d UIN=%s attempt=%d err=%s',
                             this.pid,
-                            info.uin,
+                            uin,
                             attempt,
                             errMsg(error),
                         );
@@ -940,7 +946,7 @@ export class HookSession extends EventEmitter {
                 }
             }
         } finally {
-            this.probing = false;
+            this.detecting = false;
         }
     }
 
@@ -950,7 +956,7 @@ export class HookSession extends EventEmitter {
         this.loginHintAttempts = 0;
         this.nextLoginHintAt = 0;
         this.nextLoginIdentityObservationAt = 0;
-        this.lastProbeFailure = '';
+        this.lastDetectFailure = '';
     }
 
     private handlePacket(packet: QqHookPacket): void {

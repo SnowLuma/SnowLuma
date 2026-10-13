@@ -121,10 +121,6 @@ class HttpApiClient implements ApiClient {
             load: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/load`),
             unload: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/unload`),
             refresh: (pid) => this.postJson<ProcessActionResult>(`/api/processes/${pid}/refresh`),
-            probeLoginInfo: (pid, signal) =>
-                this.fetchJson<{ info: unknown }>(`/api/processes/${pid}/probe-login`, {
-                    signal,
-                }).then((d) => d.info ?? null),
         };
 
         this.config = {

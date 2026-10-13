@@ -71,6 +71,7 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
             },
             autoLoadOnDiscovery: true,
             listProcesses: () => [{ pid: PID, name: 'qq', path: '' }],
+            detectAccounts: async () => [],
         });
 
         // Initial discovery + first connect.
