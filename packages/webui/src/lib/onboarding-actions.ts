@@ -1,31 +1,28 @@
 export interface OnboardingActionResult {
-  success: boolean;
-  message?: string;
+    success: boolean;
+    message?: string;
 }
 
 export interface OnboardingActions {
-  acceptAgreements: () => Promise<OnboardingActionResult>;
-  changePassword: (
-    oldPassword: string,
-    newPassword: string,
-  ) => Promise<OnboardingActionResult>;
+    acceptAgreements: () => Promise<OnboardingActionResult>;
+    changePassword: (oldPassword: string, newPassword: string) => Promise<OnboardingActionResult>;
 }
 
 export interface OnboardingExecution {
-  passwordMode: 'change' | 'rehearsal';
-  actions: OnboardingActions;
+    passwordMode: 'change' | 'rehearsal';
+    actions: OnboardingActions;
 }
 
 const REHEARSAL_ACTIONS: OnboardingActions = {
-  acceptAgreements: async () => ({ success: true }),
-  changePassword: async () => ({ success: true }),
+    acceptAgreements: async () => ({ success: true }),
+    changePassword: async () => ({ success: true }),
 };
 
 export function onboardingExecution(
-  replaying: boolean,
-  liveActions: OnboardingActions,
+    replaying: boolean,
+    liveActions: OnboardingActions,
 ): OnboardingExecution {
-  return replaying
-    ? { passwordMode: 'rehearsal', actions: REHEARSAL_ACTIONS }
-    : { passwordMode: 'change', actions: liveActions };
+    return replaying
+        ? { passwordMode: 'rehearsal', actions: REHEARSAL_ACTIONS }
+        : { passwordMode: 'change', actions: liveActions };
 }

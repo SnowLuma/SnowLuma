@@ -3,16 +3,16 @@ import type { AccountConnections, HookProcessInfo, QQInfo, SystemInfo, UpdateInf
 import type { HookProcessOps } from '@/hooks/use-hook-process-ops';
 
 export interface ResourceLoadState {
-  ready: boolean;
-  error: string | null;
+    ready: boolean;
+    error: string | null;
 }
 
 export interface AppResourceState {
-  qqList: ResourceLoadState;
-  processList: ResourceLoadState;
-  systemInfo: ResourceLoadState;
-  connections: ResourceLoadState;
-  updateInfo: ResourceLoadState;
+    qqList: ResourceLoadState;
+    processList: ResourceLoadState;
+    systemInfo: ResourceLoadState;
+    connections: ResourceLoadState;
+    updateInfo: ResourceLoadState;
 }
 
 /**
@@ -22,41 +22,45 @@ export interface AppResourceState {
  * not touch AppLayout.
  */
 export interface AppStateValue {
-  qqList: QQInfo[];
-  processList: HookProcessInfo[];
-  systemInfo: SystemInfo | null;
-  connections: AccountConnections[];
-  /** Advisory update-availability info; null until the first check resolves. */
-  updateInfo: UpdateInfo | null;
-  /** Distinguishes an empty result from an unresolved or failed initial read. */
-  resources: AppResourceState;
-  selectedUin: string | null;
-  setSelectedUin: (uin: string | null) => void;
-  processOps: HookProcessOps;
-  refreshQqList: () => void;
-  refreshProcesses: () => void;
-  refreshSystem: () => void;
-  refreshConnections: () => void;
-  /** Re-run the update check; `force` bypasses the server-side cache. */
-  refreshUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
-  /** Triggered from the topbar logout button. */
-  onLogout: () => void;
+    qqList: QQInfo[];
+    processList: HookProcessInfo[];
+    systemInfo: SystemInfo | null;
+    connections: AccountConnections[];
+    /** Advisory update-availability info; null until the first check resolves. */
+    updateInfo: UpdateInfo | null;
+    /** Distinguishes an empty result from an unresolved or failed initial read. */
+    resources: AppResourceState;
+    selectedUin: string | null;
+    setSelectedUin: (uin: string | null) => void;
+    processOps: HookProcessOps;
+    refreshQqList: () => void;
+    refreshProcesses: () => void;
+    refreshSystem: () => void;
+    refreshConnections: () => void;
+    /** Re-run the update check; `force` bypasses the server-side cache. */
+    refreshUpdate: (force?: boolean) => Promise<UpdateInfo | null>;
+    /** Triggered from the topbar logout button. */
+    onLogout: () => void;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
 
 export function AppStateProvider({
-  value,
-  children,
+    value,
+    children,
 }: {
-  value: AppStateValue;
-  children: ReactNode;
+    value: AppStateValue;
+    children: ReactNode;
 }) {
-  return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
+    return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }
 
 export function useAppState(): AppStateValue {
-  const v = useContext(AppStateContext);
-  if (!v) throw new Error('useAppState must be used inside <AppStateProvider>');
-  return v;
+    const v = useContext(AppStateContext);
+
+    if (!v) {
+        throw new Error('useAppState must be used inside <AppStateProvider>');
+    }
+
+    return v;
 }

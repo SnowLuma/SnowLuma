@@ -14,29 +14,34 @@ import type { OidbSender } from '../../oidb-service';
 import { FACEROAM_SERVICE, makeInner } from './shared';
 
 export namespace DeleteCustomFace {
-  export interface Params {
-    /** 当前账号 UIN，写入 field2。 */
-    uin: string;
-    /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
-    emojiId: string;
-  }
+    export interface Params {
+        /** 当前账号 UIN，写入 field2。 */
+        uin: string;
+        /** 形如 `<UIN>_0_0_0_<MD5>_0_0`，来自 fetch 响应。 */
+        emojiId: string;
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): FaceroamOpReq => ({
-    inner: makeInner(false),
-    uin: BigInt(p.uin),
-    field3: 2,
-    body: { emojiId: p.emojiId },
-  });
+    export const serialize = (_ctx: Deps, p: Params): FaceroamOpReq => ({
+        inner: makeInner(false),
+        uin: BigInt(p.uin),
+        field3: 2,
+        body: { emojiId: p.emojiId },
+    });
 
-  export const encode = (req: FaceroamOpReq): Uint8Array =>
-    protobuf_encode<FaceroamOpReq>(req);
+    export const encode = (req: FaceroamOpReq): Uint8Array => protobuf_encode<FaceroamOpReq>(req);
 
-  export async function invoke(deps: Deps, params: Params): Promise<void> {
-    const body = encode(serialize(deps, params));
-    const result = await deps.sendRawPacket(FACEROAM_SERVICE, body);
-    if (!result.gotResponse) throw new Error(result.errorMessage || 'Faceroam.OpReq delete: no response');
-    if (!result.success) throw new Error(result.errorMessage || 'Faceroam.OpReq delete: send failed');
-  }
+    export async function invoke(deps: Deps, params: Params): Promise<void> {
+        const body = encode(serialize(deps, params));
+        const result = await deps.sendRawPacket(FACEROAM_SERVICE, body);
+
+        if (!result.gotResponse) {
+            throw new Error(result.errorMessage || 'Faceroam.OpReq delete: no response');
+        }
+
+        if (!result.success) {
+            throw new Error(result.errorMessage || 'Faceroam.OpReq delete: send failed');
+        }
+    }
 }

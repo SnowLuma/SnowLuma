@@ -20,33 +20,33 @@ import type { pb, uint_32, uint_64 } from '@snowluma/proton';
 
 /** Source ptt-element field (NT internal tag) noted in the comment after each. */
 export interface C2CPttTransItem {
-  msgId?: pb<1, uint_64>;
-  senderUin?: pb<2, uint_64>;
-  receiverUin?: pb<3, uint_64>;
-  uuid?: pb<4, string>;      // element 45503 (c2c ptt uuid)
-  duration?: pb<5, uint_32>;    // element 45906 (seconds)
-  size?: pb<6, uint_32>;        // element 45405 (bytes)
-  format?: pb<7, uint_32>;      // element 45907 (voice codec)
-  eventType?: pb<8, uint_32>;   // element 45921
-  // QQ NT (EncodeC2CPtt) hex-encodes the md5 to a 32-char lowercase string
-  // before sending it (verified in wrapper.linux.node: field 9 = sub_7A02D80
-  // = bytes→hex). Sending the raw 16 bytes makes the server reject with
-  // errCode -1079. So this is a hex STRING, not bytes.
-  md5?: pb<9, string>;          // element 45406 (32-char lowercase hex)
+    msgId?: pb<1, uint_64>;
+    senderUin?: pb<2, uint_64>;
+    receiverUin?: pb<3, uint_64>;
+    uuid?: pb<4, string>; // element 45503 (c2c ptt uuid)
+    duration?: pb<5, uint_32>; // element 45906 (seconds)
+    size?: pb<6, uint_32>; // element 45405 (bytes)
+    format?: pb<7, uint_32>; // element 45907 (voice codec)
+    eventType?: pb<8, uint_32>; // element 45921
+    // QQ NT (EncodeC2CPtt) hex-encodes the md5 to a 32-char lowercase string
+    // before sending it (verified in wrapper.linux.node: field 9 = sub_7A02D80
+    // = bytes→hex). Sending the raw 16 bytes makes the server reject with
+    // errCode -1079. So this is a hex STRING, not bytes.
+    md5?: pb<9, string>; // element 45406 (32-char lowercase hex)
 }
 
 export interface GroupPttTransItem {
-  msgId?: pb<1, uint_64>;
-  senderUin?: pb<2, uint_64>;
-  groupUin?: pb<3, uint_64>;
-  fileId?: pb<4, uint_32>;      // element 45903 (group ptt numeric file id)
-  md5?: pb<5, string>;          // element 45406 (32-char lowercase hex, see C2C note)
-  duration?: pb<6, uint_32>;    // element 45906
-  size?: pb<7, uint_32>;        // element 45405
-  format?: pb<8, uint_32>;      // element 45907
-  uuid?: pb<9, string>;      // element 45503
-  eventType?: pb<10, uint_32>;  // element 45921
-  ext?: pb<11, uint_32>;        // element 49202 (optional)
+    msgId?: pb<1, uint_64>;
+    senderUin?: pb<2, uint_64>;
+    groupUin?: pb<3, uint_64>;
+    fileId?: pb<4, uint_32>; // element 45903 (group ptt numeric file id)
+    md5?: pb<5, string>; // element 45406 (32-char lowercase hex, see C2C note)
+    duration?: pb<6, uint_32>; // element 45906
+    size?: pb<7, uint_32>; // element 45405
+    format?: pb<8, uint_32>; // element 45907
+    uuid?: pb<9, string>; // element 45503
+    eventType?: pb<10, uint_32>; // element 45921
+    ext?: pb<11, uint_32>; // element 49202 (optional)
 }
 
 /**
@@ -54,20 +54,20 @@ export interface GroupPttTransItem {
  * matching item is populated — group at field 2, c2c at field 3.
  */
 export interface PttTransReq {
-  type?: pb<1, uint_32>;
-  groupItem?: pb<2, GroupPttTransItem>;
-  c2cItem?: pb<3, C2CPttTransItem>;
+    type?: pb<1, uint_32>;
+    groupItem?: pb<2, GroupPttTransItem>;
+    c2cItem?: pb<3, C2CPttTransItem>;
 }
 
 /** Per-scene result. `errCode` 0 = ok; `text` carries the recognised speech. */
 export interface C2CPttTransResult {
-  errCode?: pb<2, uint_32>;
-  text?: pb<8, string>;      // VERIFY LIVE: text tag from OnTranslateResp
+    errCode?: pb<2, uint_32>;
+    text?: pb<8, string>; // VERIFY LIVE: text tag from OnTranslateResp
 }
 
 export interface GroupPttTransResult {
-  errCode?: pb<2, uint_32>;
-  text?: pb<9, string>;      // VERIFY LIVE: text tag from OnTranslateResp
+    errCode?: pb<2, uint_32>;
+    text?: pb<9, string>; // VERIFY LIVE: text tag from OnTranslateResp
 }
 
 /**
@@ -76,9 +76,9 @@ export interface GroupPttTransResult {
  * retry later".
  */
 export interface PttTransResp {
-  type?: pb<1, uint_32>;
-  groupResult?: pb<2, GroupPttTransResult>;
-  c2cResult?: pb<3, C2CPttTransResult>;
+    type?: pb<1, uint_32>;
+    groupResult?: pb<2, GroupPttTransResult>;
+    c2cResult?: pb<3, C2CPttTransResult>;
 }
 
 /**
@@ -88,14 +88,14 @@ export interface PttTransResp {
  * `msgId` at field 1 (the correlation key) and the recognised text at field 8.
  */
 export interface PttTransPushItem {
-  msgId?: pb<1, uint_64>;       // echoes the request msgId — correlation key
-  text?: pb<8, string>;         // recognised text
-  senderUin?: pb<9, uint_64>;
-  receiverUin?: pb<10, uint_64>;
-  uuid?: pb<13, string>;
+    msgId?: pb<1, uint_64>; // echoes the request msgId — correlation key
+    text?: pb<8, string>; // recognised text
+    senderUin?: pb<9, uint_64>;
+    receiverUin?: pb<10, uint_64>;
+    uuid?: pb<13, string>;
 }
 
 export interface PttTransPush {
-  field1?: pb<1, uint_32>;
-  item?: pb<2, PttTransPushItem>;
+    field1?: pb<1, uint_32>;
+    item?: pb<2, PttTransPushItem>;
 }

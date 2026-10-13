@@ -1,25 +1,24 @@
-
 import type { JsonObject, JsonValue } from '@snowluma/common/json';
 
 export interface ApiResponse {
-  status: 'ok' | 'failed';
-  retcode: number;
-  data: JsonValue;
-  echo?: JsonValue;
-  wording?: string;
-  /** Mirror of `wording` carried on Stream API frames — NapCat puts the
-   *  message text in BOTH `message` and `wording`, so clients reading either
-   *  key work. Only set on stream frames. */
-  message?: string;
-  /** Only set on Stream API frames — `'stream-action'`. Marks an envelope as
-   *  one frame of a multi-frame streaming response (NapCat Stream API wire). */
-  stream?: string;
+    status: 'ok' | 'failed';
+    retcode: number;
+    data: JsonValue;
+    echo?: JsonValue;
+    wording?: string;
+    /** Mirror of `wording` carried on Stream API frames — NapCat puts the
+     *  message text in BOTH `message` and `wording`, so clients reading either
+     *  key work. Only set on stream frames. */
+    message?: string;
+    /** Only set on Stream API frames — `'stream-action'`. Marks an envelope as
+     *  one frame of a multi-frame streaming response (NapCat Stream API wire). */
+    stream?: string;
 }
 
 export interface OneBotRequest {
-  action: string;
-  params?: JsonObject;
-  echo?: JsonValue;
+    action: string;
+    params?: JsonObject;
+    echo?: JsonValue;
 }
 
 export type WsRole = 'Api' | 'Event' | 'Universal';
@@ -29,47 +28,47 @@ export type MessageFormat = 'array' | 'string';
 export type NetworkKind = 'httpServers' | 'httpClients' | 'wsServers' | 'wsClients';
 
 export interface NetworkBase {
-  name: string;
-  /** When `false`, the adapter is configured but inactive. Defaults to `true`. */
-  enabled?: boolean;
-  accessToken?: string;
-  /** Output format for this adapter. */
-  messageFormat: MessageFormat;
-  /** When `true`, this adapter receives `post_type='message_sent'` self events. */
-  reportSelfMessage: boolean;
+    name: string;
+    /** When `false`, the adapter is configured but inactive. Defaults to `true`. */
+    enabled?: boolean;
+    accessToken?: string;
+    /** Output format for this adapter. */
+    messageFormat: MessageFormat;
+    /** When `true`, this adapter receives `post_type='message_sent'` self events. */
+    reportSelfMessage: boolean;
 }
 
 export interface HttpServerNetwork extends NetworkBase {
-  host?: string;
-  port: number;
-  path?: string;
-  /** Accept OneBot WebSocket clients on the same HTTP listener. */
-  enableWebSocket?: boolean;
+    host?: string;
+    port: number;
+    path?: string;
+    /** Accept OneBot WebSocket clients on the same HTTP listener. */
+    enableWebSocket?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {
-  url: string;
-  timeoutMs?: number;
+    url: string;
+    timeoutMs?: number;
 }
 
 export interface WsServerNetwork extends NetworkBase {
-  host?: string;
-  port: number;
-  path?: string;
-  role?: WsRole;
+    host?: string;
+    port: number;
+    path?: string;
+    role?: WsRole;
 }
 
 export interface WsClientNetwork extends NetworkBase {
-  url: string;
-  role?: WsRole;
-  reconnectIntervalMs?: number;
+    url: string;
+    role?: WsRole;
+    reconnectIntervalMs?: number;
 }
 
 export interface OneBotNetworks {
-  httpServers: HttpServerNetwork[];
-  httpClients: HttpClientNetwork[];
-  wsServers: WsServerNetwork[];
-  wsClients: WsClientNetwork[];
+    httpServers: HttpServerNetwork[];
+    httpClients: HttpClientNetwork[];
+    wsServers: WsServerNetwork[];
+    wsClients: WsClientNetwork[];
 }
 
 /**
@@ -77,18 +76,18 @@ export interface OneBotNetworks {
  * defaults to `#sl` with exact case-insensitive matching.
  */
 export interface StatusCommandConfig {
-  /** Master on/off. Default `true`. */
-  enabled: boolean;
-  /**
-   * When `true`, a matched status command is NOT forwarded to downstream
-   * adapters (it is still cached, logged, and replied to). Default `false`.
-   */
-  swallow: boolean;
-  /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
-  cooldownSeconds: number;
+    /** Master on/off. Default `true`. */
+    enabled: boolean;
+    /**
+     * When `true`, a matched status command is NOT forwarded to downstream
+     * adapters (it is still cached, logged, and replied to). Default `false`.
+     */
+    swallow: boolean;
+    /** Per-conversation reply cooldown in seconds. `0` disables it. Default `5`. */
+    cooldownSeconds: number;
 
-  /** Trigger word. Default `'#sl'`. Non-empty, max 32 chars. */
-  trigger: string;
+    /** Trigger word. Default `'#sl'`. Non-empty, max 32 chars. */
+    trigger: string;
 }
 
 /**
@@ -101,77 +100,78 @@ export interface StatusCommandConfig {
  * contacted unless you opt in by configuring your own endpoint.
  */
 export interface RKeyConfig {
-  /**
-   * HTTP(S) endpoints returning `{ group_rkey, private_rkey, expired_time }`
-   * (NapCat rkey-server format; an OneBot `{ retcode, data }` wrapper is also
-   * accepted). Tried in order until one yields a usable rkey. Default `[]`.
-   */
-  fallbackServers: string[];
+    /**
+     * HTTP(S) endpoints returning `{ group_rkey, private_rkey, expired_time }`
+     * (NapCat rkey-server format; an OneBot `{ retcode, data }` wrapper is also
+     * accepted). Tried in order until one yields a usable rkey. Default `[]`.
+     */
+    fallbackServers: string[];
 }
 
 /** Conservative, login-scoped cloud history backfill. */
 export interface HistorySyncConfig {
-  /** Disabled by default. Changes take effect on the next account lifecycle. */
-  enabled: boolean;
+    /** Disabled by default. Changes take effect on the next account lifecycle. */
+    enabled: boolean;
 }
 
 /** Per-UIN OneBot configuration. */
 export interface OneBotConfig {
-  networks: OneBotNetworks;
-  /** Built-in `#sl` status command settings. Always present after normalization. */
-  statusCommand: StatusCommandConfig;
-  /** Silent login-time history backfill. Always present after normalization. */
-  historySync: HistorySyncConfig;
-  /** Which GLOBAL notification channels this account opts into (channel ids are
-   *  validated slugs; channels themselves live in config/notifications.json).
-   *  Always present after normalization. */
-  notifications?: { channelIds: string[] };
+    networks: OneBotNetworks;
+    /** Built-in `#sl` status command settings. Always present after normalization. */
+    statusCommand: StatusCommandConfig;
+    /** Silent login-time history backfill. Always present after normalization. */
+    historySync: HistorySyncConfig;
+    /** Which GLOBAL notification channels this account opts into (channel ids are
+     *  validated slugs; channels themselves live in config/notifications.json).
+     *  Always present after normalization. */
+    notifications?: { channelIds: string[] };
 }
 
 export interface MessageMeta {
-  isGroup: boolean;
-  targetId: number;
-  sequence: number;
-  /** Whether `sequence` was confirmed by QQ and is safe for protocol actions. */
-  sequenceAuthoritative: boolean;
-  eventName: string;
-  clientSequence: number;
-  /** Sender direction for friend messages; absent for groups/temp/legacy rows. */
-  privateDirection?: 'incoming' | 'outgoing';
-  random: number;
-  timestamp: number;
+    isGroup: boolean;
+    targetId: number;
+    sequence: number;
+    /** Whether `sequence` was confirmed by QQ and is safe for protocol actions. */
+    sequenceAuthoritative: boolean;
+    eventName: string;
+    clientSequence: number;
+    /** Sender direction for friend messages; absent for groups/temp/legacy rows. */
+    privateDirection?: 'incoming' | 'outgoing';
+    random: number;
+    timestamp: number;
 }
 
 /** True only when a stored sequence can safely be sent back to QQ. */
 export function hasAuthoritativeSequence(
-  meta: MessageMeta | null | undefined,
+    meta: MessageMeta | null | undefined,
 ): meta is MessageMeta {
-  return meta?.sequenceAuthoritative === true
-    && Number.isInteger(meta.sequence)
-    && meta.sequence > 0;
+    return (
+        meta?.sequenceAuthoritative === true && Number.isInteger(meta.sequence) && meta.sequence > 0
+    );
 }
 
 export const RETCODE = {
-  ACTION_FAILED: 100,
-  INTERNAL_ERROR: 1200,
-  BAD_REQUEST: 1400,
-  UNKNOWN_ACTION: 1404,
+    ACTION_FAILED: 100,
+    INTERNAL_ERROR: 1200,
+    BAD_REQUEST: 1400,
+    UNKNOWN_ACTION: 1404,
 } as const;
 
 export function okResponse(data: JsonValue = null): ApiResponse {
-  return {
-    status: 'ok',
-    retcode: 0,
-    data,
-  };
+    return {
+        status: 'ok',
+        retcode: 0,
+        data,
+    };
 }
 
 export function failedResponse(retcode: number, wording: string): ApiResponse {
-  return {
-    status: 'failed',
-    retcode,
-    data: null,
-    wording,
-  };
+    return {
+        status: 'failed',
+        retcode,
+        data: null,
+        wording,
+    };
 }
+
 export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from '@snowluma/common/json';

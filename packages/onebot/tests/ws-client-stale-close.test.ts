@@ -17,48 +17,55 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { FakeWebSocket, instances } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { EventEmitter } = require('node:events') as typeof import('node:events');
-  const instances: FakeWebSocket[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { EventEmitter } = require('node:events') as typeof import('node:events');
+    const instances: FakeWebSocket[] = [];
 
-  class FakeWebSocket extends EventEmitter {
-    // 1 = OPEN, 2 = CLOSING, 3 = CLOSED — matches @snowluma/websocket.
-    public readyState = 1;
-    public closeArgs?: { code: number; reason: string };
-    public readonly url: string;
+    class FakeWebSocket extends EventEmitter {
+        // 1 = OPEN, 2 = CLOSING, 3 = CLOSED — matches @snowluma/websocket.
+        public readyState = 1;
+        public closeArgs?: { code: number; reason: string };
+        public readonly url: string;
 
-    constructor(url: string, _opts: unknown) {
-      super();
-      if (url.includes('throw-sync')) throw new Error('invalid websocket url');
-      this.url = url;
-      instances.push(this);
+        constructor(url: string, _opts: unknown) {
+            super();
+
+            if (url.includes('throw-sync')) {
+                throw new Error('invalid websocket url');
+            }
+
+            this.url = url;
+            instances.push(this);
+        }
+
+        close(code = 1000, reason = 'normal'): void {
+            if (this.readyState === 3 || this.readyState === 2) {
+                return;
+            }
+
+            this.readyState = 2;
+            this.closeArgs = { code, reason };
+            // Crucially DO NOT auto-emit 'close' here — real WebSockets emit it
+            // only after the underlying net socket actually ends, which is the
+            // deferred delivery that creates the race. Tests trigger it
+            // explicitly via simulateClose() below.
+        }
+
+        send(_payload: string, cb?: (err?: Error | null) => void): void {
+            cb?.(null);
+        }
+
+        simulateOpen(): void {
+            this.emit('open');
+        }
+
+        simulateClose(): void {
+            this.readyState = 3;
+            this.emit('close');
+        }
     }
 
-    close(code = 1000, reason = 'normal'): void {
-      if (this.readyState === 3 || this.readyState === 2) return;
-      this.readyState = 2;
-      this.closeArgs = { code, reason };
-      // Crucially DO NOT auto-emit 'close' here — real WebSockets emit it
-      // only after the underlying net socket actually ends, which is the
-      // deferred delivery that creates the race. Tests trigger it
-      // explicitly via simulateClose() below.
-    }
-
-    send(_payload: string, cb?: (err?: Error | null) => void): void {
-      cb?.(null);
-    }
-
-    simulateOpen(): void {
-      this.emit('open');
-    }
-
-    simulateClose(): void {
-      this.readyState = 3;
-      this.emit('close');
-    }
-  }
-
-  return { FakeWebSocket, instances };
+    return { FakeWebSocket, instances };
 });
 
 vi.mock('@snowluma/websocket', () => ({ WebSocket: FakeWebSocket }));
@@ -69,174 +76,183 @@ import type { NetworkAdapterContext } from '../src/network/adapter';
 import type { WsClientNetwork } from '../src/types';
 
 function ctx(): NetworkAdapterContext {
-  return {
-    uin: '10001',
-    api: { processStreamRequest: async () => {} } as never,
-    buildLifecycleEvent: () => ({}),
-    buildHeartbeatEvent: () => ({}),
-  };
+    return {
+        uin: '10001',
+        api: { processStreamRequest: async () => {} } as never,
+        buildLifecycleEvent: () => ({}),
+        buildHeartbeatEvent: () => ({}),
+    };
 }
 
 function cfg(over: Partial<WsClientNetwork> = {}): WsClientNetwork {
-  return {
-    enabled: true,
-    url: 'ws://127.0.0.1:8080/',
-    role: 'Universal',
-    reconnectIntervalMs: 1000,
-    ...over,
-  } as WsClientNetwork;
+    return {
+        enabled: true,
+        url: 'ws://127.0.0.1:8080/',
+        role: 'Universal',
+        reconnectIntervalMs: 1000,
+        ...over,
+    } as WsClientNetwork;
 }
 
 describe('WsClientAdapter — stale-socket close guard (issue #97)', () => {
-  beforeEach(() => {
-    instances.length = 0;
-  });
-
-  it('rolls back enabled state when socket construction throws synchronously', () => {
-    const adapter = new WsClientAdapter('ws', cfg({ url: 'ws://throw-sync/' }), ctx());
-
-    expect(() => adapter.open()).toThrow('invalid websocket url');
-    expect(adapter.isActive).toBe(false);
-    expect(adapter.describeManagedStatus()).toMatchObject({
-      status: 'degraded',
-      lastError: 'invalid websocket url',
+    beforeEach(() => {
+        instances.length = 0;
     });
-  });
 
-  it('closes the socket but waits for an in-flight inbound action to drain', async () => {
-    let finishAction!: () => void;
-    const actionGate = new Promise<void>((resolve) => { finishAction = resolve; });
-    const gatedCtx: NetworkAdapterContext = {
-      ...ctx(),
-      api: { processStreamRequest: vi.fn(() => actionGate) } as never,
-    };
-    const adapter = new WsClientAdapter('ws', cfg(), gatedCtx);
-    adapter.open();
-    const socket = instances[0];
-    socket.emit('message', Buffer.from('{"action":"get_status"}'));
+    it('rolls back enabled state when socket construction throws synchronously', () => {
+        const adapter = new WsClientAdapter('ws', cfg({ url: 'ws://throw-sync/' }), ctx());
 
-    let closed = false;
-    const closing = adapter.close().then(() => { closed = true; });
-    await Promise.resolve();
-    expect(socket.readyState).toBe(2);
-    expect(closed).toBe(false);
+        expect(() => adapter.open()).toThrow('invalid websocket url');
+        expect(adapter.isActive).toBe(false);
+        expect(adapter.describeManagedStatus()).toMatchObject({
+            status: 'degraded',
+            lastError: 'invalid websocket url',
+        });
+    });
 
-    finishAction();
-    await closing;
-    expect(closed).toBe(true);
-  });
+    it('closes the socket but waits for an in-flight inbound action to drain', async () => {
+        let finishAction!: () => void;
+        const actionGate = new Promise<void>((resolve) => {
+            finishAction = resolve;
+        });
+        const gatedCtx: NetworkAdapterContext = {
+            ...ctx(),
+            api: { processStreamRequest: vi.fn(() => actionGate) } as never,
+        };
+        const adapter = new WsClientAdapter('ws', cfg(), gatedCtx);
+        adapter.open();
+        const socket = instances[0];
+        socket.emit('message', Buffer.from('{"action":"get_status"}'));
 
-  it('records and drops a valid action after API quiesce', async () => {
-    const processStreamRequest = vi.fn(async () => {});
-    const traceQuiescedStreamRequest = vi.fn();
-    const quiescedCtx: NetworkAdapterContext = {
-      ...ctx(),
-      api: {
-        isAcceptingActions: false,
-        processStreamRequest,
-        traceQuiescedStreamRequest,
-      } as never,
-    };
-    const adapter = new WsClientAdapter('ws', cfg(), quiescedCtx);
-    adapter.open();
-    const socket = instances[0];
-    const raw = Buffer.from(JSON.stringify({
-      action: 'get_status',
-      params: { detail: 'complete' },
-    }));
+        let closed = false;
+        const closing = adapter.close().then(() => {
+            closed = true;
+        });
+        await Promise.resolve();
+        expect(socket.readyState).toBe(2);
+        expect(closed).toBe(false);
 
-    socket.emit('message', raw);
+        finishAction();
+        await closing;
+        expect(closed).toBe(true);
+    });
 
-    expect(traceQuiescedStreamRequest).toHaveBeenCalledWith(raw.toString('utf8'));
-    expect(processStreamRequest).not.toHaveBeenCalled();
-    await adapter.close();
-  });
+    it('records and drops a valid action after API quiesce', async () => {
+        const processStreamRequest = vi.fn(async () => {});
+        const traceQuiescedStreamRequest = vi.fn();
+        const quiescedCtx: NetworkAdapterContext = {
+            ...ctx(),
+            api: {
+                isAcceptingActions: false,
+                processStreamRequest,
+                traceQuiescedStreamRequest,
+            } as never,
+        };
+        const adapter = new WsClientAdapter('ws', cfg(), quiescedCtx);
+        adapter.open();
+        const socket = instances[0];
+        const raw = Buffer.from(
+            JSON.stringify({
+                action: 'get_status',
+                params: { detail: 'complete' },
+            }),
+        );
 
-  it('ignores the close event from a socket replaced by a hot reload', async () => {
-    vi.useFakeTimers();
-    try {
-      const adapter = new WsClientAdapter('ws', cfg(), ctx());
-      adapter.open();
-      expect(instances).toHaveLength(1);
-      const a = instances[0];
-      a.simulateOpen();
+        socket.emit('message', raw);
 
-      // Hot reload with a binding-signature change (different URL). The base
-      // class drives `await this.close()` then `await this.open()`; the close
-      // handler on socket A has NOT yet fired (real flow: WebSocket.close()
-      // schedules the close frame + a deferred 'close' event).
-      await adapter.reload(cfg({ url: 'ws://127.0.0.1:8081/' }));
-      expect(instances).toHaveLength(2);
-      const b = instances[1];
-      expect(b).not.toBe(a);
+        expect(traceQuiescedStreamRequest).toHaveBeenCalledWith(raw.toString('utf8'));
+        expect(processStreamRequest).not.toHaveBeenCalled();
+        await adapter.close();
+    });
 
-      // Delayed 'close' from the stale socket arrives now.
-      a.simulateClose();
+    it('ignores the close event from a socket replaced by a hot reload', async () => {
+        vi.useFakeTimers();
 
-      // Pre-fix behavior: the close handler would null `this.socket`, drop
-      // `connected`, and scheduleReconnect → after the interval a third
-      // socket would appear. Post-fix: the guard short-circuits.
-      vi.advanceTimersByTime(10_000);
-      expect(instances).toHaveLength(2);
+        try {
+            const adapter = new WsClientAdapter('ws', cfg(), ctx());
+            adapter.open();
+            expect(instances).toHaveLength(1);
+            const a = instances[0];
+            a.simulateOpen();
 
-      // The new socket is still the current connection: simulate its 'open'
-      // and the adapter reports 'ok' / '已连接' (only reachable when
-      // `this.socket` is non-null AND `connected` is true).
-      b.simulateOpen();
-      const status = adapter.describeStatus();
-      expect(status.status).toBe('ok');
-      expect(status.detail).toBe('已连接');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+            // Hot reload with a binding-signature change (different URL). The base
+            // class drives `await this.close()` then `await this.open()`; the close
+            // handler on socket A has NOT yet fired (real flow: WebSocket.close()
+            // schedules the close frame + a deferred 'close' event).
+            await adapter.reload(cfg({ url: 'ws://127.0.0.1:8081/' }));
+            expect(instances).toHaveLength(2);
+            const b = instances[1];
+            expect(b).not.toBe(a);
 
-  it('still drives reconnect when the CURRENT socket closes unexpectedly', () => {
-    vi.useFakeTimers();
-    try {
-      const adapter = new WsClientAdapter('ws', cfg(), ctx());
-      adapter.open();
-      const a = instances[0];
-      a.simulateOpen();
+            // Delayed 'close' from the stale socket arrives now.
+            a.simulateClose();
 
-      // The current socket dies on its own (no close() / no reload). The
-      // handler must still null state and schedule the reconnect — the
-      // guard only suppresses STALE events, not real ones.
-      a.simulateClose();
+            // Pre-fix behavior: the close handler would null `this.socket`, drop
+            // `connected`, and scheduleReconnect → after the interval a third
+            // socket would appear. Post-fix: the guard short-circuits.
+            vi.advanceTimersByTime(10_000);
+            expect(instances).toHaveLength(2);
 
-      vi.advanceTimersByTime(1500);
-      expect(instances).toHaveLength(2); // reconnect spun up a new socket
-      const status = adapter.describeStatus();
-      expect(status.status).toBe('warn');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+            // The new socket is still the current connection: simulate its 'open'
+            // and the adapter reports 'ok' / '已连接' (only reachable when
+            // `this.socket` is non-null AND `connected` is true).
+            b.simulateOpen();
+            const status = adapter.describeStatus();
+            expect(status.status).toBe('ok');
+            expect(status.detail).toBe('已连接');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 
-  it('does not reconnect when adapter.close() races with an in-flight close event', () => {
-    vi.useFakeTimers();
-    try {
-      const adapter = new WsClientAdapter('ws', cfg(), ctx());
-      adapter.open();
-      const a = instances[0];
-      a.simulateOpen();
+    it('still drives reconnect when the CURRENT socket closes unexpectedly', () => {
+        vi.useFakeTimers();
 
-      // User-driven close (e.g. config disabled): close() flips
-      // explicitlyClosed=true and detaches `this.socket = null`
-      // synchronously. The deferred 'close' event from A then fires; the
-      // guard sees `this.socket !== socket` (this.socket is already null)
-      // and short-circuits — even though the explicitlyClosed flag would
-      // also have done so, the guard is the FIRST line of defence and
-      // matches the issue's exact stated invariant.
-      adapter.close();
-      a.simulateClose();
+        try {
+            const adapter = new WsClientAdapter('ws', cfg(), ctx());
+            adapter.open();
+            const a = instances[0];
+            a.simulateOpen();
 
-      vi.advanceTimersByTime(10_000);
-      expect(instances).toHaveLength(1); // no reconnect, no new socket
-      const status = adapter.describeStatus();
-      expect(status.status).toBe('disabled');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+            // The current socket dies on its own (no close() / no reload). The
+            // handler must still null state and schedule the reconnect — the
+            // guard only suppresses STALE events, not real ones.
+            a.simulateClose();
+
+            vi.advanceTimersByTime(1500);
+            expect(instances).toHaveLength(2); // reconnect spun up a new socket
+            const status = adapter.describeStatus();
+            expect(status.status).toBe('warn');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not reconnect when adapter.close() races with an in-flight close event', () => {
+        vi.useFakeTimers();
+
+        try {
+            const adapter = new WsClientAdapter('ws', cfg(), ctx());
+            adapter.open();
+            const a = instances[0];
+            a.simulateOpen();
+
+            // User-driven close (e.g. config disabled): close() flips
+            // explicitlyClosed=true and detaches `this.socket = null`
+            // synchronously. The deferred 'close' event from A then fires; the
+            // guard sees `this.socket !== socket` (this.socket is already null)
+            // and short-circuits — even though the explicitlyClosed flag would
+            // also have done so, the guard is the FIRST line of defence and
+            // matches the issue's exact stated invariant.
+            adapter.close();
+            a.simulateClose();
+
+            vi.advanceTimersByTime(10_000);
+            expect(instances).toHaveLength(1); // no reconnect, no new socket
+            const status = adapter.describeStatus();
+            expect(status.status).toBe('disabled');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

@@ -5,15 +5,15 @@
 // trigger request, and the push subscription resolves the waiter by msgId.
 
 interface Pending {
-  resolve: (text: string) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+    resolve: (text: string) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
 }
 
 const pending = new Map<string, Pending>();
 
 export function pttTransKey(selfUin: number, msgId: number): string {
-  return `${selfUin}:${msgId}`;
+    return `${selfUin}:${msgId}`;
 }
 
 /**
@@ -21,36 +21,49 @@ export function pttTransKey(selfUin: number, msgId: number): string {
  * A new waiter for the same key supersedes (rejects) the previous one.
  */
 export function waitPttTransText(key: string, timeoutMs: number): Promise<string> {
-  const existing = pending.get(key);
-  if (existing) {
-    clearTimeout(existing.timer);
-    pending.delete(key);
-    existing.reject(new Error('语音转文字请求被新的请求取代'));
-  }
-  return new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (pending.get(key)?.timer === timer) pending.delete(key);
-      reject(new Error('语音转文字超时（未收到结果推送）'));
-    }, timeoutMs);
-    timer.unref?.();
-    pending.set(key, { resolve, reject, timer });
-  });
+    const existing = pending.get(key);
+
+    if (existing) {
+        clearTimeout(existing.timer);
+        pending.delete(key);
+        existing.reject(new Error('语音转文字请求被新的请求取代'));
+    }
+
+    return new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            if (pending.get(key)?.timer === timer) {
+                pending.delete(key);
+            }
+
+            reject(new Error('语音转文字超时（未收到结果推送）'));
+        }, timeoutMs);
+        timer.unref?.();
+        pending.set(key, { resolve, reject, timer });
+    });
 }
 
 /** Resolve a waiting fetch_ptt_text with the recognised text. No-op if none. */
 export function deliverPttTransText(key: string, text: string): void {
-  const p = pending.get(key);
-  if (!p) return;
-  clearTimeout(p.timer);
-  pending.delete(key);
-  p.resolve(text);
+    const p = pending.get(key);
+
+    if (!p) {
+        return;
+    }
+
+    clearTimeout(p.timer);
+    pending.delete(key);
+    p.resolve(text);
 }
 
 /** Reject a waiter (e.g. the trigger request itself failed). No-op if none. */
 export function failPttTransWaiter(key: string, err: Error): void {
-  const p = pending.get(key);
-  if (!p) return;
-  clearTimeout(p.timer);
-  pending.delete(key);
-  p.reject(err);
+    const p = pending.get(key);
+
+    if (!p) {
+        return;
+    }
+
+    clearTimeout(p.timer);
+    pending.delete(key);
+    p.reject(err);
 }

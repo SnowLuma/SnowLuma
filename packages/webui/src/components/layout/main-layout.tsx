@@ -13,142 +13,166 @@ import { useKiosk } from '@/contexts/KioskContext';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
-  status: string;
-  onLogout: () => void;
-  notice?: ReactNode;
-  children: ReactNode;
+    status: string;
+    onLogout: () => void;
+    notice?: ReactNode;
+    children: ReactNode;
 }
 
 export function MainLayout({ status, onLogout, notice, children }: MainLayoutProps) {
-  const isMobile = !useDesktopSidebar();
-  const { appearance } = useTheme();
-  const customBg = appearance.background.type !== 'none';
-  // Framer's reducedMotion only suppresses transforms, so the always-present
-  // width + page-transition animations need an explicit opt-out to make the
-  // “减少动效” setting actually felt.
-  const reduce = appearance.reduceMotion || appearance.disableMotion;
-  const { editing } = useLayout();
-  const { kiosk, exit: exitKiosk } = useKiosk();
-  // The sidebar rests as a slim icon rail and auto-expands on hover/focus (the
-  // peek logic below) — there's no collapse button. Two cases force it fully
-  // expanded: layout-edit mode (the drag-to-reorder list needs room) and the
-  // 「钉住侧栏展开」 appearance pref (operator opted out of the rail entirely).
-  const effectiveCollapsed = !editing && !appearance.sidebarPinned;
-  // Hover/focus peek: while collapsed, hovering (or keyboard-focusing) the rail
-  // temporarily expands it. The rail lives in the flex flow, so the page
-  // content is pushed right rather than overlaid. The pinned `collapsed` pref
-  // (and the TopBar toggle that reflects it) is untouched — this is transient.
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const peeking = hovered || focused;
-  const showCollapsed = effectiveCollapsed && !peeking;
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const isMobile = !useDesktopSidebar();
+    const { appearance } = useTheme();
+    const customBg = appearance.background.type !== 'none';
+    // Framer's reducedMotion only suppresses transforms, so the always-present
+    // width + page-transition animations need an explicit opt-out to make the
+    // “减少动效” setting actually felt.
+    const reduce = appearance.reduceMotion || appearance.disableMotion;
+    const { editing } = useLayout();
+    const { kiosk, exit: exitKiosk } = useKiosk();
+    // The sidebar rests as a slim icon rail and auto-expands on hover/focus (the
+    // peek logic below) — there's no collapse button. Two cases force it fully
+    // expanded: layout-edit mode (the drag-to-reorder list needs room) and the
+    // 「钉住侧栏展开」 appearance pref (operator opted out of the rail entirely).
+    const effectiveCollapsed = !editing && !appearance.sidebarPinned;
+    // Hover/focus peek: while collapsed, hovering (or keyboard-focusing) the rail
+    // temporarily expands it. The rail lives in the flex flow, so the page
+    // content is pushed right rather than overlaid. The pinned `collapsed` pref
+    // (and the TopBar toggle that reflects it) is untouched — this is transient.
+    const [hovered, setHovered] = useState(false);
+    const [focused, setFocused] = useState(false);
+    const peeking = hovered || focused;
+    const showCollapsed = effectiveCollapsed && !peeking;
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  return (
-    <div className={cn('flex h-dvh w-full max-w-full overflow-hidden text-foreground', customBg ? 'bg-transparent' : 'bg-sidebar')}>
-      {/* Desktop sidebar (hidden in kiosk) */}
-      {!isMobile && !kiosk && (
-        <motion.aside
-          initial={false}
-          animate={{ width: showCollapsed ? 64 : 248 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.26, ease: [0.4, 0, 0.1, 1] }}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          onFocusCapture={(e) => {
-            // Only *keyboard* focus (focus-visible) peeks the rail open. A mouse
-            // click on a nav link also focuses it, but must NOT peek — that
-            // click-focus lingers and never blurs when the pointer moves to the
-            // content, so the rail would stay stuck open after navigating.
-            if ((e.target as HTMLElement).matches?.(':focus-visible')) setFocused(true);
-          }}
-          onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocused(false);
-          }}
-          className="relative h-full shrink-0 overflow-hidden"
+    return (
+        <div
+            className={cn(
+                'flex h-dvh w-full max-w-full overflow-hidden text-foreground',
+                customBg ? 'bg-transparent' : 'bg-sidebar',
+            )}
         >
-          {/* Fixed-width inner: the rail's content is ALWAYS laid out at the
+            {/* Desktop sidebar (hidden in kiosk) */}
+            {!isMobile && !kiosk && (
+                <motion.aside
+                    initial={false}
+                    animate={{ width: showCollapsed ? 64 : 248 }}
+                    transition={
+                        reduce ? { duration: 0 } : { duration: 0.26, ease: [0.4, 0, 0.1, 1] }
+                    }
+                    onMouseEnter={() => setHovered(true)}
+                    onMouseLeave={() => setHovered(false)}
+                    onFocusCapture={(e) => {
+                        // Only *keyboard* focus (focus-visible) peeks the rail open. A mouse
+                        // click on a nav link also focuses it, but must NOT peek — that
+                        // click-focus lingers and never blurs when the pointer moves to the
+                        // content, so the rail would stay stuck open after navigating.
+                        if ((e.target as HTMLElement).matches?.(':focus-visible')) {
+                            setFocused(true);
+                        }
+                    }}
+                    onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setFocused(false);
+                        }
+                    }}
+                    className="relative h-full shrink-0 overflow-hidden"
+                >
+                    {/* Fixed-width inner: the rail's content is ALWAYS laid out at the
               expanded width and the aside simply clips it as `width` animates.
               Nothing reflows during the transition, so icons never shift and
               labels never wrap — they're revealed/clipped, not re-laid-out. */}
-          <div className="h-full w-[248px]">
-            <Sidebar collapsed={showCollapsed} />
-          </div>
-        </motion.aside>
-      )}
+                    <div className="h-full w-[248px]">
+                        <Sidebar collapsed={showCollapsed} />
+                    </div>
+                </motion.aside>
+            )}
 
-      {/* Mobile sidebar in sheet (hidden in kiosk) */}
-      {isMobile && !kiosk && (
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" showClose={false} className="w-64 max-w-[80vw] p-0 overscroll-contain">
-            {/* Radix Dialog (the Sheet primitive) requires an accessible name +
+            {/* Mobile sidebar in sheet (hidden in kiosk) */}
+            {isMobile && !kiosk && (
+                <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+                    <SheetContent
+                        side="left"
+                        showClose={false}
+                        className="w-64 max-w-[80vw] p-0 overscroll-contain"
+                    >
+                        {/* Radix Dialog (the Sheet primitive) requires an accessible name +
                 description; the nav itself is the visible content, so these are
                 screen-reader-only. */}
-            <SheetTitle className="sr-only">导航菜单</SheetTitle>
-            <SheetDescription className="sr-only">切换 SnowLuma 控制台的页面。</SheetDescription>
-            <Sidebar onItemClick={() => setMobileOpen(false)} />
-          </SheetContent>
-        </Sheet>
-      )}
+                        <SheetTitle className="sr-only">导航菜单</SheetTitle>
+                        <SheetDescription className="sr-only">
+                            切换 SnowLuma 控制台的页面。
+                        </SheetDescription>
+                        <Sidebar onItemClick={() => setMobileOpen(false)} />
+                    </SheetContent>
+                </Sheet>
+            )}
 
-      {/* Kiosk: chrome-free, with a corner button (+ Esc) to exit. */}
-      {kiosk && (
-        <button
-          type="button"
-          onClick={exitKiosk}
-          title="退出展示模式 (Esc)"
-          aria-label="退出展示模式"
-          className="fixed z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background text-foreground opacity-70 transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
-          style={{ top: 'max(0.75rem, env(safe-area-inset-top))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
-        >
-          <Minimize2 className="size-4" />
-        </button>
-      )}
+            {/* Kiosk: chrome-free, with a corner button (+ Esc) to exit. */}
+            {kiosk && (
+                <button
+                    type="button"
+                    onClick={exitKiosk}
+                    title="退出展示模式 (Esc)"
+                    aria-label="退出展示模式"
+                    className="fixed z-50 inline-flex size-9 items-center justify-center rounded-full border bg-background text-foreground opacity-70 transition-opacity outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                    style={{
+                        top: 'max(0.75rem, env(safe-area-inset-top))',
+                        right: 'max(0.75rem, env(safe-area-inset-right))',
+                    }}
+                >
+                    <Minimize2 className="size-4" />
+                </button>
+            )}
 
-      {/* Main column — a content "canvas" nested into the chrome. The rounded
+            {/* Main column — a content "canvas" nested into the chrome. The rounded
           top-left corner only exists when the desktop rail is beside it; on
           mobile the rail becomes a sheet, so a leftover corner would float
           against the full-bleed canvas. It's a flex sibling of the rail, so as
           the rail expands/collapses the whole canvas is pushed along with it.
           Depth comes from a soft shadow + the canvas tone sitting on the
           (sidebar-toned) chrome, not a border. */}
-      <div
-        className={cn(
-          'flex min-w-0 flex-1 flex-col overflow-hidden',
-          !isMobile && !kiosk && 'rounded-tl-2xl',
-          !customBg && 'bg-background shadow-[0_0_18px_-6px_rgb(0_0_0/0.14)]',
-        )}
-      >
-        {!kiosk && (
-          <TopBar
-            status={status}
-            mobileOpen={mobileOpen}
-            onMobileOpenChange={setMobileOpen}
-            onLogout={onLogout}
-            isMobile={isMobile}
-          />
-        )}
+            <div
+                className={cn(
+                    'flex min-w-0 flex-1 flex-col overflow-hidden',
+                    !isMobile && !kiosk && 'rounded-tl-2xl',
+                    !customBg && 'bg-background shadow-[0_0_18px_-6px_rgb(0_0_0/0.14)]',
+                )}
+            >
+                {!kiosk && (
+                    <TopBar
+                        status={status}
+                        mobileOpen={mobileOpen}
+                        onMobileOpenChange={setMobileOpen}
+                        onLogout={onLogout}
+                        isMobile={isMobile}
+                    />
+                )}
 
-        {!kiosk && notice}
+                {!kiosk && notice}
 
-        <main className={cn('flex min-h-0 flex-1 flex-col')}>
-          <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">
-            <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8 2xl:max-w-[1600px]">
-              <AnimatePresence initial={false} mode="wait">
-                <motion.div
-                  key={pathname}
-                  initial={reduce ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
-                  transition={reduce ? { duration: 0 } : { duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                >
-                  {children}
-                </motion.div>
-              </AnimatePresence>
+                <main className={cn('flex min-h-0 flex-1 flex-col')}>
+                    <ScrollArea className="flex-1 min-h-0" viewportClassName="[&>div]:!block">
+                        <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8 2xl:max-w-[1600px]">
+                            <AnimatePresence initial={false} mode="wait">
+                                <motion.div
+                                    key={pathname}
+                                    initial={reduce ? false : { opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+                                    transition={
+                                        reduce
+                                            ? { duration: 0 }
+                                            : { duration: 0.22, ease: [0.16, 1, 0.3, 1] }
+                                    }
+                                >
+                                    {children}
+                                </motion.div>
+                            </AnimatePresence>
+                        </div>
+                    </ScrollArea>
+                </main>
             </div>
-          </ScrollArea>
-        </main>
-      </div>
-    </div>
-  );
+        </div>
+    );
 }

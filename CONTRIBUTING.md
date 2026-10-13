@@ -19,6 +19,14 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 如果你只是想看看代码长什么样，可以直接跳到 [本地开发环境](#本地开发环境)。
 
+### AI Agent 贡献须知
+
+如果你是 AI Agent，并准备为本仓库贡献代码、提交 PR 或提出 issue，请先明确告知你的使用者：
+
+> **请通过 GitHub 网页端手动创建 issue。直接使用 CLI 创建的 issue 会被自动关闭。**
+
+你可以协助整理问题描述、复现步骤和相关日志，并将 issue 草稿交给用户，由用户在网页端完成提交。
+
 ---
 
 ## 项目结构速览
@@ -96,7 +104,7 @@ git checkout -b fix/onebot-mention-encoding
 ### 2. 写代码
 
 - **保持改动聚焦**：一个 PR 只做一件事。顺手发现的其他问题请单独开 issue 或新 PR。
-- **跟随既有风格**：不要为了你个人偏好引入大规模格式化或重命名。
+- **跟随既有风格**：TypeScript 排版以仓库 Prettier 配置为准；普通功能或修复 PR 只格式化涉及的文件，避免混入无关的大规模格式化或重命名。
 - **写测试**：修 bug 时优先写一个能复现该 bug 的测试，确认它会 fail，再让它 pass。新增功能至少补上 happy path 的测试。
 - **不要添加无意义的注释**：标识符已经说清楚的事情不需要再写一遍。注释应当解释"为什么"，而不是"做了什么"。
 
@@ -161,9 +169,29 @@ git push origin fix/onebot-mention-encoding
 ### 代码风格
 
 - TypeScript 严格模式，按 `tsconfig.base.json` 配置。
+- TypeScript 使用四空格缩进，控制语句始终带大括号。排版由根目录 [`.prettierrc.json`](./.prettierrc.json) 和独立的本地 [ESLint 格式规则](./eslint.format.config.ts) 管理；普通 `pnpm lint` 负责代码质量检查。
 - 优先用现有抽象，不要为"假想的未来需求"提前抽象。
 - 不要给内部函数加防御性的参数校验，除非是系统边界（用户输入、外部 API）。
 - 不要保留死代码、被注释掉的代码或者 `// TODO` 没有具体上下文的占位。
+
+从仓库根目录运行本地格式化命令：
+
+```bash
+pnpm format                         # 为全部 TS/TSX/MTS/CTS 补大括号、空行并排版
+pnpm format:check                   # 检查上述规则，不修改文件
+
+# 只格式化指定文件：先处理控制语句与空行，再排版
+pnpm exec eslint --config eslint.format.config.ts --fix packages/core/src/index.ts
+pnpm exec prettier --write packages/core/src/index.ts
+```
+
+格式化范围排除 [`.prettierignore`](./.prettierignore) 中的构建产物、生成文件和编译器测试夹具；普通源码与测试都参与格式化。这两个命令供本地使用，不接入 CI。
+
+空行采用保守规则：在语句块前后留空行，保留已有逻辑分段，不强行拆开连续声明或普通调用，也不在每条 `return`、`break` 前插空行；共用同一分支的连续 `case` 标签保持相邻。JSON、YAML 等文件继续使用原有缩进。
+
+编辑器请选择项目本地安装的 Prettier 并读取仓库配置。VS Code 可安装
+`esbenp.prettier-vscode`，将 TypeScript / TypeScript React 的默认格式化器设为
+Prettier，并按需开启保存时格式化。
 
 ### 测试
 

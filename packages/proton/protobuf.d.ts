@@ -34,48 +34,48 @@ export function protobuf_decode<T>(data: Uint8Array): T;
 
 /** Non-enumerable metadata retained for protobuf tags unknown to the schema. */
 export interface ProtobufUnknownField {
-	fieldNumber: number;
-	wireType: number;
-	count: number;
-	totalByteLength: number;
+    fieldNumber: number;
+    wireType: number;
+    count: number;
+    totalByteLength: number;
 }
 export interface ProtobufUnknownFieldMetadata {
-	fields: readonly ProtobufUnknownField[];
-	totalOccurrences: number;
-	omittedOccurrences: number;
-	omittedByteLength: number;
+    fields: readonly ProtobufUnknownField[];
+    totalOccurrences: number;
+    omittedOccurrences: number;
+    omittedByteLength: number;
 }
 export function protobuf_getUnknownFields(value: unknown): readonly ProtobufUnknownField[];
 export function protobuf_getUnknownFieldMetadata(value: unknown): ProtobufUnknownFieldMetadata;
 
 // ── Optional runtime map fallback (disabled by default) ───────────────
 export interface ProtobufRuntimeField {
-	name: string;
-	fieldNumber: number;
-	typeName: string;
-	wireType: 0 | 1 | 2 | 5;
-	isMessage: boolean;
-	isOptional: boolean;
-	isRepeated: boolean;
+    name: string;
+    fieldNumber: number;
+    typeName: string;
+    wireType: 0 | 1 | 2 | 5;
+    isMessage: boolean;
+    isOptional: boolean;
+    isRepeated: boolean;
 }
 
 export interface ProtobufRuntimeMessage {
-	name: string;
-	fields: ProtobufRuntimeField[];
+    name: string;
+    fields: ProtobufRuntimeField[];
 }
 
 export interface ProtobufRuntimeCallSite {
-	file: string;
-	line: number;
-	column: number;
-	fnName: 'protobuf_encode' | 'protobuf_decode';
-	typeName: string;
+    file: string;
+    line: number;
+    column: number;
+    fnName: 'protobuf_encode' | 'protobuf_decode';
+    typeName: string;
 }
 
 export interface ProtobufRuntimeMap {
-	version: 1;
-	messages: ProtobufRuntimeMessage[];
-	callSites: ProtobufRuntimeCallSite[];
+    version: 1;
+    messages: ProtobufRuntimeMessage[];
+    callSites: ProtobufRuntimeCallSite[];
 }
 
 /** Enables map-based runtime dynamic code generation fallback. */

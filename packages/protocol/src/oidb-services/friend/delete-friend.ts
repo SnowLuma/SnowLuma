@@ -16,39 +16,39 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace DeleteFriend {
-  export const command = 0x126B;
-  export const subCommand = 0;
+    export const command = 0x126b;
+    export const subCommand = 0;
 
-  export interface Params {
-    userId: number;
-    /** Also block (拉黑) the user. Default false. */
-    block?: boolean;
-  }
+    export interface Params {
+        userId: number;
+        /** Also block (拉黑) the user. Default false. */
+        block?: boolean;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = async (ctx: Deps, p: Params): Promise<OidbDeleteFriend> => ({
-    field1: {
-      targetUid: await ctx.resolveUserUid(p.userId),
-      field2: {
-        field1: 130,
-        field2: 109,
-        field3: { field1: 8, field2: 8, field3: 50 },
-      },
-      // DelBuddyWorker receives both booleans explicitly from current QQ.
-      block: p.block ?? false,
-      field4: true,
-    },
-  });
+    export const serialize = async (ctx: Deps, p: Params): Promise<OidbDeleteFriend> => ({
+        field1: {
+            targetUid: await ctx.resolveUserUid(p.userId),
+            field2: {
+                field1: 130,
+                field2: 109,
+                field3: { field1: 8, field2: 8, field3: 50 },
+            },
+            // DelBuddyWorker receives both booleans explicitly from current QQ.
+            block: p.block ?? false,
+            field4: true,
+        },
+    });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbDeleteFriend>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbDeleteFriend>>(env);
+    export const encode = (env: OidbBase<OidbDeleteFriend>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbDeleteFriend>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, DeleteFriend, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, DeleteFriend, params);
 }

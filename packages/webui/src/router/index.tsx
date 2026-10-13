@@ -1,9 +1,9 @@
 import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  lazyRouteComponent,
-  Outlet,
+    createRootRoute,
+    createRoute,
+    createRouter,
+    lazyRouteComponent,
+    Outlet,
 } from '@tanstack/react-router';
 import { AppLayout } from './app-layout';
 // Imported eagerly (not lazy): the error / not-found fallbacks must render
@@ -19,96 +19,99 @@ import { ErrorPage, NotFoundPage } from '@/components/pages/status-screens';
 // dialog alone pulls in a large form surface that most users never
 // touch on first visit.
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+    component: () => <Outlet />,
 });
 
 const appLayoutRoute = createRoute({
-  id: 'app-layout',
-  getParentRoute: () => rootRoute,
-  component: AppLayout,
+    id: 'app-layout',
+    getParentRoute: () => rootRoute,
+    component: AppLayout,
 });
 
 const overviewRoute = createRoute({
-  path: '/',
-  getParentRoute: () => appLayoutRoute,
-  component: lazyRouteComponent(
-    () => import('@/components/pages/overview-page'),
-    'OverviewPage',
-  ),
+    path: '/',
+    getParentRoute: () => appLayoutRoute,
+    component: lazyRouteComponent(() => import('@/components/pages/overview-page'), 'OverviewPage'),
 });
 
 const processesRoute = createRoute({
-  path: '/processes',
-  getParentRoute: () => appLayoutRoute,
-  component: lazyRouteComponent(
-    () => import('@/components/pages/processes-page'),
-    'ProcessesPage',
-  ),
+    path: '/processes',
+    getParentRoute: () => appLayoutRoute,
+    component: lazyRouteComponent(
+        () => import('@/components/pages/processes-page'),
+        'ProcessesPage',
+    ),
 });
 
 const configRoute = createRoute({
-  path: '/config',
-  getParentRoute: () => appLayoutRoute,
-  component: lazyRouteComponent(
-    () => import('@/components/pages/config-page'),
-    'ConfigPage',
-  ),
+    path: '/config',
+    getParentRoute: () => appLayoutRoute,
+    component: lazyRouteComponent(() => import('@/components/pages/config-page'), 'ConfigPage'),
 });
 
 const logsRoute = createRoute({
-  path: '/logs',
-  getParentRoute: () => appLayoutRoute,
-  component: lazyRouteComponent(
-    () => import('@/components/pages/logs-page'),
-    'LogsPage',
-  ),
+    path: '/logs',
+    getParentRoute: () => appLayoutRoute,
+    component: lazyRouteComponent(() => import('@/components/pages/logs-page'), 'LogsPage'),
 });
 
 const debugRoute = createRoute({
-  path: '/debug',
-  getParentRoute: () => appLayoutRoute,
-  component: lazyRouteComponent(
-    () => import('@/components/pages/debug-page'),
-    'DebugPage',
-  ),
+    path: '/debug',
+    getParentRoute: () => appLayoutRoute,
+    component: lazyRouteComponent(() => import('@/components/pages/debug-page'), 'DebugPage'),
 });
 
 /** Settings sub-tabs — also the contract for the `?tab=` deep link. */
-export const SETTINGS_TABS = ['appearance', 'data', 'advanced', 'account', 'system', 'storage', 'notifications', 'globalConfig', 'developer', 'about'] as const;
+export const SETTINGS_TABS = [
+    'appearance',
+    'data',
+    'advanced',
+    'account',
+    'system',
+    'storage',
+    'notifications',
+    'globalConfig',
+    'developer',
+    'about',
+] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 export const settingsRoute = createRoute({
-  path: '/settings',
-  getParentRoute: () => appLayoutRoute,
-  // `?tab=` deep-links a settings sub-tab (e.g. the sidebar update banner jumps
-  // straight to 关于). Unknown/missing → omitted (the page falls back to 外观).
-  validateSearch: (search: Record<string, unknown>): { tab?: SettingsTab } => {
-    const t = search.tab;
-    return typeof t === 'string' && (SETTINGS_TABS as readonly string[]).includes(t)
-      ? { tab: t as SettingsTab }
-      : {};
-  },
-  component: lazyRouteComponent(
-    () => import('@/components/pages/settings-page'),
-    'SettingsPage',
-  ),
+    path: '/settings',
+    getParentRoute: () => appLayoutRoute,
+    // `?tab=` deep-links a settings sub-tab (e.g. the sidebar update banner jumps
+    // straight to 关于). Unknown/missing → omitted (the page falls back to 外观).
+    validateSearch: (search: Record<string, unknown>): { tab?: SettingsTab } => {
+        const t = search.tab;
+        return typeof t === 'string' && (SETTINGS_TABS as readonly string[]).includes(t)
+            ? { tab: t as SettingsTab }
+            : {};
+    },
+    component: lazyRouteComponent(() => import('@/components/pages/settings-page'), 'SettingsPage'),
 });
 
 const routeTree = rootRoute.addChildren([
-  appLayoutRoute.addChildren([overviewRoute, processesRoute, configRoute, logsRoute, debugRoute, settingsRoute]),
+    appLayoutRoute.addChildren([
+        overviewRoute,
+        processesRoute,
+        configRoute,
+        logsRoute,
+        debugRoute,
+        settingsRoute,
+    ]),
 ]);
 
 export const appRouter = createRouter({
-  routeTree,
-  defaultPreload: 'intent',
-  defaultNotFoundComponent: () => <NotFoundPage />,
-  defaultErrorComponent: ({ error, reset }) => <ErrorPage error={error} reset={reset} />,
+    routeTree,
+    defaultPreload: 'intent',
+    defaultNotFoundComponent: () => <NotFoundPage />,
+    defaultErrorComponent: ({ error, reset }) => <ErrorPage error={error} reset={reset} />,
 });
 
 declare module '@tanstack/react-router' {
-  interface Register {
-    router: typeof appRouter;
-  }
+    interface Register {
+        router: typeof appRouter;
+    }
 }
 
 /** Paths registered on the layout — single source of truth for nav metadata. */

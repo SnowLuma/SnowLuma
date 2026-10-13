@@ -3,33 +3,66 @@ import type { WebSocket } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
 
 export function isAuthorized(request: IncomingMessage, token: string): boolean {
-  if (!token) return true;
-  const auth = request.headers.authorization ?? '';
-  if (auth === `Bearer ${token}`) return true;
-  try {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    if (url.searchParams.get('access_token') === token) return true;
-  } catch { /* ignore malformed URLs */ }
-  return false;
+    if (!token) {
+        return true;
+    }
+
+    const auth = request.headers.authorization ?? '';
+
+    if (auth === `Bearer ${token}`) {
+        return true;
+    }
+
+    try {
+        const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+
+        if (url.searchParams.get('access_token') === token) {
+            return true;
+        }
+    } catch {
+        /* ignore malformed URLs */
+    }
+
+    return false;
 }
 
 /** Convert anything ws can hand us into a UTF-8 string. */
-export function rawDataToString(raw: Buffer | string | ArrayBuffer | ArrayBufferView | Buffer[]): string {
-  if (typeof raw === 'string') return raw;
-  if (Buffer.isBuffer(raw)) return raw.toString('utf8');
-  if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8');
-  if (raw instanceof ArrayBuffer) return Buffer.from(new Uint8Array(raw)).toString('utf8');
-  if (ArrayBuffer.isView(raw)) {
-    return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
-  }
-  return '';
+export function rawDataToString(
+    raw: Buffer | string | ArrayBuffer | ArrayBufferView | Buffer[],
+): string {
+    if (typeof raw === 'string') {
+        return raw;
+    }
+
+    if (Buffer.isBuffer(raw)) {
+        return raw.toString('utf8');
+    }
+
+    if (Array.isArray(raw)) {
+        return Buffer.concat(raw).toString('utf8');
+    }
+
+    if (raw instanceof ArrayBuffer) {
+        return Buffer.from(new Uint8Array(raw)).toString('utf8');
+    }
+
+    if (ArrayBuffer.isView(raw)) {
+        return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
+    }
+
+    return '';
 }
 
 export function safeSend(socket: WebSocket, payload: string, onError?: (err: Error) => void): void {
-  if (socket.readyState !== 1 /* WebSocket.OPEN */) return;
-  socket.send(payload, (error?: Error | null) => {
-    if (error && onError) onError(error);
-  });
+    if (socket.readyState !== 1 /* WebSocket.OPEN */) {
+        return;
+    }
+
+    socket.send(payload, (error?: Error | null) => {
+        if (error && onError) {
+            onError(error);
+        }
+    });
 }
 
 /** Backpressure-aware send: resolves only once `ws` has flushed `payload` to
@@ -38,28 +71,33 @@ export function safeSend(socket: WebSocket, payload: string, onError?: (err: Err
  *  A closed socket or failed write rejects with the shared transport sentinel,
  *  allowing the action boundary to classify an in-progress stream cancellation. */
 export function safeSendAsync(socket: WebSocket, payload: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (socket.readyState !== 1 /* WebSocket.OPEN */) {
-      reject(new StreamTransportClosedError('stream client disconnected'));
-      return;
-    }
-    try {
-      socket.send(payload, (error?: Error | null) => {
-        if (error) {
-          reject(new StreamTransportClosedError('stream client disconnected'));
-          return;
+    return new Promise((resolve, reject) => {
+        if (socket.readyState !== 1 /* WebSocket.OPEN */) {
+            reject(new StreamTransportClosedError('stream client disconnected'));
+            return;
         }
-        resolve();
-      });
-    } catch {
-      reject(new StreamTransportClosedError('stream client disconnected'));
-    }
-  });
+
+        try {
+            socket.send(payload, (error?: Error | null) => {
+                if (error) {
+                    reject(new StreamTransportClosedError('stream client disconnected'));
+                    return;
+                }
+
+                resolve();
+            });
+        } catch {
+            reject(new StreamTransportClosedError('stream client disconnected'));
+        }
+    });
 }
 
 export function safeClose(socket: WebSocket, code = 1000, reason = 'normal'): void {
-  if (socket.readyState === 3 /* CLOSED */ || socket.readyState === 2 /* CLOSING */) return;
-  socket.close(code, reason);
+    if (socket.readyState === 3 /* CLOSED */ || socket.readyState === 2 /* CLOSING */) {
+        return;
+    }
+
+    socket.close(code, reason);
 }
 
 /** RFC6455 transport-level keepalive for a reverse-WS connection.
@@ -84,53 +122,67 @@ export function safeClose(socket: WebSocket, code = 1000, reason = 'normal'): vo
  *  Returns an idempotent stop function; the timer is `unref`'d so it never keeps
  *  the process alive. */
 export function startHeartbeat(
-  socket: WebSocket,
-  opts: { intervalMs: number; maxMissed: number },
-  onDead: () => void,
+    socket: WebSocket,
+    opts: { intervalMs: number; maxMissed: number },
+    onDead: () => void,
 ): () => void {
-  let missed = 0;
-  let stopped = false;
-  const onActivity = (): void => { missed = 0; };
-  socket.on('pong', onActivity);
-  socket.on('message', onActivity);
+    let missed = 0;
+    let stopped = false;
 
-  const timer = setInterval(() => {
-    if (missed >= opts.maxMissed) {
-      // `maxMissed` consecutive intervals with zero inbound traffic — the read
-      // direction is dead. Stop first so onDead()'s terminate→close→reconnect
-      // can't re-enter this tick.
-      stop();
-      onDead();
-      return;
-    }
-    missed += 1;
-    try {
-      socket.ping();
-    } catch {
-      // Ping on an already-dead socket — treat as dead immediately.
-      stop();
-      onDead();
-    }
-  }, opts.intervalMs);
-  timer.unref?.();
+    const onActivity = (): void => {
+        missed = 0;
+    };
 
-  function stop(): void {
-    if (stopped) return;
-    stopped = true;
-    clearInterval(timer);
-    socket.off?.('pong', onActivity);
-    socket.off?.('message', onActivity);
-  }
-  return stop;
+    socket.on('pong', onActivity);
+    socket.on('message', onActivity);
+
+    const timer = setInterval(() => {
+        if (missed >= opts.maxMissed) {
+            // `maxMissed` consecutive intervals with zero inbound traffic — the read
+            // direction is dead. Stop first so onDead()'s terminate→close→reconnect
+            // can't re-enter this tick.
+            stop();
+            onDead();
+            return;
+        }
+
+        missed += 1;
+
+        try {
+            socket.ping();
+        } catch {
+            // Ping on an already-dead socket — treat as dead immediately.
+            stop();
+            onDead();
+        }
+    }, opts.intervalMs);
+    timer.unref?.();
+
+    function stop(): void {
+        if (stopped) {
+            return;
+        }
+
+        stopped = true;
+        clearInterval(timer);
+        socket.off?.('pong', onActivity);
+        socket.off?.('message', onActivity);
+    }
+
+    return stop;
 }
 
 export function normalizePath(pathValue: string | undefined): string {
-  const path = (pathValue ?? '/').trim() || '/';
-  if (path === '/') return '/';
-  return path.endsWith('/') ? path.slice(0, -1) : path;
+    const path = (pathValue ?? '/').trim() || '/';
+
+    if (path === '/') {
+        return '/';
+    }
+
+    return path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
 export function parseRequestPath(urlValue: string): string {
-  const queryIndex = urlValue.indexOf('?');
-  return queryIndex === -1 ? urlValue : urlValue.slice(0, queryIndex);
+    const queryIndex = urlValue.indexOf('?');
+    return queryIndex === -1 ? urlValue : urlValue.slice(0, queryIndex);
 }

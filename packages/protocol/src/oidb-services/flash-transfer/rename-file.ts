@@ -6,40 +6,40 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  FlashRenameFileReq,
-  FlashRenameFileResp,
+    FlashRenameFileReq,
+    FlashRenameFileResp,
 } from '@snowluma/proto-defs/oidb-actions/flash-transfer';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace RenameFlashFile {
-  export const command = 0x9427;
-  export const subCommand = 0;
-  export const uinForm = true;
+    export const command = 0x9427;
+    export const subCommand = 0;
+    export const uinForm = true;
 
-  export interface Params {
-    filesetUuid: string;
-    /** 新文件名（同时用作显示名，与 QQ 面板行为一致）。 */
-    newName: string;
-  }
+    export interface Params {
+        filesetUuid: string;
+        /** 新文件名（同时用作显示名，与 QQ 面板行为一致）。 */
+        newName: string;
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): FlashRenameFileReq => ({
-    filesetUuid: p.filesetUuid,
-    name: { newName: p.newName, displayName: p.newName },
-    flag: { field1: 0 },
-  });
+    export const serialize = (_ctx: Deps, p: Params): FlashRenameFileReq => ({
+        filesetUuid: p.filesetUuid,
+        name: { newName: p.newName, displayName: p.newName },
+        flag: { field1: 0 },
+    });
 
-  export const deserialize = (_ctx: Deps, _body: FlashRenameFileResp): void => {
-    // 成功靠 envelope errorCode=0。
-  };
+    export const deserialize = (_ctx: Deps, _body: FlashRenameFileResp): void => {
+        // 成功靠 envelope errorCode=0。
+    };
 
-  export const encode = (env: OidbBase<FlashRenameFileReq>): Uint8Array =>
-    protobuf_encode<OidbBase<FlashRenameFileReq>>(env);
+    export const encode = (env: OidbBase<FlashRenameFileReq>): Uint8Array =>
+        protobuf_encode<OidbBase<FlashRenameFileReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<FlashRenameFileResp> =>
-    protobuf_decode<OidbBase<FlashRenameFileResp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<FlashRenameFileResp> =>
+        protobuf_decode<OidbBase<FlashRenameFileResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, RenameFlashFile, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, RenameFlashFile, params);
 }

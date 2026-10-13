@@ -9,36 +9,39 @@ import type { OidbSender } from '../../oidb-service';
 import { FACEROAM_SERVICE, makeInner } from './shared';
 
 export namespace FetchCustomFaceList {
-  export interface Params {
-    /** 当前账号 UIN，写入 field2。 */
-    uin: string;
-  }
-
-  export type Deps = OidbSender;
-
-  export const serialize = (_ctx: Deps, p: Params): FaceroamOpReq => ({
-    inner: makeInner(true),
-    uin: BigInt(p.uin),
-    field3: 1,
-    field6: 1,
-  });
-
-  export const encode = (req: FaceroamOpReq): Uint8Array =>
-    protobuf_encode<FaceroamOpReq>(req);
-
-  export const decode = (bytes: Uint8Array): FaceroamOpResp =>
-    protobuf_decode<FaceroamOpResp>(bytes);
-
-  export async function invoke(deps: Deps, params: Params): Promise<string[]> {
-    const body = encode(serialize(deps, params));
-    const result = await deps.sendRawPacket(FACEROAM_SERVICE, body);
-    if (!result.success || !result.gotResponse || !result.responseData) {
-      throw new Error(result.errorMessage || 'fetch custom face failed');
+    export interface Params {
+        /** 当前账号 UIN，写入 field2。 */
+        uin: string;
     }
-    const resp = decode(result.responseData);
-    if (!resp || (resp.retCode ?? 0) !== 0) {
-      throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
+
+    export type Deps = OidbSender;
+
+    export const serialize = (_ctx: Deps, p: Params): FaceroamOpReq => ({
+        inner: makeInner(true),
+        uin: BigInt(p.uin),
+        field3: 1,
+        field6: 1,
+    });
+
+    export const encode = (req: FaceroamOpReq): Uint8Array => protobuf_encode<FaceroamOpReq>(req);
+
+    export const decode = (bytes: Uint8Array): FaceroamOpResp =>
+        protobuf_decode<FaceroamOpResp>(bytes);
+
+    export async function invoke(deps: Deps, params: Params): Promise<string[]> {
+        const body = encode(serialize(deps, params));
+        const result = await deps.sendRawPacket(FACEROAM_SERVICE, body);
+
+        if (!result.success || !result.gotResponse || !result.responseData) {
+            throw new Error(result.errorMessage || 'fetch custom face failed');
+        }
+
+        const resp = decode(result.responseData);
+
+        if (!resp || (resp.retCode ?? 0) !== 0) {
+            throw new Error(`fetch custom face error: ${resp?.message || 'unknown'}`);
+        }
+
+        return resp.item?.faceIds || [];
     }
-    return resp.item?.faceIds || [];
-  }
 }

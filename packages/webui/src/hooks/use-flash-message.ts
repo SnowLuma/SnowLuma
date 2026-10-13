@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 
 export type FlashKind = 'ok' | 'err';
 export interface FlashMessage {
-  kind: FlashKind;
-  text: string;
+    kind: FlashKind;
+    text: string;
 }
 
 /**
@@ -21,17 +21,30 @@ export interface FlashMessage {
  * could fire a stale `setMsg` after unmount).
  */
 export function useFlashMessage(durationMs = 2400): {
-  msg: FlashMessage | null;
-  flash: (kind: FlashKind, text: string) => void;
-  setMsg: (msg: FlashMessage | null) => void;
+    msg: FlashMessage | null;
+    flash: (kind: FlashKind, text: string) => void;
+    setMsg: (msg: FlashMessage | null) => void;
 } {
-  const [msg, setMsg] = useState<FlashMessage | null>(null);
-  const timer = useRef<number | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  const flash = (kind: FlashKind, text: string) => {
-    setMsg({ kind, text });
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setMsg(null), durationMs);
-  };
-  return { msg, flash, setMsg };
+    const [msg, setMsg] = useState<FlashMessage | null>(null);
+    const timer = useRef<number | null>(null);
+    useEffect(
+        () => () => {
+            if (timer.current) {
+                clearTimeout(timer.current);
+            }
+        },
+        [],
+    );
+
+    const flash = (kind: FlashKind, text: string) => {
+        setMsg({ kind, text });
+
+        if (timer.current) {
+            clearTimeout(timer.current);
+        }
+
+        timer.current = window.setTimeout(() => setMsg(null), durationMs);
+    };
+
+    return { msg, flash, setMsg };
 }

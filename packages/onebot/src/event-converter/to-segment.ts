@@ -9,62 +9,80 @@ import { attachMessageMedia } from '../message-media';
 const log = createLogger('OneBot');
 
 function toSegmentContext(
-  ctx: ConverterContext,
-  isGroup: boolean,
-  sessionId: number,
+    ctx: ConverterContext,
+    isGroup: boolean,
+    sessionId: number,
 ): ToSegmentContext {
-  return {
-    isGroup,
-    sessionId,
-    selfId: ctx.selfId,
-    imageUrlResolver: ctx.imageUrlResolver,
-    mediaUrlResolver: ctx.mediaUrlResolver,
-    messageIdResolver: ctx.messageIdResolver,
-    mediaSegmentSink: ctx.mediaSegmentSink,
-  };
+    return {
+        isGroup,
+        sessionId,
+        selfId: ctx.selfId,
+        imageUrlResolver: ctx.imageUrlResolver,
+        mediaUrlResolver: ctx.mediaUrlResolver,
+        messageIdResolver: ctx.messageIdResolver,
+        mediaSegmentSink: ctx.mediaSegmentSink,
+    };
 }
 
 export async function elementsToOneBotSegments(
-  ctx: ConverterContext,
-  elements: MessageElement[],
-  isGroup: boolean,
-  sessionId: number,
+    ctx: ConverterContext,
+    elements: MessageElement[],
+    isGroup: boolean,
+    sessionId: number,
 ): Promise<JsonArray> {
-  const segmentCtx = toSegmentContext(ctx, isGroup, sessionId);
-  const result: JsonArray = [];
-  for (const element of elements) {
-    let segment: JsonObject;
-    // One malformed element shouldn't drop the whole message — skip it (with a
-    // breadcrumb) and keep converting the rest.
-    try {
-      segment = await elementToSegment(element, { ...segmentCtx, mediaSegmentSink: null });
-    } catch (err) {
-      log.warn('segment convert skipped type=%s (%s)', element.type,
-        err instanceof Error ? err.message : String(err));
-      continue;
+    const segmentCtx = toSegmentContext(ctx, isGroup, sessionId);
+    const result: JsonArray = [];
+
+    for (const element of elements) {
+        let segment: JsonObject;
+
+        // One malformed element shouldn't drop the whole message — skip it (with a
+        // breadcrumb) and keep converting the rest.
+        try {
+            segment = await elementToSegment(element, { ...segmentCtx, mediaSegmentSink: null });
+        } catch (err) {
+            log.warn(
+                'segment convert skipped type=%s (%s)',
+                element.type,
+                err instanceof Error ? err.message : String(err),
+            );
+            continue;
+        }
+
+        // Persistence failures must propagate, not masquerade as bad wire elements.
+        attachMessageMedia(segment, element);
+
+        if (element.type === 'image' || element.type === 'record' || element.type === 'video') {
+            ctx.mediaSegmentSink?.(
+                element.type,
+                element,
+                segment.data as JsonObject,
+                isGroup,
+                sessionId,
+            );
+        }
+
+        result.push(segment);
+
+        if (element.type === 'markdown' && element.text) {
+            result.push({ type: 'text', data: { text: element.text } });
+        }
     }
-    // Persistence failures must propagate, not masquerade as bad wire elements.
-    attachMessageMedia(segment, element);
-    if (element.type === 'image' || element.type === 'record' || element.type === 'video') {
-      ctx.mediaSegmentSink?.(element.type, element, segment.data as JsonObject, isGroup, sessionId);
-    }
-    result.push(segment);
-    if (element.type === 'markdown' && element.text) {
-      result.push({ type: 'text', data: { text: element.text } });
-    }
-  }
-  return result;
+
+    return result;
 }
 
 async function elementToSegment(
-  element: MessageElement,
-  ctx: ToSegmentContext,
+    element: MessageElement,
+    ctx: ToSegmentContext,
 ): Promise<JsonObject> {
-  // S 收·转：按 element.type 查 codec 表；缺条目则走 default 透传（保持原兜底）。
-  const codec = getElementCodec(element.type);
-  if (codec?.toSegment) {
-    return codec.toSegment(element, ctx);
-  }
-  log.warn('segment convert fallback type=%s reason=no receive-side codec', element.type);
-  return { type: element.type, data: {} };
+    // S 收·转：按 element.type 查 codec 表；缺条目则走 default 透传（保持原兜底）。
+    const codec = getElementCodec(element.type);
+
+    if (codec?.toSegment) {
+        return codec.toSegment(element, ctx);
+    }
+
+    log.warn('segment convert fallback type=%s reason=no receive-side codec', element.type);
+    return { type: element.type, data: {} };
 }

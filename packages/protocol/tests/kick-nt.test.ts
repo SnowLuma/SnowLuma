@@ -13,29 +13,34 @@ import type { QQEventVariant } from '@snowluma/protocol/events';
 type BotOfflineEvent = Extract<QQEventVariant, { kind: 'bot_offline' }>;
 
 describe('parseKickNT (StatusService.KickNT → bot_offline)', () => {
-  const identity = IdentityService.memory('3433035623');
+    const identity = IdentityService.memory('3433035623');
 
-  function pkt(resp: KickNTResponse, uin = '3433035623'): PacketInfo {
-    return {
-      pid: 1, uin, serviceCmd: KICK_NT_CMD, seqId: 1, retCode: 0,
-      fromClient: false, body: protobuf_encode<KickNTResponse>(resp),
-    };
-  }
+    function pkt(resp: KickNTResponse, uin = '3433035623'): PacketInfo {
+        return {
+            pid: 1,
+            uin,
+            serviceCmd: KICK_NT_CMD,
+            seqId: 1,
+            retCode: 0,
+            fromClient: false,
+            body: protobuf_encode<KickNTResponse>(resp),
+        };
+    }
 
-  it('emits bot_offline with tag=title (f4) and message=tips (f3)', () => {
-    const [ev] = parseKickNT(
-      pkt({ uin: 3433035623, title: '你已离线', tips: '你的账号在其他设备登录' }),
-      identity,
-    ) as BotOfflineEvent[];
+    it('emits bot_offline with tag=title (f4) and message=tips (f3)', () => {
+        const [ev] = parseKickNT(
+            pkt({ uin: 3433035623, title: '你已离线', tips: '你的账号在其他设备登录' }),
+            identity,
+        ) as BotOfflineEvent[];
 
-    expect(ev.kind).toBe('bot_offline');
-    expect(ev.selfUin).toBe(3433035623);
-    expect(ev.tag).toBe('你已离线');
-    expect(ev.message).toBe('你的账号在其他设备登录');
-  });
+        expect(ev.kind).toBe('bot_offline');
+        expect(ev.selfUin).toBe(3433035623);
+        expect(ev.tag).toBe('你已离线');
+        expect(ev.message).toBe('你的账号在其他设备登录');
+    });
 
-  it('falls back to the identity uin when the packet uin is missing', () => {
-    const [ev] = parseKickNT(pkt({ title: 't', tips: 'm' }, ''), identity) as BotOfflineEvent[];
-    expect(ev.selfUin).toBe(3433035623);
-  });
+    it('falls back to the identity uin when the packet uin is missing', () => {
+        const [ev] = parseKickNT(pkt({ title: 't', tips: 'm' }, ''), identity) as BotOfflineEvent[];
+        expect(ev.selfUin).toBe(3433035623);
+    });
 });

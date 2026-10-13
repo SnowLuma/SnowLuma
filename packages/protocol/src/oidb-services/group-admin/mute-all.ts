@@ -9,26 +9,29 @@ import type { OidbMuteAll } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace MuteAll {
-  export const command = 0x89A;
-  export const subCommand = 0;
+    export const command = 0x89a;
+    export const subCommand = 0;
 
-  export interface Params { groupId: number; enable: boolean; }
+    export interface Params {
+        groupId: number;
+        enable: boolean;
+    }
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): OidbMuteAll => ({
-    groupUin: p.groupId,
-    muteState: { state: p.enable ? 0xFFFFFFFF : 0 },
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbMuteAll => ({
+        groupUin: p.groupId,
+        muteState: { state: p.enable ? 0xffffffff : 0 },
+    });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbMuteAll>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbMuteAll>>(env);
+    export const encode = (env: OidbBase<OidbMuteAll>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbMuteAll>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, MuteAll, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, MuteAll, params);
 }

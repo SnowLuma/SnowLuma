@@ -1,10 +1,5 @@
 import * as React from 'react';
-import {
-  motion,
-  useMotionValue,
-  useReducedMotion,
-  useSpring,
-} from 'motion/react';
+import { motion, useMotionValue, useReducedMotion, useSpring } from 'motion/react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FINE_POINTER_QUERY } from '@/lib/utils';
 import { useMediaQuery } from '@/hooks/use-media-query';
@@ -15,39 +10,37 @@ const RESIZE_MODE_PROPERTY = '--snowluma-cursor-resize-mode';
 const POINTER_SPRING = { stiffness: 1000, damping: 50 } as const;
 
 const CURSOR_MODES = [
-  'default',
-  'target',
-  'text',
-  'grab',
-  'grabbing',
-  'move',
-  'ew-resize',
-  'ns-resize',
-  'nwse-resize',
-  'nesw-resize',
-  'not-allowed',
-  'wait',
-  'crosshair',
-  'copy',
-  'zoom-in',
-  'zoom-out',
-  'help',
-  'hidden',
+    'default',
+    'target',
+    'text',
+    'grab',
+    'grabbing',
+    'move',
+    'ew-resize',
+    'ns-resize',
+    'nwse-resize',
+    'nesw-resize',
+    'not-allowed',
+    'wait',
+    'crosshair',
+    'copy',
+    'zoom-in',
+    'zoom-out',
+    'help',
+    'hidden',
 ] as const;
 
 type CursorMode = (typeof CURSOR_MODES)[number];
 
 interface CursorContext {
-  mode: CursorMode;
-  anchor: Element | null;
-  tracksPointerRegion: boolean;
+    mode: CursorMode;
+    anchor: Element | null;
+    tracksPointerRegion: boolean;
 }
 
 function readCursorMode(element: Element): CursorMode {
-  const value = getComputedStyle(element).getPropertyValue(MODE_PROPERTY).trim();
-  return (CURSOR_MODES as readonly string[]).includes(value)
-    ? value as CursorMode
-    : 'default';
+    const value = getComputedStyle(element).getPropertyValue(MODE_PROPERTY).trim();
+    return (CURSOR_MODES as readonly string[]).includes(value) ? (value as CursorMode) : 'default';
 }
 
 /**
@@ -56,50 +49,55 @@ function readCursorMode(element: Element): CursorMode {
  * This keeps nested SVGs/spans inside a button attached to the whole button.
  */
 function resolveCursorContext(
-  target: EventTarget | null,
-  clientX: number,
-  clientY: number,
+    target: EventTarget | null,
+    clientX: number,
+    clientY: number,
 ): CursorContext {
-  if (!(target instanceof Element)) {
-    return { mode: 'default', anchor: null, tracksPointerRegion: false };
-  }
-
-  const styles = getComputedStyle(target);
-  const resizeModeValue = styles.getPropertyValue(RESIZE_MODE_PROPERTY).trim();
-  const resizeMode = (CURSOR_MODES as readonly string[]).includes(resizeModeValue)
-    ? resizeModeValue as CursorMode
-    : null;
-
-  if (resizeMode) {
-    const rect = target.getBoundingClientRect();
-    const inResizeCorner = clientX >= rect.right - 18
-      && clientX <= rect.right
-      && clientY >= rect.bottom - 18
-      && clientY <= rect.bottom;
-    if (inResizeCorner) {
-      return { mode: resizeMode, anchor: null, tracksPointerRegion: true };
+    if (!(target instanceof Element)) {
+        return { mode: 'default', anchor: null, tracksPointerRegion: false };
     }
-  }
 
-  const modeValue = styles.getPropertyValue(MODE_PROPERTY).trim();
-  const mode = (CURSOR_MODES as readonly string[]).includes(modeValue)
-    ? modeValue as CursorMode
-    : 'default';
-  if (mode !== 'target') {
-    return { mode, anchor: null, tracksPointerRegion: Boolean(resizeMode) };
-  }
+    const styles = getComputedStyle(target);
+    const resizeModeValue = styles.getPropertyValue(RESIZE_MODE_PROPERTY).trim();
+    const resizeMode = (CURSOR_MODES as readonly string[]).includes(resizeModeValue)
+        ? (resizeModeValue as CursorMode)
+        : null;
 
-  let anchor = target;
-  let parent = target.parentElement;
-  while (parent && readCursorMode(parent) === mode) {
-    anchor = parent;
-    parent = parent.parentElement;
-  }
-  return { mode, anchor, tracksPointerRegion: Boolean(resizeMode) };
+    if (resizeMode) {
+        const rect = target.getBoundingClientRect();
+        const inResizeCorner =
+            clientX >= rect.right - 18 &&
+            clientX <= rect.right &&
+            clientY >= rect.bottom - 18 &&
+            clientY <= rect.bottom;
+
+        if (inResizeCorner) {
+            return { mode: resizeMode, anchor: null, tracksPointerRegion: true };
+        }
+    }
+
+    const modeValue = styles.getPropertyValue(MODE_PROPERTY).trim();
+    const mode = (CURSOR_MODES as readonly string[]).includes(modeValue)
+        ? (modeValue as CursorMode)
+        : 'default';
+
+    if (mode !== 'target') {
+        return { mode, anchor: null, tracksPointerRegion: Boolean(resizeMode) };
+    }
+
+    let anchor = target;
+    let parent = target.parentElement;
+
+    while (parent && readCursorMode(parent) === mode) {
+        anchor = parent;
+        parent = parent.parentElement;
+    }
+
+    return { mode, anchor, tracksPointerRegion: Boolean(resizeMode) };
 }
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+    return Math.min(max, Math.max(min, value));
 }
 
 /**
@@ -110,195 +108,252 @@ function clamp(value: number, min: number, max: number): number {
  * geometry for Mikk Martin-style target morphing.
  */
 export function AdaptivePointer() {
-  const { appearance } = useTheme();
-  const systemReducedMotion = useReducedMotion();
-  const finePointer = useMediaQuery(POINTER_MEDIA);
-  const enabled = appearance.customPointerSystem
-    && finePointer
-    && !appearance.reduceMotion
-    && !appearance.disableMotion
-    && !systemReducedMotion;
+    const { appearance } = useTheme();
+    const systemReducedMotion = useReducedMotion();
+    const finePointer = useMediaQuery(POINTER_MEDIA);
+    const enabled =
+        appearance.customPointerSystem &&
+        finePointer &&
+        !appearance.reduceMotion &&
+        !appearance.disableMotion &&
+        !systemReducedMotion;
 
-  const cursorRef = React.useRef<HTMLDivElement>(null);
-  const rawX = useMotionValue(-100);
-  const rawY = useMotionValue(-100);
-  const x = useSpring(rawX, POINTER_SPRING);
-  const y = useSpring(rawY, POINTER_SPRING);
+    const cursorRef = React.useRef<HTMLDivElement>(null);
+    const rawX = useMotionValue(-100);
+    const rawY = useMotionValue(-100);
+    const x = useSpring(rawX, POINTER_SPRING);
+    const y = useSpring(rawY, POINTER_SPRING);
 
-  React.useEffect(() => {
-    const cursor = cursorRef.current;
-    if (!enabled || !cursor) return;
+    React.useEffect(() => {
+        const cursor = cursorRef.current;
 
-    const root = document.documentElement;
-    const lastPoint = { x: -100, y: -100 };
-    let context: CursorContext = { mode: 'default', anchor: null, tracksPointerRegion: false };
-    let lastEventTarget: EventTarget | null = null;
-    let targetObserver: ResizeObserver | null = null;
+        if (!enabled || !cursor) {
+            return;
+        }
 
-    root.dataset.cursorSystem = 'custom';
-    delete root.dataset.cursorArmed;
-    cursor.dataset.visible = 'false';
+        const root = document.documentElement;
+        const lastPoint = { x: -100, y: -100 };
+        let context: CursorContext = { mode: 'default', anchor: null, tracksPointerRegion: false };
+        let lastEventTarget: EventTarget | null = null;
+        let targetObserver: ResizeObserver | null = null;
 
-    const arm = () => {
-      root.dataset.cursorArmed = '1';
-      cursor.dataset.visible = 'true';
-    };
-    const disarm = () => {
-      delete root.dataset.cursorArmed;
-      cursor.dataset.visible = 'false';
-    };
+        root.dataset.cursorSystem = 'custom';
+        delete root.dataset.cursorArmed;
+        cursor.dataset.visible = 'false';
 
-    const stopObservingTarget = () => {
-      targetObserver?.disconnect();
-      targetObserver = null;
-    };
+        const arm = () => {
+            root.dataset.cursorArmed = '1';
+            cursor.dataset.visible = 'true';
+        };
 
-    const setMode = (mode: CursorMode) => {
-      cursor.dataset.mode = mode;
-      if (mode !== 'target') {
-        cursor.style.removeProperty('--cursor-target-width');
-        cursor.style.removeProperty('--cursor-target-height');
-        cursor.style.removeProperty('--cursor-target-radius');
-      }
-    };
+        const disarm = () => {
+            delete root.dataset.cursorArmed;
+            cursor.dataset.visible = 'false';
+        };
 
-    const positionTarget = () => {
-      const anchor = context.anchor;
-      if (context.mode !== 'target' || !anchor?.isConnected) return false;
+        const stopObservingTarget = () => {
+            targetObserver?.disconnect();
+            targetObserver = null;
+        };
 
-      const rect = anchor.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return false;
+        const setMode = (mode: CursorMode) => {
+            cursor.dataset.mode = mode;
 
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const magneticX = clamp((lastPoint.x - centerX) / Math.max(rect.width / 2, 1), -1, 1) * 10;
-      const magneticY = clamp((lastPoint.y - centerY) / Math.max(rect.height / 2, 1), -1, 1) * 10;
-      const radius = getComputedStyle(anchor).borderRadius || '0.75rem';
+            if (mode !== 'target') {
+                cursor.style.removeProperty('--cursor-target-width');
+                cursor.style.removeProperty('--cursor-target-height');
+                cursor.style.removeProperty('--cursor-target-radius');
+            }
+        };
 
-      cursor.style.setProperty('--cursor-target-width', `${rect.width}px`);
-      cursor.style.setProperty('--cursor-target-height', `${rect.height}px`);
-      cursor.style.setProperty('--cursor-target-radius', radius);
-      rawX.set(centerX + magneticX);
-      rawY.set(centerY + magneticY);
-      return true;
-    };
+        const positionTarget = () => {
+            const anchor = context.anchor;
 
-    const observeTarget = (anchor: Element | null) => {
-      stopObservingTarget();
-      if (!anchor) return;
-      targetObserver = new ResizeObserver(positionTarget);
-      targetObserver.observe(anchor);
-    };
+            if (context.mode !== 'target' || !anchor?.isConnected) {
+                return false;
+            }
 
-    const applyContext = (next: CursorContext) => {
-      const targetChanged = next.anchor !== context.anchor;
-      context = next;
-      setMode(next.mode);
-      if (targetChanged) observeTarget(next.mode === 'target' ? next.anchor : null);
-    };
+            const rect = anchor.getBoundingClientRect();
 
-    const positionAtPointer = () => {
-      if (context.mode === 'target' && positionTarget()) return;
-      rawX.set(lastPoint.x);
-      rawY.set(lastPoint.y);
-    };
+            if (rect.width <= 0 || rect.height <= 0) {
+                return false;
+            }
 
-    const refreshContext = (target: EventTarget | null) => {
-      lastEventTarget = target;
-      applyContext(resolveCursorContext(target, lastPoint.x, lastPoint.y));
-      positionAtPointer();
-    };
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const magneticX =
+                clamp((lastPoint.x - centerX) / Math.max(rect.width / 2, 1), -1, 1) * 10;
+            const magneticY =
+                clamp((lastPoint.y - centerY) / Math.max(rect.height / 2, 1), -1, 1) * 10;
+            const radius = getComputedStyle(anchor).borderRadius || '0.75rem';
 
-    const onPointerMove = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
-      lastPoint.x = event.clientX;
-      lastPoint.y = event.clientY;
-      arm();
-      if (event.target !== lastEventTarget || context.tracksPointerRegion) refreshContext(event.target);
-      else positionAtPointer();
-    };
+            cursor.style.setProperty('--cursor-target-width', `${rect.width}px`);
+            cursor.style.setProperty('--cursor-target-height', `${rect.height}px`);
+            cursor.style.setProperty('--cursor-target-radius', radius);
+            rawX.set(centerX + magneticX);
+            rawY.set(centerY + magneticY);
+            return true;
+        };
 
-    const onPointerOver = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
-      lastPoint.x = event.clientX;
-      lastPoint.y = event.clientY;
-      arm();
-      refreshContext(event.target);
-    };
+        const observeTarget = (anchor: Element | null) => {
+            stopObservingTarget();
 
-    const onPointerOut = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
-      if (event.relatedTarget === null) disarm();
-    };
+            if (!anchor) {
+                return;
+            }
 
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return;
-      cursor.dataset.pressed = 'true';
-      refreshContext(event.target);
-      if (context.mode === 'grab') setMode('grabbing');
-    };
+            targetObserver = new ResizeObserver(positionTarget);
+            targetObserver.observe(anchor);
+        };
 
-    const restorePointerContext = () => {
-      cursor.dataset.pressed = 'false';
-      const target = document.elementFromPoint(lastPoint.x, lastPoint.y);
-      refreshContext(target);
-    };
+        const applyContext = (next: CursorContext) => {
+            const targetChanged = next.anchor !== context.anchor;
+            context = next;
+            setMode(next.mode);
 
-    const onDragStart = () => {
-      cursor.dataset.pressed = 'true';
-      setMode('grabbing');
-    };
+            if (targetChanged) {
+                observeTarget(next.mode === 'target' ? next.anchor : null);
+            }
+        };
 
-    const onViewportChange = () => positionTarget();
-    const hide = () => { disarm(); };
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') hide();
-    };
+        const positionAtPointer = () => {
+            if (context.mode === 'target' && positionTarget()) {
+                return;
+            }
 
-    window.addEventListener('pointermove', onPointerMove, { passive: true });
-    window.addEventListener('pointerover', onPointerOver, { passive: true });
-    window.addEventListener('pointerout', onPointerOut, { passive: true });
-    window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
-    window.addEventListener('pointerup', restorePointerContext, { capture: true, passive: true });
-    window.addEventListener('pointercancel', restorePointerContext, { capture: true, passive: true });
-    window.addEventListener('dragstart', onDragStart, { capture: true });
-    window.addEventListener('dragend', restorePointerContext, { capture: true });
-    window.addEventListener('scroll', onViewportChange, { capture: true, passive: true });
-    window.addEventListener('resize', onViewportChange, { passive: true });
-    window.addEventListener('blur', hide);
-    document.addEventListener('visibilitychange', onVisibilityChange);
+            rawX.set(lastPoint.x);
+            rawY.set(lastPoint.y);
+        };
 
-    return () => {
-      stopObservingTarget();
-      delete root.dataset.cursorSystem;
-      delete root.dataset.cursorArmed;
-      cursor.dataset.visible = 'false';
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerover', onPointerOver);
-      window.removeEventListener('pointerout', onPointerOut);
-      window.removeEventListener('pointerdown', onPointerDown, { capture: true });
-      window.removeEventListener('pointerup', restorePointerContext, { capture: true });
-      window.removeEventListener('pointercancel', restorePointerContext, { capture: true });
-      window.removeEventListener('dragstart', onDragStart, { capture: true });
-      window.removeEventListener('dragend', restorePointerContext, { capture: true });
-      window.removeEventListener('scroll', onViewportChange, { capture: true });
-      window.removeEventListener('resize', onViewportChange);
-      window.removeEventListener('blur', hide);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [enabled, rawX, rawY]);
+        const refreshContext = (target: EventTarget | null) => {
+            lastEventTarget = target;
+            applyContext(resolveCursorContext(target, lastPoint.x, lastPoint.y));
+            positionAtPointer();
+        };
 
-  return (
-    <motion.div
-      ref={cursorRef}
-      className="adaptive-cursor"
-      data-mode="default"
-      data-visible="false"
-      data-pressed="false"
-      style={{ x, y }}
-      aria-hidden="true"
-    >
-      <span className="adaptive-cursor-shape" />
-    </motion.div>
-  );
+        const onPointerMove = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') {
+                return;
+            }
+
+            lastPoint.x = event.clientX;
+            lastPoint.y = event.clientY;
+            arm();
+
+            if (event.target !== lastEventTarget || context.tracksPointerRegion) {
+                refreshContext(event.target);
+            } else {
+                positionAtPointer();
+            }
+        };
+
+        const onPointerOver = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') {
+                return;
+            }
+
+            lastPoint.x = event.clientX;
+            lastPoint.y = event.clientY;
+            arm();
+            refreshContext(event.target);
+        };
+
+        const onPointerOut = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') {
+                return;
+            }
+
+            if (event.relatedTarget === null) {
+                disarm();
+            }
+        };
+
+        const onPointerDown = (event: PointerEvent) => {
+            if (event.pointerType === 'touch') {
+                return;
+            }
+
+            cursor.dataset.pressed = 'true';
+            refreshContext(event.target);
+
+            if (context.mode === 'grab') {
+                setMode('grabbing');
+            }
+        };
+
+        const restorePointerContext = () => {
+            cursor.dataset.pressed = 'false';
+            const target = document.elementFromPoint(lastPoint.x, lastPoint.y);
+            refreshContext(target);
+        };
+
+        const onDragStart = () => {
+            cursor.dataset.pressed = 'true';
+            setMode('grabbing');
+        };
+
+        const onViewportChange = () => positionTarget();
+
+        const hide = () => {
+            disarm();
+        };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') {
+                hide();
+            }
+        };
+
+        window.addEventListener('pointermove', onPointerMove, { passive: true });
+        window.addEventListener('pointerover', onPointerOver, { passive: true });
+        window.addEventListener('pointerout', onPointerOut, { passive: true });
+        window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
+        window.addEventListener('pointerup', restorePointerContext, {
+            capture: true,
+            passive: true,
+        });
+        window.addEventListener('pointercancel', restorePointerContext, {
+            capture: true,
+            passive: true,
+        });
+        window.addEventListener('dragstart', onDragStart, { capture: true });
+        window.addEventListener('dragend', restorePointerContext, { capture: true });
+        window.addEventListener('scroll', onViewportChange, { capture: true, passive: true });
+        window.addEventListener('resize', onViewportChange, { passive: true });
+        window.addEventListener('blur', hide);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            stopObservingTarget();
+            delete root.dataset.cursorSystem;
+            delete root.dataset.cursorArmed;
+            cursor.dataset.visible = 'false';
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerover', onPointerOver);
+            window.removeEventListener('pointerout', onPointerOut);
+            window.removeEventListener('pointerdown', onPointerDown, { capture: true });
+            window.removeEventListener('pointerup', restorePointerContext, { capture: true });
+            window.removeEventListener('pointercancel', restorePointerContext, { capture: true });
+            window.removeEventListener('dragstart', onDragStart, { capture: true });
+            window.removeEventListener('dragend', restorePointerContext, { capture: true });
+            window.removeEventListener('scroll', onViewportChange, { capture: true });
+            window.removeEventListener('resize', onViewportChange);
+            window.removeEventListener('blur', hide);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [enabled, rawX, rawY]);
+
+    return (
+        <motion.div
+            ref={cursorRef}
+            className="adaptive-cursor"
+            data-mode="default"
+            data-visible="false"
+            data-pressed="false"
+            style={{ x, y }}
+            aria-hidden="true"
+        >
+            <span className="adaptive-cursor-shape" />
+        </motion.div>
+    );
 }

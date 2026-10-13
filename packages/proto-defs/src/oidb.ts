@@ -1,26 +1,26 @@
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes, bool } from '@snowluma/proton';
 
 export interface OidbProperty {
-  key?:   pb<1, string>;
-  value?: pb<2, bytes>;
+    key?: pb<1, string>;
+    value?: pb<2, bytes>;
 }
 
 export interface OidbBase<TBody> {
-  command?:    pb<1, uint_32>;
-  subCommand?: pb<2, uint_32>;
-  errorCode?:  pb<3, uint_32>;
-  body?:       pb<4, TBody>;
-  errorMsg?:   pb<5, string>;
-  properties?: pb_repeated<11, OidbProperty>;
-  reserved?:   pb<12, int_32>;
+    command?: pb<1, uint_32>;
+    subCommand?: pb<2, uint_32>;
+    errorCode?: pb<3, uint_32>;
+    body?: pb<4, TBody>;
+    errorMsg?: pb<5, string>;
+    properties?: pb_repeated<11, OidbProperty>;
+    reserved?: pb<12, int_32>;
 }
 
 export interface OidbBaseMeta {
-  command?:    pb<1, uint_32>;
-  subCommand?: pb<2, uint_32>;
-  errorCode?:  pb<3, uint_32>;
-  errorMsg?:   pb<5, string>;
-  reserved?:   pb<12, int_32>;
+    command?: pb<1, uint_32>;
+    subCommand?: pb<2, uint_32>;
+    errorCode?: pb<3, uint_32>;
+    errorMsg?: pb<5, string>;
+    reserved?: pb<12, int_32>;
 }
 
 /** Placeholder body for OIDB cmds whose successful response carries no
@@ -31,152 +31,152 @@ export interface OidbEmpty {}
 
 // Oidb.0xFD4_1 Friend list
 export interface OidbFriendProperty {
-  code?:  pb<1, uint_32>;
-  value?: pb<2, string>;
+    code?: pb<1, uint_32>;
+    value?: pb<2, string>;
 }
 
 export interface OidbFriendLayer1 {
-  properties?: pb_repeated<2, OidbFriendProperty>;
+    properties?: pb_repeated<2, OidbFriendProperty>;
 }
 
 export interface OidbFriendAdditional {
-  type?:   pb<1, uint_32>;
-  layer1?: pb<2, OidbFriendLayer1>;
+    type?: pb<1, uint_32>;
+    layer1?: pb<2, OidbFriendLayer1>;
 }
 
 export interface OidbFriend {
-  uid?:         pb<1, string>;
-  customGroup?: pb<2, uint_32>;
-  uin?:         pb<3, uint_32>;
-  additional?:  pb_repeated<10001, OidbFriendAdditional>;
+    uid?: pb<1, string>;
+    customGroup?: pb<2, uint_32>;
+    uin?: pb<3, uint_32>;
+    additional?: pb_repeated<10001, OidbFriendAdditional>;
 }
 
 export interface OidbFriendCategory {
-  categoryId?:   pb<1, uint_32>;
-  categoryName?: pb<2, string>;
-  memberCount?:  pb<3, uint_32>;
-  sortId?:       pb<4, uint_32>;
+    categoryId?: pb<1, uint_32>;
+    categoryName?: pb<2, string>;
+    memberCount?: pb<3, uint_32>;
+    sortId?: pb<4, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFD4_1Response {
-  cookie?:     pb<2, bytes>;
-  isEnd?:      pb<3, bool>;
-  timestamp?:  pb<6, uint_64>;
-  selfUin?:    pb<7, uint_64>;
-  smallSeq?:   pb<8, uint_32>;
-  friends?:    pb_repeated<101, OidbFriend>;
-  categories?: pb_repeated<102, OidbFriendCategory>;
+    cookie?: pb<2, bytes>;
+    isEnd?: pb<3, bool>;
+    timestamp?: pb<6, uint_64>;
+    selfUin?: pb<7, uint_64>;
+    smallSeq?: pb<8, uint_32>;
+    friends?: pb_repeated<101, OidbFriend>;
+    categories?: pb_repeated<102, OidbFriendCategory>;
 }
 
 // Oidb.0xFE5_2 Group list
 export interface OidbSvcTrpcTcp0xFE5_2Member {
-  uid?: pb<2, string>;
+    uid?: pb<2, string>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2GroupInfo {
-  groupOwner?:   pb<1, OidbSvcTrpcTcp0xFE5_2Member>;
-  createdTime?:  pb<2, uint_32>;
-  memberMax?:    pb<3, uint_32>;
-  memberCount?:  pb<4, uint_32>;
-  groupName?:    pb<5, string>;
-  description?:  pb<18, string>;
-  question?:     pb<19, string>;
-  announcement?: pb<30, string>;
-  // wrapper.node 3.2.32 group_codec.cc DecodeGroupInfo: tag 10 → internal
-  // 60027 (JS groupShutupExpireTime). Tag 31 is 60259, not the mute expire.
-  // 0 = off, 0xFFFFFFFF = permanent, otherwise unix-seconds expire.
-  shutUpAllTimestamp?: pb<10, uint_32>;
+    groupOwner?: pb<1, OidbSvcTrpcTcp0xFE5_2Member>;
+    createdTime?: pb<2, uint_32>;
+    memberMax?: pb<3, uint_32>;
+    memberCount?: pb<4, uint_32>;
+    groupName?: pb<5, string>;
+    description?: pb<18, string>;
+    question?: pb<19, string>;
+    announcement?: pb<30, string>;
+    // wrapper.node 3.2.32 group_codec.cc DecodeGroupInfo: tag 10 → internal
+    // 60027 (JS groupShutupExpireTime). Tag 31 is 60259, not the mute expire.
+    // 0 = off, 0xFFFFFFFF = permanent, otherwise unix-seconds expire.
+    shutUpAllTimestamp?: pb<10, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2CustomInfo {
-  remark?: pb<3, string>;
+    remark?: pb<3, string>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2Group {
-  groupUin?:   pb<3, uint_32>;
-  info?:       pb<4, OidbSvcTrpcTcp0xFE5_2GroupInfo>;
-  customInfo?: pb<5, OidbSvcTrpcTcp0xFE5_2CustomInfo>;
+    groupUin?: pb<3, uint_32>;
+    info?: pb<4, OidbSvcTrpcTcp0xFE5_2GroupInfo>;
+    customInfo?: pb<5, OidbSvcTrpcTcp0xFE5_2CustomInfo>;
 }
 
 export interface OidbSvcTrpcTcp0xFE5_2Response {
-  groups?: pb_repeated<2, OidbSvcTrpcTcp0xFE5_2Group>;
+    groups?: pb_repeated<2, OidbSvcTrpcTcp0xFE5_2Group>;
 }
 
 // Oidb.0x88D_0 — single group detail by uin. `results` tags mirror the request
 // flags. Cross-checked against
 // dev/Lagrange.Core/.../Response/OidbSvcTrpcTcp0x88D_0Response.cs.
 export interface OidbSvcTrpcTcp0x88D_0Results {
-  ownerUid?:        pb<1, string>;
-  createTime?:      pb<2, uint_64>;
-  maxMemberCount?:  pb<5, uint_64>;
-  memberCount?:     pb<6, uint_64>;
-  // DecodeSingleGroupDetailInfoByBaseFilter: tag 7 → 60205 addOption.
-  // SET uses a different message domain (0x89A settings tag 16).
-  addType?:         pb<7, uint_32>;
-  level?:           pb<10, uint_64>;
-  name?:            pb<15, string>;
-  noticePreview?:   pb<16, string>;
-  uin?:             pb<21, uint_64>;
-  lastSequence?:    pb<22, uint_64>;
-  lastMessageTime?: pb<23, uint_64>;
-  question?:        pb<24, string>;
-  answer?:          pb<25, string>;
-  maxAdminCount?:   pb<29, uint_64>;
-  // wrapper.node 3.2.32 group_info_fetch_codec.cc
-  // DecodeSingleGroupDetailInfoByBaseFilter: tag 45 → internal 60027.
-  // Tag 59 is 60259, not the mute expire. Request mask tag is also 45.
-  shutUpAllTimestamp?: pb<45, uint_32>;
-  /** Complete app privilege bitfield (requested with detail flag tag 56). */
-  privilegeFlag?:   pb<56, uint_32>;
-  /** New-member history-visible switch (0/1; omitted means hidden). */
-  groupFlagExt4?:   pb<101, uint_32>;
-  // DecodeSingleGroupDetailInfoByBaseFilter: tag 82 → 60282, tag 83 → 60283.
-  // SET counterparts are 0x89A settings 35/36. 0 = that search mode is open.
-  noFingerOpen?:     pb<82, uint_32>;
-  noCodeFingerOpen?: pb<83, uint_32>;
+    ownerUid?: pb<1, string>;
+    createTime?: pb<2, uint_64>;
+    maxMemberCount?: pb<5, uint_64>;
+    memberCount?: pb<6, uint_64>;
+    // DecodeSingleGroupDetailInfoByBaseFilter: tag 7 → 60205 addOption.
+    // SET uses a different message domain (0x89A settings tag 16).
+    addType?: pb<7, uint_32>;
+    level?: pb<10, uint_64>;
+    name?: pb<15, string>;
+    noticePreview?: pb<16, string>;
+    uin?: pb<21, uint_64>;
+    lastSequence?: pb<22, uint_64>;
+    lastMessageTime?: pb<23, uint_64>;
+    question?: pb<24, string>;
+    answer?: pb<25, string>;
+    maxAdminCount?: pb<29, uint_64>;
+    // wrapper.node 3.2.32 group_info_fetch_codec.cc
+    // DecodeSingleGroupDetailInfoByBaseFilter: tag 45 → internal 60027.
+    // Tag 59 is 60259, not the mute expire. Request mask tag is also 45.
+    shutUpAllTimestamp?: pb<45, uint_32>;
+    /** Complete app privilege bitfield (requested with detail flag tag 56). */
+    privilegeFlag?: pb<56, uint_32>;
+    /** New-member history-visible switch (0/1; omitted means hidden). */
+    groupFlagExt4?: pb<101, uint_32>;
+    // DecodeSingleGroupDetailInfoByBaseFilter: tag 82 → 60282, tag 83 → 60283.
+    // SET counterparts are 0x89A settings 35/36. 0 = that search mode is open.
+    noFingerOpen?: pb<82, uint_32>;
+    noCodeFingerOpen?: pb<83, uint_32>;
 }
 export interface OidbSvcTrpcTcp0x88D_0ResponseGroupInfo {
-  uin?:     pb<1, uint_64>;
-  results?: pb<3, OidbSvcTrpcTcp0x88D_0Results>;
+    uin?: pb<1, uint_64>;
+    results?: pb<3, OidbSvcTrpcTcp0x88D_0Results>;
 }
 export interface OidbSvcTrpcTcp0x88D_0Response {
-  groupInfo?: pb<1, OidbSvcTrpcTcp0x88D_0ResponseGroupInfo>;
+    groupInfo?: pb<1, OidbSvcTrpcTcp0x88D_0ResponseGroupInfo>;
 }
 
 // Oidb.0xFE7_3 Group member list
 export interface OidbSvcTrpcTcp0xFE7_3Uin {
-  uid?: pb<2, string>;
-  uin?: pb<4, uint_32>;
+    uid?: pb<2, string>;
+    uin?: pb<4, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Card {
-  memberCard?: pb<2, string>;
+    memberCard?: pb<2, string>;
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Level {
-  infos?: pb_repeated<1, uint_32>;
-  level?: pb<2, uint_32>;
+    infos?: pb_repeated<1, uint_32>;
+    level?: pb<2, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Member {
-  uin?:              pb<1, OidbSvcTrpcTcp0xFE7_3Uin>;
-  memberName?:       pb<10, string>;
-  specialTitle?:     pb<17, string>;
-  memberCard?:       pb<11, OidbSvcTrpcTcp0xFE7_3Card>;
-  level?:            pb<12, OidbSvcTrpcTcp0xFE7_3Level>;
-  joinTimestamp?:    pb<100, uint_32>;
-  lastMsgTimestamp?: pb<101, uint_32>;
-  shutUpTimestamp?:  pb<102, uint_32>;
-  permission?:       pb<107, uint_32>;
+    uin?: pb<1, OidbSvcTrpcTcp0xFE7_3Uin>;
+    memberName?: pb<10, string>;
+    specialTitle?: pb<17, string>;
+    memberCard?: pb<11, OidbSvcTrpcTcp0xFE7_3Card>;
+    level?: pb<12, OidbSvcTrpcTcp0xFE7_3Level>;
+    joinTimestamp?: pb<100, uint_32>;
+    lastMsgTimestamp?: pb<101, uint_32>;
+    shutUpTimestamp?: pb<102, uint_32>;
+    permission?: pb<107, uint_32>;
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Response {
-  groupUin?:            pb<1, uint_32>;
-  members?:             pb_repeated<2, OidbSvcTrpcTcp0xFE7_3Member>;
-  field3?:              pb<3, uint_32>;
-  memberChangeSeq?:     pb<5, uint_32>;
-  memberCardChangeSeq?: pb<6, uint_32>;
-  token?:               pb<15, string>;
+    groupUin?: pb<1, uint_32>;
+    members?: pb_repeated<2, OidbSvcTrpcTcp0xFE7_3Member>;
+    field3?: pb<3, uint_32>;
+    memberChangeSeq?: pb<5, uint_32>;
+    memberCardChangeSeq?: pb<6, uint_32>;
+    token?: pb<15, string>;
 }
 
 // OIDB 0x496_0 — dynamic robot UIN ranges. QQ's native
@@ -184,50 +184,50 @@ export interface OidbSvcTrpcTcp0xFE7_3Response {
 // member is a robot; the ranges are server-versioned and must not be
 // hard-coded client-side.
 export interface OidbRobotUinRange {
-  minUin?: pb<1, uint_64>;
-  maxUin?: pb<2, uint_64>;
+    minUin?: pb<1, uint_64>;
+    maxUin?: pb<2, uint_64>;
 }
 
 export interface OidbRobotUinRangeConfig {
-  version?: pb<1, uint_32>;
-  ranges?:  pb_repeated<2, OidbRobotUinRange>;
+    version?: pb<1, uint_32>;
+    ranges?: pb_repeated<2, OidbRobotUinRange>;
 }
 
 export interface OidbRobotUinRangeResponse {
-  robotConfig?: pb<5, OidbRobotUinRangeConfig>;
+    robotConfig?: pb<5, OidbRobotUinRangeConfig>;
 }
 
 // OIDB.0x10C0 Group Request — UID-form response (envelope reserved=0).
 export interface OidbSvcTrpcTcp0x10C0ResponseUser {
-  uid?:  pb<1, string>;
-  name?: pb<2, string>;
+    uid?: pb<1, string>;
+    name?: pb<2, string>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0ResponseGroup {
-  groupUin?:  pb<1, uint_32>;
-  groupName?: pb<2, string>;
+    groupUin?: pb<1, uint_32>;
+    groupName?: pb<2, string>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0ResponseRequest {
-  sequence?:     pb<1, uint_64>;
-  eventType?:    pb<2, uint_32>;
-  state?:        pb<3, uint_32>;
-  group?:        pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
-  target?:       pb<5, OidbSvcTrpcTcp0x10C0ResponseUser>;
-  invitor?:      pb<6, OidbSvcTrpcTcp0x10C0ResponseUser>;
-  operatorUser?:     pb<7, OidbSvcTrpcTcp0x10C0ResponseUser>;
-  field9?:           pb<9, string>;
-  comment?:          pb<10, string>;
-  operateTransInfo?: pb<14, bytes>;
+    sequence?: pb<1, uint_64>;
+    eventType?: pb<2, uint_32>;
+    state?: pb<3, uint_32>;
+    group?: pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
+    target?: pb<5, OidbSvcTrpcTcp0x10C0ResponseUser>;
+    invitor?: pb<6, OidbSvcTrpcTcp0x10C0ResponseUser>;
+    operatorUser?: pb<7, OidbSvcTrpcTcp0x10C0ResponseUser>;
+    field9?: pb<9, string>;
+    comment?: pb<10, string>;
+    operateTransInfo?: pb<14, bytes>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0Response {
-  requests?:     pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequest>;
-  field2?:       pb<2, uint_64>;
-  newLatestSeq?: pb<3, uint_64>;
-  field4?:       pb<4, uint_32>;
-  field5?:       pb<5, uint_64>;
-  field6?:       pb<6, uint_32>;
+    requests?: pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequest>;
+    field2?: pb<2, uint_64>;
+    newLatestSeq?: pb<3, uint_64>;
+    field4?: pb<4, uint_32>;
+    field5?: pb<5, uint_64>;
+    field6?: pb<6, uint_32>;
 }
 
 // The native UIN-form request (envelope reserved=1) uses the same response
@@ -235,28 +235,28 @@ export interface OidbSvcTrpcTcp0x10C0Response {
 // separate schema: decoding both forms through one interface would silently
 // discard every numeric account identifier as a mismatched wire type.
 export interface OidbSvcTrpcTcp0x10C0ResponseUserByUin {
-  uin?:  pb<1, uint_32>;
-  name?: pb<2, string>;
+    uin?: pb<1, uint_32>;
+    name?: pb<2, string>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0ResponseRequestByUin {
-  sequence?:     pb<1, uint_64>;
-  eventType?:    pb<2, uint_32>;
-  state?:        pb<3, uint_32>;
-  group?:        pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
-  target?:       pb<5, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
-  invitor?:      pb<6, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
-  operatorUser?:     pb<7, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
-  field9?:           pb<9, string>;
-  comment?:          pb<10, string>;
-  operateTransInfo?: pb<14, bytes>;
+    sequence?: pb<1, uint_64>;
+    eventType?: pb<2, uint_32>;
+    state?: pb<3, uint_32>;
+    group?: pb<4, OidbSvcTrpcTcp0x10C0ResponseGroup>;
+    target?: pb<5, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+    invitor?: pb<6, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+    operatorUser?: pb<7, OidbSvcTrpcTcp0x10C0ResponseUserByUin>;
+    field9?: pb<9, string>;
+    comment?: pb<10, string>;
+    operateTransInfo?: pb<14, bytes>;
 }
 
 export interface OidbSvcTrpcTcp0x10C0ResponseByUin {
-  requests?:     pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequestByUin>;
-  field2?:       pb<2, uint_64>;
-  newLatestSeq?: pb<3, uint_64>;
-  field4?:       pb<4, uint_32>;
-  field5?:       pb<5, uint_64>;
-  field6?:       pb<6, uint_32>;
+    requests?: pb_repeated<1, OidbSvcTrpcTcp0x10C0ResponseRequestByUin>;
+    field2?: pb<2, uint_64>;
+    newLatestSeq?: pb<3, uint_64>;
+    field4?: pb<4, uint_32>;
+    field5?: pb<5, uint_64>;
+    field6?: pb<6, uint_32>;
 }

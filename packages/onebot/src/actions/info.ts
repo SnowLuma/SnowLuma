@@ -5,95 +5,106 @@ import { okResponse } from '../types';
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
 export const actions = [
-  defineAction({
-    name: 'get_login_info',
-    readOnly: true,
-    returns: '当前登录账号的 QQ 号与昵称。',
-    returnsSchema: {
-      type: 'object',
-      properties: {
-        user_id: { type: 'integer', description: '登录 QQ 号' },
-        nickname: { type: 'string', description: '登录昵称' },
-      },
-      required: ['user_id', 'nickname'],
-    },
-    params: {},
-    run: (_p, ctx) => {
-      const login = ctx.getLoginInfo();
-      return okResponse({ user_id: login.userId, nickname: login.nickname });
-    },
-  }),
+    defineAction({
+        name: 'get_login_info',
+        readOnly: true,
+        returns: '当前登录账号的 QQ 号与昵称。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                user_id: { type: 'integer', description: '登录 QQ 号' },
+                nickname: { type: 'string', description: '登录昵称' },
+            },
+            required: ['user_id', 'nickname'],
+        },
+        params: {},
+        run: (_p, ctx) => {
+            const login = ctx.getLoginInfo();
+            return okResponse({ user_id: login.userId, nickname: login.nickname });
+        },
+    }),
 
-  defineAction({
-    name: 'get_status',
-    readOnly: true,
-    returns: '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态；`time` 为当前账号服务实例运行秒数，与 #sl 同源。',
-    returnsSchema: {
-      type: 'object',
-      properties: {
-        online: { type: 'boolean', description: '是否在线' },
-        good: { type: 'boolean', description: '收发链路健康状态；确认接收停滞或主动请求连接失效时为 false' },
-        time: { type: 'integer', description: '当前账号服务实例运行秒数，与 #sl 同源；实例重建后重新计时' },
-      },
-      required: ['online', 'good', 'time'],
-    },
-    params: {},
-    run: (_p, ctx) => {
-      const online = ctx.isOnline();
-      return okResponse({ online, good: online && ctx.bridge.receiveHealthy, time: Math.floor(ctx.getUptimeMs() / 1000) });
-    },
-  }),
+    defineAction({
+        name: 'get_status',
+        readOnly: true,
+        returns:
+            '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态；`time` 为当前账号服务实例运行秒数，与 #sl 同源。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                online: { type: 'boolean', description: '是否在线' },
+                good: {
+                    type: 'boolean',
+                    description: '收发链路健康状态；确认接收停滞或主动请求连接失效时为 false',
+                },
+                time: {
+                    type: 'integer',
+                    description: '当前账号服务实例运行秒数，与 #sl 同源；实例重建后重新计时',
+                },
+            },
+            required: ['online', 'good', 'time'],
+        },
+        params: {},
+        run: (_p, ctx) => {
+            const online = ctx.isOnline();
+            return okResponse({
+                online,
+                good: online && ctx.bridge.receiveHealthy,
+                time: Math.floor(ctx.getUptimeMs() / 1000),
+            });
+        },
+    }),
 
-  defineAction({
-    name: 'get_version_info',
-    readOnly: true,
-    returns: '实现与协议版本信息。',
-    returnsSchema: {
-      type: 'object',
-      properties: {
-        app_name: { type: 'string', description: '实现名称（SnowLuma）' },
-        app_version: { type: 'string', description: '实现版本' },
-        protocol_version: { type: 'string', description: 'OneBot 协议版本' },
-      },
-      required: ['app_name', 'app_version', 'protocol_version'],
-    },
-    params: {},
-    run: () => {
-      return okResponse({
-        app_name: 'SnowLuma',
-        app_version: `${appVersion}-node`,
-        protocol_version: 'v11',
-      });
-    },
-  }),
+    defineAction({
+        name: 'get_version_info',
+        readOnly: true,
+        returns: '实现与协议版本信息。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                app_name: { type: 'string', description: '实现名称（SnowLuma）' },
+                app_version: { type: 'string', description: '实现版本' },
+                protocol_version: { type: 'string', description: 'OneBot 协议版本' },
+            },
+            required: ['app_name', 'app_version', 'protocol_version'],
+        },
+        params: {},
+        run: () => {
+            return okResponse({
+                app_name: 'SnowLuma',
+                app_version: `${appVersion}-node`,
+                protocol_version: 'v11',
+            });
+        },
+    }),
 
-  defineAction({
-    name: 'can_send_image',
-    readOnly: true,
-    returns: '能力查询结果。',
-    returnsSchema: {
-      type: 'object',
-      properties: { yes: { type: 'boolean', description: '是否支持发送图片' } },
-      required: ['yes'],
-    },
-    params: {},
-    run: (_p, ctx) => {
-      return okResponse({ yes: ctx.canSendImage?.() ?? false });
-    },
-  }),
+    defineAction({
+        name: 'can_send_image',
+        readOnly: true,
+        returns: '能力查询结果。',
+        returnsSchema: {
+            type: 'object',
+            properties: { yes: { type: 'boolean', description: '是否支持发送图片' } },
+            required: ['yes'],
+        },
+        params: {},
+        run: (_p, ctx) => {
+            return okResponse({ yes: ctx.canSendImage?.() ?? false });
+        },
+    }),
 
-  defineAction({
-    name: 'can_send_record',
-    readOnly: true,
-    returns: '能力查询结果。',
-    returnsSchema: {
-      type: 'object',
-      properties: { yes: { type: 'boolean', description: '是否支持发送语音' } },
-      required: ['yes'],
-    },
-    params: {},
-    run: (_p, ctx) => {
-      return okResponse({ yes: ctx.canSendRecord?.() ?? false });
-    },
-  }),
+    defineAction({
+        name: 'can_send_record',
+        readOnly: true,
+        returns: '能力查询结果。',
+        returnsSchema: {
+            type: 'object',
+            properties: { yes: { type: 'boolean', description: '是否支持发送语音' } },
+            required: ['yes'],
+        },
+        params: {},
+        run: (_p, ctx) => {
+            return okResponse({ yes: ctx.canSendRecord?.() ?? false });
+        },
+    }),
 ];

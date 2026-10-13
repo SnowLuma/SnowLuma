@@ -19,15 +19,19 @@ export const KICK_NT_CMD = 'trpc.qq_new_tech.status_svc.StatusService.KickNT';
 type BotOfflineEvent = Extract<QQEventVariant, { kind: 'bot_offline' }>;
 
 export function parseKickNT(pkt: PacketInfo, identity: IdentityService): QQEventVariant[] {
-  const resp = protobuf_decode<KickNTResponse>(pkt.body);
-  if (!resp) return [];
-  const ev: BotOfflineEvent = {
-    kind: 'bot_offline',
-    // KickNT carries no timestamp — stamp with receive time.
-    time: Math.floor(Date.now() / 1000),
-    selfUin: Number(pkt.uin) || Number(identity.uin) || 0,
-    tag: resp.title ?? '',    // tips_title — the short title
-    message: resp.tips ?? '', // tips_content — the description / reason
-  };
-  return [ev];
+    const resp = protobuf_decode<KickNTResponse>(pkt.body);
+
+    if (!resp) {
+        return [];
+    }
+
+    const ev: BotOfflineEvent = {
+        kind: 'bot_offline',
+        // KickNT carries no timestamp — stamp with receive time.
+        time: Math.floor(Date.now() / 1000),
+        selfUin: Number(pkt.uin) || Number(identity.uin) || 0,
+        tag: resp.title ?? '', // tips_title — the short title
+        message: resp.tips ?? '', // tips_content — the description / reason
+    };
+    return [ev];
 }

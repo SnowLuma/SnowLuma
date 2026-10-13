@@ -12,36 +12,40 @@ import { invokeOidb, type OidbSender } from '../../oidb-service';
 import type { BridgeContext } from '../../bridge-context';
 
 export namespace SetInputStatus {
-  export const command = 0xCD4;
-  export const subCommand = 1;
+    export const command = 0xcd4;
+    export const subCommand = 1;
 
-  export interface Params {
-    userId: number;
-    eventType: number;
-  }
+    export interface Params {
+        userId: number;
+        eventType: number;
+    }
 
-  export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
+    export type Deps = OidbSender & Pick<BridgeContext, 'resolveUserUid'>;
 
-  export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0xcd4Req> => {
-    const targetUid = await ctx.resolveUserUid(p.userId);
-    if (!targetUid) throw new Error('target uid not found');
-    return {
-      reqBody: {
-        uid: targetUid,
-        chatType: 0,
-        eventType: p.eventType,
-      },
+    export const serialize = async (ctx: Deps, p: Params): Promise<Oidb0xcd4Req> => {
+        const targetUid = await ctx.resolveUserUid(p.userId);
+
+        if (!targetUid) {
+            throw new Error('target uid not found');
+        }
+
+        return {
+            reqBody: {
+                uid: targetUid,
+                chatType: 0,
+                eventType: p.eventType,
+            },
+        };
     };
-  };
 
-  export const deserialize = (_ctx: Deps, _: Oidb0xcd4Resp): void => {};
+    export const deserialize = (_ctx: Deps, _: Oidb0xcd4Resp): void => {};
 
-  export const encode = (env: OidbBase<Oidb0xcd4Req>): Uint8Array =>
-    protobuf_encode<OidbBase<Oidb0xcd4Req>>(env);
+    export const encode = (env: OidbBase<Oidb0xcd4Req>): Uint8Array =>
+        protobuf_encode<OidbBase<Oidb0xcd4Req>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<Oidb0xcd4Resp> =>
-    protobuf_decode<OidbBase<Oidb0xcd4Resp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<Oidb0xcd4Resp> =>
+        protobuf_decode<OidbBase<Oidb0xcd4Resp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SetInputStatus, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SetInputStatus, params);
 }

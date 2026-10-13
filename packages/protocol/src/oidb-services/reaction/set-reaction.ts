@@ -16,39 +16,39 @@ import type { OidbGroupReaction } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace SetReaction {
-  export const command = 0x9082;
+    export const command = 0x9082;
 
-  export interface Params {
-    groupId: number;
-    sequence: number;
-    /** Emoji code. 1–3 digits → QQ face (type=1); longer → unicode (type=2). */
-    code: string;
-    /** true = set reaction (subCommand 1), false = unset (subCommand 2). */
-    isSet: boolean;
-  }
+    export interface Params {
+        groupId: number;
+        sequence: number;
+        /** Emoji code. 1–3 digits → QQ face (type=1); longer → unicode (type=2). */
+        code: string;
+        /** true = set reaction (subCommand 1), false = unset (subCommand 2). */
+        isSet: boolean;
+    }
 
-  /** Only the wire-send capability is needed. */
-  export type Deps = OidbSender;
+    /** Only the wire-send capability is needed. */
+    export type Deps = OidbSender;
 
-  export const resolveSubCommand = (p: Params): number => p.isSet ? 1 : 2;
+    export const resolveSubCommand = (p: Params): number => (p.isSet ? 1 : 2);
 
-  export const serialize = (_ctx: Deps, p: Params): OidbGroupReaction => ({
-    groupUin: p.groupId,
-    sequence: p.sequence,
-    code: p.code,
-    type: p.code.length > 3 ? 2 : 1,
-    field6: false,
-    field7: false,
-  });
+    export const serialize = (_ctx: Deps, p: Params): OidbGroupReaction => ({
+        groupUin: p.groupId,
+        sequence: p.sequence,
+        code: p.code,
+        type: p.code.length > 3 ? 2 : 1,
+        field6: false,
+        field7: false,
+    });
 
-  export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
+    export const deserialize = (_ctx: Deps, _: OidbEmpty): void => {};
 
-  export const encode = (env: OidbBase<OidbGroupReaction>): Uint8Array =>
-    protobuf_encode<OidbBase<OidbGroupReaction>>(env);
+    export const encode = (env: OidbBase<OidbGroupReaction>): Uint8Array =>
+        protobuf_encode<OidbBase<OidbGroupReaction>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
-    protobuf_decode<OidbBase<OidbEmpty>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<OidbEmpty> =>
+        protobuf_decode<OidbBase<OidbEmpty>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<void> =>
-    invokeOidb(deps, SetReaction, params);
+    export const invoke = (deps: Deps, params: Params): Promise<void> =>
+        invokeOidb(deps, SetReaction, params);
 }

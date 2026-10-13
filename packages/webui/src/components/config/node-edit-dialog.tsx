@@ -10,16 +10,16 @@
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import {
-  ArrowLeftRight,
-  ArrowUpRight,
-  Check,
-  Copy,
-  Eye,
-  EyeOff,
-  Radio,
-  RefreshCw,
-  Server,
-  type LucideIcon,
+    ArrowLeftRight,
+    ArrowUpRight,
+    Check,
+    Copy,
+    Eye,
+    EyeOff,
+    Radio,
+    RefreshCw,
+    Server,
+    type LucideIcon,
 } from 'lucide-react';
 import { Modal } from '@/components/interior/modal';
 import { Button } from '@/components/ui/button';
@@ -28,389 +28,456 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { cn, copyText } from '@/lib/utils';
-import {
-  accessTokenFeedback,
-  type AccessTokenFeedback,
-} from '@/lib/access-token-feedback';
+import { accessTokenFeedback, type AccessTokenFeedback } from '@/lib/access-token-feedback';
 import { allowEmptyInboundAccessToken } from '@/lib/transport-security';
 import type {
-  HttpClientNetwork,
-  HttpServerNetwork,
-  MessageFormat,
-  NetworkKind,
-  OneBotNetworks,
-  WsClientNetwork,
-  WsRole,
-  WsServerNetwork,
+    HttpClientNetwork,
+    HttpServerNetwork,
+    MessageFormat,
+    NetworkKind,
+    OneBotNetworks,
+    WsClientNetwork,
+    WsRole,
+    WsServerNetwork,
 } from '@/types';
 import { generateAccessToken, NETWORK_TABS } from './defaults';
 
 type AnyAdapter<K extends NetworkKind> = OneBotNetworks[K][number];
 
 const KIND_ICON: Record<NetworkKind, LucideIcon> = {
-  httpServers: Server,
-  httpClients: ArrowUpRight,
-  wsServers: Radio,
-  wsClients: ArrowLeftRight,
+    httpServers: Server,
+    httpClients: ArrowUpRight,
+    wsServers: Radio,
+    wsClients: ArrowLeftRight,
 };
 
 interface NodeEditDialogProps<K extends NetworkKind> {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  kind: K;
-  /** Initial draft state — caller seeds it with `defaultEntry` for create
-   *  or the existing item for edit. */
-  initial: AnyAdapter<K>;
-  /** True when editing an existing adapter (drives title + button copy). */
-  isEdit: boolean;
-  /** Names of every other adapter in the same list, for duplicate check. */
-  otherNames: string[];
-  /** Account context used when evaluating user-chosen access tokens. */
-  uin: string;
-  onSubmit: (item: AnyAdapter<K>) => void;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    kind: K;
+    /** Initial draft state — caller seeds it with `defaultEntry` for create
+     *  or the existing item for edit. */
+    initial: AnyAdapter<K>;
+    /** True when editing an existing adapter (drives title + button copy). */
+    isEdit: boolean;
+    /** Names of every other adapter in the same list, for duplicate check. */
+    otherNames: string[];
+    /** Account context used when evaluating user-chosen access tokens. */
+    uin: string;
+    onSubmit: (item: AnyAdapter<K>) => void;
 }
 
 export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps<K>) {
-  const { open, onOpenChange, kind, initial, isEdit, otherNames, uin, onSubmit } = props;
-  const tab = NETWORK_TABS[kind];
-  const Icon: LucideIcon = KIND_ICON[kind];
+    const { open, onOpenChange, kind, initial, isEdit, otherNames, uin, onSubmit } = props;
+    const tab = NETWORK_TABS[kind];
+    const Icon: LucideIcon = KIND_ICON[kind];
 
-  // Local draft. The parent unmounts this component on close so each
-  // open gets a fresh `initial` via useState's lazy init — no effect-based
-  // resync needed, which keeps the lifecycle linear.
-  const [draft, setDraft] = useState<AnyAdapter<K>>(initial);
+    // Local draft. The parent unmounts this component on close so each
+    // open gets a fresh `initial` via useState's lazy init — no effect-based
+    // resync needed, which keeps the lifecycle linear.
+    const [draft, setDraft] = useState<AnyAdapter<K>>(initial);
 
-  const trimmedName = draft.name?.trim() ?? '';
-  const blankName = trimmedName.length === 0;
-  const duplicateName = !blankName && otherNames.includes(trimmedName);
+    const trimmedName = draft.name?.trim() ?? '';
+    const blankName = trimmedName.length === 0;
+    const duplicateName = !blankName && otherNames.includes(trimmedName);
 
-  const isInboundServer = kind === 'httpServers' || kind === 'wsServers';
-  const tokenChanged = (draft.accessToken ?? '') !== (initial.accessToken ?? '');
-  const enforceTokenPolicy = isInboundServer && (!isEdit || tokenChanged);
-  const inbound = isInboundServer ? draft as HttpServerNetwork | WsServerNetwork : null;
-  const allowEmptyToken = typeof window !== 'undefined'
-    && allowEmptyInboundAccessToken(window.location.hostname, inbound?.host);
-  const tokenFeedback = useMemo(
-    () => enforceTokenPolicy
-      ? accessTokenFeedback(
-        draft.accessToken ?? '',
-        [uin, draft.name ?? '', kind, inbound?.host ?? '', inbound?.port ?? 0],
-        allowEmptyToken,
-      )
-      : undefined,
-    [allowEmptyToken, draft.accessToken, draft.name, enforceTokenPolicy, inbound?.host, inbound?.port, kind, uin],
-  );
+    const isInboundServer = kind === 'httpServers' || kind === 'wsServers';
+    const tokenChanged = (draft.accessToken ?? '') !== (initial.accessToken ?? '');
+    const enforceTokenPolicy = isInboundServer && (!isEdit || tokenChanged);
+    const inbound = isInboundServer ? (draft as HttpServerNetwork | WsServerNetwork) : null;
+    const allowEmptyToken =
+        typeof window !== 'undefined' &&
+        allowEmptyInboundAccessToken(window.location.hostname, inbound?.host);
+    const tokenFeedback = useMemo(
+        () =>
+            enforceTokenPolicy
+                ? accessTokenFeedback(
+                      draft.accessToken ?? '',
+                      [uin, draft.name ?? '', kind, inbound?.host ?? '', inbound?.port ?? 0],
+                      allowEmptyToken,
+                  )
+                : undefined,
+        [
+            allowEmptyToken,
+            draft.accessToken,
+            draft.name,
+            enforceTokenPolicy,
+            inbound?.host,
+            inbound?.port,
+            kind,
+            uin,
+        ],
+    );
 
-  const canSave = !blankName && !duplicateName && (tokenFeedback?.valid ?? true);
+    const canSave = !blankName && !duplicateName && (tokenFeedback?.valid ?? true);
 
-  const patch = (changes: Partial<AnyAdapter<K>>) => setDraft({ ...draft, ...changes } as AnyAdapter<K>);
+    const patch = (changes: Partial<AnyAdapter<K>>) =>
+        setDraft({ ...draft, ...changes } as AnyAdapter<K>);
 
-  const isWs = kind === 'wsServers' || kind === 'wsClients';
-  const isHttpServer = kind === 'httpServers';
-  const role = ((draft as WsServerNetwork | WsClientNetwork).role ?? 'Universal') as WsRole;
+    const isWs = kind === 'wsServers' || kind === 'wsClients';
+    const isHttpServer = kind === 'httpServers';
+    const role = ((draft as WsServerNetwork | WsClientNetwork).role ?? 'Universal') as WsRole;
 
-  return (
-    <Modal
-      open={open}
-      onClose={() => onOpenChange(false)}
-      title={(
-        <span className="inline-flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-[10px] bg-primary/10 text-primary">
-            <Icon className="size-4" />
-          </span>
-          {isEdit ? `编辑 ${tab.noun}` : `新建 ${tab.noun}`}
-        </span>
-      )}
-      description={tab.description}
-      closeLabel="关闭节点编辑弹窗"
-      maxWidth={576}
-      maxHeight="calc(100dvh - 2rem)"
-      footer={(
-        <>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button
-            disabled={!canSave}
-            onClick={() => {
-              const cleaned = { ...draft, name: trimmedName } as AnyAdapter<K>;
-              onSubmit(cleaned);
-              onOpenChange(false);
-            }}
-          >
-            {isEdit ? '保存修改' : '创建节点'}
-          </Button>
-        </>
-      )}
-    >
-      <div className="flex flex-col gap-5">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0 }}
-          className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
+    return (
+        <Modal
+            open={open}
+            onClose={() => onOpenChange(false)}
+            title={
+                <span className="inline-flex items-center gap-2">
+                    <span className="grid size-8 place-items-center rounded-[10px] bg-primary/10 text-primary">
+                        <Icon className="size-4" />
+                    </span>
+                    {isEdit ? `编辑 ${tab.noun}` : `新建 ${tab.noun}`}
+                </span>
+            }
+            description={tab.description}
+            closeLabel="关闭节点编辑弹窗"
+            maxWidth={576}
+            maxHeight="calc(100dvh - 2rem)"
+            footer={
+                <>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>
+                        取消
+                    </Button>
+                    <Button
+                        disabled={!canSave}
+                        onClick={() => {
+                            const cleaned = { ...draft, name: trimmedName } as AnyAdapter<K>;
+                            onSubmit(cleaned);
+                            onOpenChange(false);
+                        }}
+                    >
+                        {isEdit ? '保存修改' : '创建节点'}
+                    </Button>
+                </>
+            }
         >
-          <div className="min-w-0">
-            <Label className="text-sm font-medium text-foreground">启用</Label>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  关闭后保存即可保留配置但不启动该节点
-            </p>
-          </div>
-          <ToggleSwitch
-            value={draft.enabled !== false}
-            onChange={(v) => patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)}
-            ariaLabel="启用"
-          />
-        </motion.div>
+            <div className="flex flex-col gap-5">
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0 }}
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
+                >
+                    <div className="min-w-0">
+                        <Label className="text-sm font-medium text-foreground">启用</Label>
+                        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                            关闭后保存即可保留配置但不启动该节点
+                        </p>
+                    </div>
+                    <ToggleSwitch
+                        value={draft.enabled !== false}
+                        onChange={(v) =>
+                            patch({ enabled: v ? undefined : false } as Partial<AnyAdapter<K>>)
+                        }
+                        ariaLabel="启用"
+                    />
+                </motion.div>
 
-        <Section caption="连接" delay={0.05}>
-          <div className="flex flex-col gap-3 p-4">
-            <Field
-              label="名称"
-              placeholder="自定义"
-              value={draft.name}
-              onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
-              error={blankName ? '请填写名称' : duplicateName ? '名称与其它节点重复' : undefined}
-            />
-            <KindFields kind={kind} draft={draft} patch={patch} />
-          </div>
-        </Section>
+                <Section caption="连接" delay={0.05}>
+                    <div className="flex flex-col gap-3 p-4">
+                        <Field
+                            label="名称"
+                            placeholder="自定义"
+                            value={draft.name}
+                            onChange={(v) => patch({ name: v } as Partial<AnyAdapter<K>>)}
+                            error={
+                                blankName
+                                    ? '请填写名称'
+                                    : duplicateName
+                                      ? '名称与其它节点重复'
+                                      : undefined
+                            }
+                        />
+                        <KindFields kind={kind} draft={draft} patch={patch} />
+                    </div>
+                </Section>
 
-        <Section caption="鉴权" delay={0.1}>
-          <div className="p-4">
-            <TokenField
-              label="授权 Token"
-              placeholder={isInboundServer ? '留空则关闭鉴权（监听本机或从本机打开页面时可保存）' : '按对端要求填写'}
-              value={draft.accessToken}
-              onChange={(v) => patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)}
-              onGenerate={() => patch({ accessToken: generateAccessToken() } as Partial<AnyAdapter<K>>)}
-              feedback={tokenFeedback}
-            />
-          </div>
-        </Section>
+                <Section caption="鉴权" delay={0.1}>
+                    <div className="p-4">
+                        <TokenField
+                            label="授权 Token"
+                            placeholder={
+                                isInboundServer
+                                    ? '留空则关闭鉴权（监听本机或从本机打开页面时可保存）'
+                                    : '按对端要求填写'
+                            }
+                            value={draft.accessToken}
+                            onChange={(v) =>
+                                patch({ accessToken: v || undefined } as Partial<AnyAdapter<K>>)
+                            }
+                            onGenerate={() =>
+                                patch({ accessToken: generateAccessToken() } as Partial<
+                                    AnyAdapter<K>
+                                >)
+                            }
+                            feedback={tokenFeedback}
+                        />
+                    </div>
+                </Section>
 
-        <Section caption="行为" delay={0.15}>
-          <div className="divide-y divide-border/60">
-            {isHttpServer && (
-              <SettingRow label="启用 WebSocket" desc="复用当前 HTTP 端口和授权 Token 接收 WebSocket 连接">
-                <ToggleSwitch
-                  value={(draft as HttpServerNetwork).enableWebSocket === true}
-                  onChange={(v) => patch({ enableWebSocket: v } as unknown as Partial<AnyAdapter<K>>)}
-                  ariaLabel="启用 WebSocket"
-                />
-              </SettingRow>
-            )}
+                <Section caption="行为" delay={0.15}>
+                    <div className="divide-y divide-border/60">
+                        {isHttpServer && (
+                            <SettingRow
+                                label="启用 WebSocket"
+                                desc="复用当前 HTTP 端口和授权 Token 接收 WebSocket 连接"
+                            >
+                                <ToggleSwitch
+                                    value={(draft as HttpServerNetwork).enableWebSocket === true}
+                                    onChange={(v) =>
+                                        patch({ enableWebSocket: v } as unknown as Partial<
+                                            AnyAdapter<K>
+                                        >)
+                                    }
+                                    ariaLabel="启用 WebSocket"
+                                />
+                            </SettingRow>
+                        )}
 
-            <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
-              <DropdownSelect
-                className="w-32"
-                ariaLabel="消息格式"
-                value={(draft.messageFormat ?? 'array') as MessageFormat}
-                options={FORMAT_OPTIONS}
-                onChange={(v) => patch({ messageFormat: v } as Partial<AnyAdapter<K>>)}
-              />
-            </SettingRow>
+                        <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
+                            <DropdownSelect
+                                className="w-32"
+                                ariaLabel="消息格式"
+                                value={(draft.messageFormat ?? 'array') as MessageFormat}
+                                options={FORMAT_OPTIONS}
+                                onChange={(v) =>
+                                    patch({ messageFormat: v } as Partial<AnyAdapter<K>>)
+                                }
+                            />
+                        </SettingRow>
 
-            {isWs && (
-              <SettingRow label="角色" desc="Universal 收发合一，Event / Api 分离">
-                <DropdownSelect
-                  className="w-32"
-                  ariaLabel="角色"
-                  value={role}
-                  options={WS_ROLE_OPTIONS}
-                  onChange={(v) => patch({ role: v } as unknown as Partial<AnyAdapter<K>>)}
-                />
-              </SettingRow>
-            )}
+                        {isWs && (
+                            <SettingRow label="角色" desc="Universal 收发合一，Event / Api 分离">
+                                <DropdownSelect
+                                    className="w-32"
+                                    ariaLabel="角色"
+                                    value={role}
+                                    options={WS_ROLE_OPTIONS}
+                                    onChange={(v) =>
+                                        patch({ role: v } as unknown as Partial<AnyAdapter<K>>)
+                                    }
+                                />
+                            </SettingRow>
+                        )}
 
-            <SettingRow label="上报自身消息" desc="将机器人自己发送的消息也作为 message_sent 事件上报">
-              <ToggleSwitch
-                value={!!draft.reportSelfMessage}
-                onChange={(v) => patch({ reportSelfMessage: v } as Partial<AnyAdapter<K>>)}
-                ariaLabel="上报自身消息"
-              />
-            </SettingRow>
-          </div>
-        </Section>
-      </div>
-    </Modal>
-  );
+                        <SettingRow
+                            label="上报自身消息"
+                            desc="将机器人自己发送的消息也作为 message_sent 事件上报"
+                        >
+                            <ToggleSwitch
+                                value={!!draft.reportSelfMessage}
+                                onChange={(v) =>
+                                    patch({ reportSelfMessage: v } as Partial<AnyAdapter<K>>)
+                                }
+                                ariaLabel="上报自身消息"
+                            />
+                        </SettingRow>
+                    </div>
+                </Section>
+            </div>
+        </Modal>
+    );
 }
 
 // ─────────────── grouped-list scaffolding ───────────────
 
 /** Captioned inset section — the iOS "grouped list" unit. */
-function Section({ caption, delay, children }: { caption: string; delay: number; children: ReactNode }) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay }}
-      className="flex flex-col gap-1.5"
-    >
-      <span className="px-1 text-xs font-medium text-muted-foreground">{caption}</span>
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40">{children}</div>
-    </motion.section>
-  );
+function Section({
+    caption,
+    delay,
+    children,
+}: {
+    caption: string;
+    delay: number;
+    children: ReactNode;
+}) {
+    return (
+        <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay }}
+            className="flex flex-col gap-1.5"
+        >
+            <span className="px-1 text-xs font-medium text-muted-foreground">{caption}</span>
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40">
+                {children}
+            </div>
+        </motion.section>
+    );
 }
 
 /** Settings row — label (+ optional subtitle) on the left, control on the right. */
-function SettingRow({ label, desc, children }: { label: string; desc?: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <div className="min-w-0">
-        <Label className="text-[13px] text-foreground">{label}</Label>
-        {desc && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</p>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
+function SettingRow({
+    label,
+    desc,
+    children,
+}: {
+    label: string;
+    desc?: string;
+    children: ReactNode;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+                <Label className="text-[13px] text-foreground">{label}</Label>
+                {desc && (
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</p>
+                )}
+            </div>
+            <div className="shrink-0">{children}</div>
+        </div>
+    );
 }
 
 // ─────────────── kind-specific field strips ───────────────
 
 interface KindFieldsProps<K extends NetworkKind> {
-  kind: K;
-  draft: AnyAdapter<K>;
-  patch: (changes: Partial<AnyAdapter<K>>) => void;
+    kind: K;
+    draft: AnyAdapter<K>;
+    patch: (changes: Partial<AnyAdapter<K>>) => void;
 }
 
 function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsProps<K>) {
-  // Per-branch narrowing — TS can't follow the generic relationship so
-  // each arm casts once. Field components receive specific shapes. The WS
-  // `role` lives in the behaviour section, so it is intentionally absent here.
-  if (kind === 'httpServers') {
-    const it = draft as HttpServerNetwork;
-    const set = patch as (c: Partial<HttpServerNetwork>) => void;
-    return (
-      <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-        <Field
-          label="主机"
-          placeholder="127.0.0.1"
-          value={it.host}
-          onChange={(v) => set({ host: v || undefined })}
-        />
-        <Field
-          label="端口"
-          type="number"
-          value={it.port}
-          onChange={(v) => set({ port: Number(v) || 0 })}
-        />
-        <Field
-          label="路径"
-          placeholder="/"
-          value={it.path}
-          onChange={(v) => set({ path: v || undefined })}
-        />
-      </div>
-    );
-  }
-  if (kind === 'httpClients') {
-    const it = draft as HttpClientNetwork;
-    const set = patch as (c: Partial<HttpClientNetwork>) => void;
-    return (
-      <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-        <Field
-          label="目标 URL"
-          type="url"
-          placeholder="http://..."
-          value={it.url}
-          onChange={(v) => set({ url: v })}
-        />
-        <Field
-          label="超时 (ms)"
-          type="number"
-          placeholder="5000"
-          value={it.timeoutMs}
-          onChange={(v) => set({ timeoutMs: Number(v) || undefined })}
-        />
-      </div>
-    );
-  }
-  if (kind === 'wsServers') {
-    const it = draft as WsServerNetwork;
-    const set = patch as (c: Partial<WsServerNetwork>) => void;
-    return (
-      <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-        <Field
-          label="主机"
-          placeholder="127.0.0.1"
-          value={it.host}
-          onChange={(v) => set({ host: v || undefined })}
-        />
-        <Field
-          label="端口"
-          type="number"
-          value={it.port}
-          onChange={(v) => set({ port: Number(v) || 0 })}
-        />
-        <Field
-          label="路径"
-          placeholder="/"
-          value={it.path}
-          onChange={(v) => set({ path: v || undefined })}
-        />
-      </div>
-    );
-  }
-  if (kind === 'wsClients') {
-    const it = draft as WsClientNetwork;
-    const set = patch as (c: Partial<WsClientNetwork>) => void;
-    return (
-      <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
-        <Field
-          label="目标 URL"
-          type="url"
-          placeholder="ws://..."
-          value={it.url}
-          onChange={(v) => set({ url: v })}
-        />
-        <Field
-          label="重连间隔 (ms)"
-          type="number"
-          value={it.reconnectIntervalMs}
-          onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
-        />
-      </div>
-    );
-  }
-  return null;
+    // Per-branch narrowing — TS can't follow the generic relationship so
+    // each arm casts once. Field components receive specific shapes. The WS
+    // `role` lives in the behaviour section, so it is intentionally absent here.
+    if (kind === 'httpServers') {
+        const it = draft as HttpServerNetwork;
+        const set = patch as (c: Partial<HttpServerNetwork>) => void;
+        return (
+            <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+                <Field
+                    label="主机"
+                    placeholder="127.0.0.1"
+                    value={it.host}
+                    onChange={(v) => set({ host: v || undefined })}
+                />
+                <Field
+                    label="端口"
+                    type="number"
+                    value={it.port}
+                    onChange={(v) => set({ port: Number(v) || 0 })}
+                />
+                <Field
+                    label="路径"
+                    placeholder="/"
+                    value={it.path}
+                    onChange={(v) => set({ path: v || undefined })}
+                />
+            </div>
+        );
+    }
+
+    if (kind === 'httpClients') {
+        const it = draft as HttpClientNetwork;
+        const set = patch as (c: Partial<HttpClientNetwork>) => void;
+        return (
+            <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+                <Field
+                    label="目标 URL"
+                    type="url"
+                    placeholder="http://..."
+                    value={it.url}
+                    onChange={(v) => set({ url: v })}
+                />
+                <Field
+                    label="超时 (ms)"
+                    type="number"
+                    placeholder="5000"
+                    value={it.timeoutMs}
+                    onChange={(v) => set({ timeoutMs: Number(v) || undefined })}
+                />
+            </div>
+        );
+    }
+
+    if (kind === 'wsServers') {
+        const it = draft as WsServerNetwork;
+        const set = patch as (c: Partial<WsServerNetwork>) => void;
+        return (
+            <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+                <Field
+                    label="主机"
+                    placeholder="127.0.0.1"
+                    value={it.host}
+                    onChange={(v) => set({ host: v || undefined })}
+                />
+                <Field
+                    label="端口"
+                    type="number"
+                    value={it.port}
+                    onChange={(v) => set({ port: Number(v) || 0 })}
+                />
+                <Field
+                    label="路径"
+                    placeholder="/"
+                    value={it.path}
+                    onChange={(v) => set({ path: v || undefined })}
+                />
+            </div>
+        );
+    }
+
+    if (kind === 'wsClients') {
+        const it = draft as WsClientNetwork;
+        const set = patch as (c: Partial<WsClientNetwork>) => void;
+        return (
+            <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
+                <Field
+                    label="目标 URL"
+                    type="url"
+                    placeholder="ws://..."
+                    value={it.url}
+                    onChange={(v) => set({ url: v })}
+                />
+                <Field
+                    label="重连间隔 (ms)"
+                    type="number"
+                    value={it.reconnectIntervalMs}
+                    onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
+                />
+            </div>
+        );
+    }
+
+    return null;
 }
 
 // ─────────────── shared form bits ───────────────
 
 interface FieldProps {
-  label: string;
-  value: string | number | undefined;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: 'text' | 'number' | 'url';
-  error?: string;
+    label: string;
+    value: string | number | undefined;
+    onChange: (v: string) => void;
+    placeholder?: string;
+    type?: 'text' | 'number' | 'url';
+    error?: string;
 }
 
 function Field({ label, value, onChange, placeholder, type = 'text', error }: FieldProps) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <Input
-        type={type}
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={cn(error && 'border-destructive focus-visible:ring-destructive/40')}
-      />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  );
+    return (
+        <div className="flex flex-col gap-1.5">
+            <Label>{label}</Label>
+            <Input
+                type={type}
+                value={value ?? ''}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                className={cn(error && 'border-destructive focus-visible:ring-destructive/40')}
+            />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+    );
 }
 
 interface TokenFieldProps {
-  label: string;
-  value: string | undefined;
-  onChange: (v: string) => void;
-  onGenerate: () => void;
-  placeholder?: string;
-  feedback?: AccessTokenFeedback;
+    label: string;
+    value: string | undefined;
+    onChange: (v: string) => void;
+    onGenerate: () => void;
+    placeholder?: string;
+    feedback?: AccessTokenFeedback;
 }
 
 /**
@@ -419,99 +486,120 @@ interface TokenFieldProps {
  * unmasks it and a copy button shoves the current value to the system
  * clipboard with a short "已复制" confirmation flash.
  */
-function TokenField({ label, value, onChange, onGenerate, placeholder, feedback }: TokenFieldProps) {
-  const [visible, setVisible] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | null>(null);
-  const feedbackId = useId();
+function TokenField({
+    label,
+    value,
+    onChange,
+    onGenerate,
+    placeholder,
+    feedback,
+}: TokenFieldProps) {
+    const [visible, setVisible] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const copiedTimerRef = useRef<number | null>(null);
+    const feedbackId = useId();
 
-  const handleCopy = async () => {
-    if (!value) return;
-    if (!await copyText(value)) return;
-    setCopied(true);
-    if (copiedTimerRef.current != null) window.clearTimeout(copiedTimerRef.current);
-    copiedTimerRef.current = window.setTimeout(() => {
-      setCopied(false);
-      copiedTimerRef.current = null;
-    }, 1400);
-  };
+    const handleCopy = async () => {
+        if (!value) {
+            return;
+        }
 
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <div className="flex gap-1.5">
-        <Input
-          // Switch input type rather than masking the string so paste /
-          // selection / autofill all behave like a native password field.
-          type={visible ? 'text' : 'password'}
-          value={value ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          autoComplete="off"
-          spellCheck={false}
-          aria-invalid={feedback?.tone === 'error' || undefined}
-          aria-describedby={feedback ? feedbackId : undefined}
-          className="flex-1 font-mono"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={onGenerate}
-          aria-label="生成新的随机令牌"
-          title="生成新的随机令牌"
-        >
-          <RefreshCw className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={handleCopy}
-          disabled={!value}
-          aria-label={copied ? '已复制' : '复制'}
-          title={copied ? '已复制' : '复制'}
-        >
-          {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={() => setVisible((v) => !v)}
-          aria-label={visible ? '隐藏' : '显示'}
-          title={visible ? '隐藏' : '显示'}
-        >
-          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </Button>
-      </div>
-      {feedback && (
-        <p
-          id={feedbackId}
-          aria-live="polite"
-          className={cn(
-            'text-xs',
-            feedback.tone === 'error'
-              ? 'text-destructive'
-              : feedback.tone === 'warning'
-                ? 'text-warning'
-                : 'text-success',
-          )}
-        >
-          {feedback.message}
-        </p>
-      )}
-    </div>
-  );
+        if (!(await copyText(value))) {
+            return;
+        }
+
+        setCopied(true);
+
+        if (copiedTimerRef.current != null) {
+            window.clearTimeout(copiedTimerRef.current);
+        }
+
+        copiedTimerRef.current = window.setTimeout(() => {
+            setCopied(false);
+            copiedTimerRef.current = null;
+        }, 1400);
+    };
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            <Label>{label}</Label>
+            <div className="flex gap-1.5">
+                <Input
+                    // Switch input type rather than masking the string so paste /
+                    // selection / autofill all behave like a native password field.
+                    type={visible ? 'text' : 'password'}
+                    value={value ?? ''}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={feedback?.tone === 'error' || undefined}
+                    aria-describedby={feedback ? feedbackId : undefined}
+                    className="flex-1 font-mono"
+                />
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={onGenerate}
+                    aria-label="生成新的随机令牌"
+                    title="生成新的随机令牌"
+                >
+                    <RefreshCw className="size-4" />
+                </Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopy}
+                    disabled={!value}
+                    aria-label={copied ? '已复制' : '复制'}
+                    title={copied ? '已复制' : '复制'}
+                >
+                    {copied ? (
+                        <Check className="size-4 text-success" />
+                    ) : (
+                        <Copy className="size-4" />
+                    )}
+                </Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setVisible((v) => !v)}
+                    aria-label={visible ? '隐藏' : '显示'}
+                    title={visible ? '隐藏' : '显示'}
+                >
+                    {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </Button>
+            </div>
+            {feedback && (
+                <p
+                    id={feedbackId}
+                    aria-live="polite"
+                    className={cn(
+                        'text-xs',
+                        feedback.tone === 'error'
+                            ? 'text-destructive'
+                            : feedback.tone === 'warning'
+                              ? 'text-warning'
+                              : 'text-success',
+                    )}
+                >
+                    {feedback.message}
+                </p>
+            )}
+        </div>
+    );
 }
 
 const FORMAT_OPTIONS: ReadonlyArray<DropdownOption<MessageFormat>> = [
-  { value: 'array', label: '数组' },
-  { value: 'string', label: 'CQ 码' },
+    { value: 'array', label: '数组' },
+    { value: 'string', label: 'CQ 码' },
 ];
 
 const WS_ROLE_OPTIONS: ReadonlyArray<DropdownOption<WsRole>> = [
-  { value: 'Universal', label: 'Universal' },
-  { value: 'Event', label: 'Event' },
-  { value: 'Api', label: 'Api' },
+    { value: 'Universal', label: 'Universal' },
+    { value: 'Event', label: 'Event' },
+    { value: 'Api', label: 'Api' },
 ];

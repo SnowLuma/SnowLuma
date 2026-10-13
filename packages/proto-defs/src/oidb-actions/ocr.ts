@@ -7,44 +7,44 @@
 import type { pb, pb_repeated, int_32, uint_32, bool } from '@snowluma/proton';
 
 export interface OcrReqBody {
-  imageUrl?:              pb<1, string>;
-  languageType?:          pb<2, uint_32>;
-  scene?:                 pb<3, uint_32>;
-  originMd5?:             pb<10, string>;
-  afterCompressMd5?:      pb<11, string>;
-  afterCompressFileSize?: pb<12, string>;
-  afterCompressWeight?:   pb<13, string>;
-  afterCompressHeight?:   pb<14, string>;
-  isCut?:                 pb<15, bool>;
+    imageUrl?: pb<1, string>;
+    languageType?: pb<2, uint_32>;
+    scene?: pb<3, uint_32>;
+    originMd5?: pb<10, string>;
+    afterCompressMd5?: pb<11, string>;
+    afterCompressFileSize?: pb<12, string>;
+    afterCompressWeight?: pb<13, string>;
+    afterCompressHeight?: pb<14, string>;
+    isCut?: pb<15, bool>;
 }
 export interface ImageOcrReq {
-  version?:    pb<1, uint_32>;
-  client?:     pb<2, uint_32>;
-  entrance?:   pb<3, uint_32>;
-  ocrReqBody?: pb<10, OcrReqBody>;
+    version?: pb<1, uint_32>;
+    client?: pb<2, uint_32>;
+    entrance?: pb<3, uint_32>;
+    ocrReqBody?: pb<10, OcrReqBody>;
 }
 
 export interface OcrCoordinate {
-  x?: pb<1, int_32>;
-  y?: pb<2, int_32>;
+    x?: pb<1, int_32>;
+    y?: pb<2, int_32>;
 }
 export interface OcrPolygon {
-  coordinates?: pb_repeated<1, OcrCoordinate>;
+    coordinates?: pb_repeated<1, OcrCoordinate>;
 }
 export interface OcrTextDetection {
-  detectedText?: pb<1, string>;
-  confidence?:   pb<2, uint_32>;
-  polygon?:      pb<3, OcrPolygon>;
-  advancedInfo?: pb<4, string>;
+    detectedText?: pb<1, string>;
+    confidence?: pb<2, uint_32>;
+    polygon?: pb<3, OcrPolygon>;
+    advancedInfo?: pb<4, string>;
 }
 export interface OcrRspBody {
-  textDetections?: pb_repeated<1, OcrTextDetection>;
-  language?:       pb<2, string>;
-  requestId?:      pb<3, string>;
+    textDetections?: pb_repeated<1, OcrTextDetection>;
+    language?: pb<2, string>;
+    requestId?: pb<3, string>;
 }
 export interface ImageOcrResp {
-  retCode?:    pb<1, int_32>;
-  errMsg?:     pb<2, string>;
-  wording?:    pb<3, string>;
-  ocrRspBody?: pb<10, OcrRspBody>;
+    retCode?: pb<1, int_32>;
+    errMsg?: pb<2, string>;
+    wording?: pb<3, string>;
+    ocrRspBody?: pb<10, OcrRspBody>;
 }

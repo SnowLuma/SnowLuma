@@ -7,5 +7,5 @@
 // Callers rely on a `true` result guaranteeing a BigInt()-safe pure-digit
 // string. Keep that contract if the pattern ever changes.
 export function isRealUin(uin: string): boolean {
-  return /^\d{5,10}$/.test(uin);
+    return /^\d{5,10}$/.test(uin);
 }

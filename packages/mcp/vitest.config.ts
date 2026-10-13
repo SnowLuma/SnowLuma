@@ -6,12 +6,12 @@ import protobufVitePlugin from '@snowluma/proton/vite';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [protobufVitePlugin()],
-  test: {
-    include: ['scripts/**/*.test.ts', 'tests/**/*.test.ts'],
-    environment: 'node',
-    env: {
-      SNOWLUMA_LOG_FILE: '0',
+    plugins: [protobufVitePlugin()],
+    test: {
+        include: ['scripts/**/*.test.ts', 'tests/**/*.test.ts'],
+        environment: 'node',
+        env: {
+            SNOWLUMA_LOG_FILE: '0',
+        },
     },
-  },
 });

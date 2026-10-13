@@ -23,52 +23,58 @@ import { StateBus } from './state-bus';
 import type { BridgeManager } from '../bridge/manager';
 
 export interface StateWiring {
-  /** The bus the SSE handler subscribes to. */
-  readonly bus: StateBus;
-  /** Pass as the HookManager `onSessionsChanged` dep — publishes 'processes'. */
-  onSessionsChanged: () => void;
-  /** Hook into a BridgeManager so its session edges publish 'qq-list' and
-   *  'connections'. Can be called at most once per wiring (subsequent calls
-   *  add duplicate listeners). */
-  bindBridgeManager(bm: BridgeManager): void;
-  /** Drop every listener + neuter the bus so further publishes do nothing. */
-  dispose(): void;
+    /** The bus the SSE handler subscribes to. */
+    readonly bus: StateBus;
+    /** Pass as the HookManager `onSessionsChanged` dep — publishes 'processes'. */
+    onSessionsChanged: () => void;
+    /** Hook into a BridgeManager so its session edges publish 'qq-list' and
+     *  'connections'. Can be called at most once per wiring (subsequent calls
+     *  add duplicate listeners). */
+    bindBridgeManager(bm: BridgeManager): void;
+    /** Drop every listener + neuter the bus so further publishes do nothing. */
+    dispose(): void;
 }
 
 export function createStateWiring(): StateWiring {
-  const bus = new StateBus();
-  let disposed = false;
+    const bus = new StateBus();
+    let disposed = false;
 
-  const publish = (resource: Parameters<StateBus['publish']>[0]): void => {
-    if (disposed) return;
-    bus.publish(resource);
-  };
+    const publish = (resource: Parameters<StateBus['publish']>[0]): void => {
+        if (disposed) {
+            return;
+        }
 
-  return {
-    bus,
-    onSessionsChanged: () => publish('processes'),
-    bindBridgeManager(bm: BridgeManager): void {
-      // Account appeared: the qq-list response gains an entry and the
-      // connections response gains the new account's adapter row. Two
-      // distinct resource invalidations, in source-of-truth order
-      // (account exists → only then can adapters be enumerated for it).
-      bm.addSessionStartedListener(() => {
-        publish('qq-list');
-        publish('connections');
-      });
-      // Account disappeared: same two resources shrink, same order so a
-      // racy WebUI receiving both events independently sees the qq-list
-      // shrink before it tries to render connections for a uin that's
-      // about to vanish.
-      bm.addSessionClosedListener(() => {
-        publish('qq-list');
-        publish('connections');
-      });
-    },
-    dispose(): void {
-      if (disposed) return;
-      disposed = true;
-      bus.dispose();
-    },
-  };
+        bus.publish(resource);
+    };
+
+    return {
+        bus,
+        onSessionsChanged: () => publish('processes'),
+        bindBridgeManager(bm: BridgeManager): void {
+            // Account appeared: the qq-list response gains an entry and the
+            // connections response gains the new account's adapter row. Two
+            // distinct resource invalidations, in source-of-truth order
+            // (account exists → only then can adapters be enumerated for it).
+            bm.addSessionStartedListener(() => {
+                publish('qq-list');
+                publish('connections');
+            });
+            // Account disappeared: same two resources shrink, same order so a
+            // racy WebUI receiving both events independently sees the qq-list
+            // shrink before it tries to render connections for a uin that's
+            // about to vanish.
+            bm.addSessionClosedListener(() => {
+                publish('qq-list');
+                publish('connections');
+            });
+        },
+        dispose(): void {
+            if (disposed) {
+                return;
+            }
+
+            disposed = true;
+            bus.dispose();
+        },
+    };
 }

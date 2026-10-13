@@ -14,128 +14,140 @@ import { useKiosk } from '@/contexts/KioskContext';
 // Toggleable top-bar elements (the menu/title/logout are essential and always
 // render). Labels drive the settings toggles; ids match `topbarItems`.
 export const TOPBAR_CATALOGUE: { id: string; label: string }[] = [
-  { id: 'status', label: '连接状态徽章' },
-  { id: 'theme', label: '主题切换按钮' },
-  { id: 'kiosk', label: '展示模式按钮' },
+    { id: 'status', label: '连接状态徽章' },
+    { id: 'theme', label: '主题切换按钮' },
+    { id: 'kiosk', label: '展示模式按钮' },
 ];
 
 interface TopBarProps {
-  status: string;
-  mobileOpen: boolean;
-  onMobileOpenChange: (open: boolean) => void;
-  onLogout: () => void;
-  isMobile: boolean;
+    status: string;
+    mobileOpen: boolean;
+    onMobileOpenChange: (open: boolean) => void;
+    onLogout: () => void;
+    isMobile: boolean;
 }
 
 export function TopBar({
-  status,
-  mobileOpen,
-  onMobileOpenChange,
-  onLogout,
-  isMobile,
+    status,
+    mobileOpen,
+    onMobileOpenChange,
+    onLogout,
+    isMobile,
 }: TopBarProps) {
-  const [confirmLogout, setConfirmLogout] = useState(false);
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const meta = NAV_ITEMS.find((n) => n.to === pathname);
-  const PageIcon = meta?.icon;
-  const online = status === '已连接';
+    const [confirmLogout, setConfirmLogout] = useState(false);
+    const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const meta = NAV_ITEMS.find((n) => n.to === pathname);
+    const PageIcon = meta?.icon;
+    const online = status === '已连接';
 
-  // Which optional top-bar elements the operator has kept (reconciled against
-  // the live catalogue, so a new element defaults to shown).
-  const { topbarItems } = useLayout();
-  const { enter: enterKiosk } = useKiosk();
-  const shown = new Set(
-    reconcileLayoutItems(topbarItems, TOPBAR_CATALOGUE.map((t) => t.id))
-      .filter((i) => i.visible)
-      .map((i) => i.id),
-  );
+    // Which optional top-bar elements the operator has kept (reconciled against
+    // the live catalogue, so a new element defaults to shown).
+    const { topbarItems } = useLayout();
+    const { enter: enterKiosk } = useKiosk();
+    const shown = new Set(
+        reconcileLayoutItems(
+            topbarItems,
+            TOPBAR_CATALOGUE.map((t) => t.id),
+        )
+            .filter((i) => i.visible)
+            .map((i) => i.id),
+    );
 
-  return (
-    <header className="z-30 flex min-h-16 shrink-0 items-center gap-[4px] bg-background px-[max(10px,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] md:gap-2 md:px-4">
-      {/* Mobile-only menu trigger. On desktop there's no collapse button — the
+    return (
+        <header className="z-30 flex min-h-16 shrink-0 items-center gap-[4px] bg-background px-[max(10px,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] md:gap-2 md:px-4">
+            {/* Mobile-only menu trigger. On desktop there's no collapse button — the
           sidebar auto-expands on hover/focus, and its boundary with the content
           is a soft surface-tone shift, not a hard border. */}
-      {isMobile && (
-        <IconMorph
-          preset="menu-close"
-          labels={['打开菜单', '关闭菜单']}
-          semantics="expanded"
-          active={mobileOpen}
-          onActiveChange={(index) => onMobileOpenChange(index === 1)}
-          className="ui-button ui-button-icon topbar-control cursor-pointer border-0 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 dark:border-0 dark:bg-transparent dark:text-foreground dark:focus-visible:ring-ring/40"
-        />
-      )}
+            {isMobile && (
+                <IconMorph
+                    preset="menu-close"
+                    labels={['打开菜单', '关闭菜单']}
+                    semantics="expanded"
+                    active={mobileOpen}
+                    onActiveChange={(index) => onMobileOpenChange(index === 1)}
+                    className="ui-button ui-button-icon topbar-control cursor-pointer border-0 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 dark:border-0 dark:bg-transparent dark:text-foreground dark:focus-visible:ring-ring/40"
+                />
+            )}
 
-      {/* Page title */}
-      <AnimatePresence initial={false} mode="wait">
-        <motion.div
-          key={pathname}
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 8 }}
-          transition={{ duration: 0.18 }}
-          className="flex min-w-0 flex-1 items-center gap-2"
-        >
-          {PageIcon && <PageIcon className="hidden size-4 shrink-0 text-primary min-[400px]:block" />}
-          <h1 className="truncate text-sm font-semibold tracking-tight" title={meta?.label}>{meta?.label}</h1>
-          <span className="hidden md:inline truncate text-xs text-muted-foreground">{meta?.description}</span>
-        </motion.div>
-      </AnimatePresence>
+            {/* Page title */}
+            <AnimatePresence initial={false} mode="wait">
+                <motion.div
+                    key={pathname}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 8 }}
+                    transition={{ duration: 0.18 }}
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                >
+                    {PageIcon && (
+                        <PageIcon className="hidden size-4 shrink-0 text-primary min-[400px]:block" />
+                    )}
+                    <h1
+                        className="truncate text-sm font-semibold tracking-tight"
+                        title={meta?.label}
+                    >
+                        {meta?.label}
+                    </h1>
+                    <span className="hidden md:inline truncate text-xs text-muted-foreground">
+                        {meta?.description}
+                    </span>
+                </motion.div>
+            </AnimatePresence>
 
-      <div className="ml-auto flex shrink-0 items-center gap-[2px] md:gap-2">
-        {shown.has('status') && (
-          <Badge
-            variant={online ? 'success' : 'destructive'}
-            className="hidden md:inline-flex gap-1.5"
-          >
-            <span
-              className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
+            <div className="ml-auto flex shrink-0 items-center gap-[2px] md:gap-2">
+                {shown.has('status') && (
+                    <Badge
+                        variant={online ? 'success' : 'destructive'}
+                        className="hidden md:inline-flex gap-1.5"
+                    >
+                        <span
+                            className={`size-1.5 rounded-full ${online ? 'bg-success' : 'bg-destructive'} ${online ? 'animate-pulse' : ''}`}
+                        />
+                        {status}
+                    </Badge>
+                )}
+
+                {shown.has('theme') && <ThemeToggle />}
+
+                {shown.has('kiosk') && (
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={enterKiosk}
+                        aria-label="展示模式"
+                        title="展示模式（隐藏侧栏与顶栏，Esc 退出）"
+                        className="topbar-control max-[379px]:hidden text-muted-foreground hover:text-foreground"
+                    >
+                        <Monitor className="size-4" />
+                    </Button>
+                )}
+
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setConfirmLogout(true)}
+                    aria-label="登出"
+                    title="登出"
+                    className="topbar-control text-muted-foreground hover:text-destructive"
+                >
+                    <LogOut className="size-4" />
+                </Button>
+            </div>
+
+            <ConfirmDialog
+                open={confirmLogout}
+                onOpenChange={setConfirmLogout}
+                title="确认登出？"
+                description="登出后将清除当前会话令牌，您需要重新输入访问密码才能进入控制台。"
+                confirmText="登出"
+                destructive
+                activity={{
+                    title: '正在退出登录',
+                    successTitle: '已退出登录',
+                    errorTitle: '退出登录失败',
+                }}
+                onConfirm={onLogout}
             />
-            {status}
-          </Badge>
-        )}
-
-        {shown.has('theme') && <ThemeToggle />}
-
-        {shown.has('kiosk') && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={enterKiosk}
-            aria-label="展示模式"
-            title="展示模式（隐藏侧栏与顶栏，Esc 退出）"
-            className="topbar-control max-[379px]:hidden text-muted-foreground hover:text-foreground"
-          >
-            <Monitor className="size-4" />
-          </Button>
-        )}
-
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setConfirmLogout(true)}
-          aria-label="登出"
-          title="登出"
-          className="topbar-control text-muted-foreground hover:text-destructive"
-        >
-          <LogOut className="size-4" />
-        </Button>
-      </div>
-
-      <ConfirmDialog
-        open={confirmLogout}
-        onOpenChange={setConfirmLogout}
-        title="确认登出？"
-        description="登出后将清除当前会话令牌，您需要重新输入访问密码才能进入控制台。"
-        confirmText="登出"
-        destructive
-        activity={{
-          title: '正在退出登录',
-          successTitle: '已退出登录',
-          errorTitle: '退出登录失败',
-        }}
-        onConfirm={onLogout}
-      />
-    </header>
-  );
+        </header>
+    );
 }

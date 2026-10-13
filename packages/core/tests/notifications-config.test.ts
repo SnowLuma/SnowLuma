@@ -3,352 +3,403 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-  DEFAULT_BODY_TEMPLATE,
-  DEFAULT_DEBOUNCE_SECONDS,
-  DEFAULT_EMAIL_BODY_TEMPLATE,
-  DEFAULT_SUBJECT_TEMPLATE,
-  defaultNotificationsConfig,
-  normalizeNotificationsConfig,
-  renderTemplate,
+    DEFAULT_BODY_TEMPLATE,
+    DEFAULT_DEBOUNCE_SECONDS,
+    DEFAULT_EMAIL_BODY_TEMPLATE,
+    DEFAULT_SUBJECT_TEMPLATE,
+    defaultNotificationsConfig,
+    normalizeNotificationsConfig,
+    renderTemplate,
 } from '../src/notifications/config';
 
 describe('renderTemplate — mechanical {key} substitution', () => {
-  it('replaces present variables', () => {
-    expect(
-      renderTemplate('{nickname}({uin}) {event} @ {time}', {
-        nickname: 'Bob',
-        uin: '123',
-        event: 'offline',
-        time: '12:00',
-      }),
-    ).toBe('Bob(123) offline @ 12:00');
-  });
+    it('replaces present variables', () => {
+        expect(
+            renderTemplate('{nickname}({uin}) {event} @ {time}', {
+                nickname: 'Bob',
+                uin: '123',
+                event: 'offline',
+                time: '12:00',
+            }),
+        ).toBe('Bob(123) offline @ 12:00');
+    });
 
-  it('leaves missing placeholders untouched (原样)', () => {
-    expect(renderTemplate('{a}-{b}', { a: 'x' })).toBe('x-{b}');
-  });
+    it('leaves missing placeholders untouched (原样)', () => {
+        expect(renderTemplate('{a}-{b}', { a: 'x' })).toBe('x-{b}');
+    });
 
-  it('replaces repeated occurrences', () => {
-    expect(renderTemplate('{x}{x}', { x: 'ab' })).toBe('abab');
-  });
+    it('replaces repeated occurrences', () => {
+        expect(renderTemplate('{x}{x}', { x: 'ab' })).toBe('abab');
+    });
 
-  it('leaves text with no placeholders unchanged', () => {
-    expect(renderTemplate('hello', { x: '1' })).toBe('hello');
-  });
+    it('leaves text with no placeholders unchanged', () => {
+        expect(renderTemplate('hello', { x: '1' })).toBe('hello');
+    });
 
-  it('does no logic — an empty value substitutes as empty', () => {
-    expect(renderTemplate('[{x}]', { x: '' })).toBe('[]');
-  });
+    it('does no logic — an empty value substitutes as empty', () => {
+        expect(renderTemplate('[{x}]', { x: '' })).toBe('[]');
+    });
 
-  it('is total — a non-string template yields an empty string', () => {
-    expect(renderTemplate(undefined as unknown as string, {})).toBe('');
-  });
+    it('is total — a non-string template yields an empty string', () => {
+        expect(renderTemplate(undefined as unknown as string, {})).toBe('');
+    });
 
-  it('does NOT re-expand a substituted value that itself contains a placeholder', () => {
-    // Load-bearing invariant: replacement text is never re-scanned. A refactor
-    // to a recursive/loop replace would break this while passing every other test.
-    expect(renderTemplate('{a}', { a: '{b}', b: 'NESTED' })).toBe('{b}');
-  });
+    it('does NOT re-expand a substituted value that itself contains a placeholder', () => {
+        // Load-bearing invariant: replacement text is never re-scanned. A refactor
+        // to a recursive/loop replace would break this while passing every other test.
+        expect(renderTemplate('{a}', { a: '{b}', b: 'NESTED' })).toBe('{b}');
+    });
 
-  it('escapes backslashes and quotes when template is JSON-like', () => {
-    const tmpl = '{"text": "{val}"}';
-    expect(renderTemplate(tmpl, { val: 'a"b\\c' })).toBe('{"text": "a\\"b\\\\c"}');
-  });
+    it('escapes backslashes and quotes when template is JSON-like', () => {
+        const tmpl = '{"text": "{val}"}';
+        expect(renderTemplate(tmpl, { val: 'a"b\\c' })).toBe('{"text": "a\\"b\\\\c"}');
+    });
 
-  it('does NOT escape when template is plain text', () => {
-    expect(renderTemplate('{val}', { val: 'a"b\\c' })).toBe('a"b\\c');
-  });
+    it('does NOT escape when template is plain text', () => {
+        expect(renderTemplate('{val}', { val: 'a"b\\c' })).toBe('a"b\\c');
+    });
 });
 
 describe('normalizeNotificationsConfig — total normalize', () => {
-  it('collapses garbage / non-objects to the full default', () => {
-    const d = defaultNotificationsConfig();
-    for (const junk of [undefined, null, 42, 'nope', []]) {
-      expect(normalizeNotificationsConfig(junk)).toEqual(d);
-    }
-  });
+    it('collapses garbage / non-objects to the full default', () => {
+        const d = defaultNotificationsConfig();
 
-  it('forces version to 1 regardless of input', () => {
-    expect(normalizeNotificationsConfig({ version: 99 }).version).toBe(1);
-  });
-
-  it('clamps + truncates debounceSeconds into [0, 3600]', () => {
-    expect(normalizeNotificationsConfig({ debounceSeconds: -5 }).debounceSeconds).toBe(0);
-    expect(normalizeNotificationsConfig({ debounceSeconds: 99999 }).debounceSeconds).toBe(3600);
-    expect(normalizeNotificationsConfig({ debounceSeconds: 30.9 }).debounceSeconds).toBe(30);
-    expect(normalizeNotificationsConfig({ debounceSeconds: '45' }).debounceSeconds).toBe(45);
-    expect(normalizeNotificationsConfig({ debounceSeconds: 'x' }).debounceSeconds).toBe(DEFAULT_DEBOUNCE_SECONDS);
-  });
-
-  it('drops a non-array channels value', () => {
-    expect(normalizeNotificationsConfig({ channels: 'nope' }).channels).toEqual([]);
-  });
-
-  it('keeps a valid channel and strips unknown fields', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [
-        {
-          id: 'dingtalk',
-          name: 'DingTalk',
-          url: 'https://oapi.dingtalk.com/robot/send',
-          bodyTemplate: '{event}',
-          enabled: true,
-          evil: 'x',
-          extra: 1,
-        },
-      ],
+        for (const junk of [undefined, null, 42, 'nope', []]) {
+            expect(normalizeNotificationsConfig(junk)).toEqual(d);
+        }
     });
-    expect(channels).toEqual([
-      {
-        id: 'dingtalk',
-        name: 'DingTalk',
-        type: 'webhook',
-        url: 'https://oapi.dingtalk.com/robot/send',
-        bodyTemplate: '{event}',
-        enabled: true,
-      },
-    ]);
-  });
 
-  it('drops channels lacking a valid id or http(s) url', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [
-        { id: '', url: 'https://a.com' }, // empty id
-        { id: 'bad id!', url: 'https://a.com' }, // invalid slug
-        { id: 'noUrl' }, // missing url
-        { id: 'ftp', url: 'ftp://a.com' }, // non-http scheme
-        { id: 'ok', url: 'http://a.com' }, // valid
-      ],
+    it('forces version to 1 regardless of input', () => {
+        expect(normalizeNotificationsConfig({ version: 99 }).version).toBe(1);
     });
-    expect(channels.map((c) => c.id)).toEqual(['ok']);
-  });
 
-  it('dedupes channels by id (first occurrence wins)', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [
-        { id: 'dup', url: 'https://a.com', name: 'first' },
-        { id: 'dup', url: 'https://b.com', name: 'second' },
-      ],
+    it('clamps + truncates debounceSeconds into [0, 3600]', () => {
+        expect(normalizeNotificationsConfig({ debounceSeconds: -5 }).debounceSeconds).toBe(0);
+        expect(normalizeNotificationsConfig({ debounceSeconds: 99999 }).debounceSeconds).toBe(3600);
+        expect(normalizeNotificationsConfig({ debounceSeconds: 30.9 }).debounceSeconds).toBe(30);
+        expect(normalizeNotificationsConfig({ debounceSeconds: '45' }).debounceSeconds).toBe(45);
+        expect(normalizeNotificationsConfig({ debounceSeconds: 'x' }).debounceSeconds).toBe(
+            DEFAULT_DEBOUNCE_SECONDS,
+        );
     });
-    expect(channels).toHaveLength(1);
-    expect(channels[0].name).toBe('first');
-    expect(channels[0].url).toBe('https://a.com');
-  });
 
-  it('defaults enabled=true, name→id, type=webhook, and bodyTemplate→default', () => {
-    const { channels } = normalizeNotificationsConfig({ channels: [{ id: 'c1', url: 'https://a.com' }] });
-    expect(channels[0].enabled).toBe(true);
-    expect(channels[0].name).toBe('c1');
-    expect(channels[0].type).toBe('webhook');
-    expect(channels[0].bodyTemplate).toBe(DEFAULT_BODY_TEMPLATE);
-    expect(channels[0].headers).toBeUndefined();
-  });
+    it('drops a non-array channels value', () => {
+        expect(normalizeNotificationsConfig({ channels: 'nope' }).channels).toEqual([]);
+    });
 
-  it('keeps valid request headers and drops unsafe or empty ones', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{
-        id: 'feishu',
-        url: 'https://open.feishu.cn/hook',
-        headers: {
-          Authorization: 'Bearer secret',
-          'X-Custom': 'ok',
-          'Bad Name': 'x',
-          '': 'x',
-          Inject: 'line\r\nX-Evil: 1',
-          Empty: '  ',
-          NotString: 1,
-        } as Record<string, unknown>,
-      }],
+    it('keeps a valid channel and strips unknown fields', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'dingtalk',
+                    name: 'DingTalk',
+                    url: 'https://oapi.dingtalk.com/robot/send',
+                    bodyTemplate: '{event}',
+                    enabled: true,
+                    evil: 'x',
+                    extra: 1,
+                },
+            ],
+        });
+        expect(channels).toEqual([
+            {
+                id: 'dingtalk',
+                name: 'DingTalk',
+                type: 'webhook',
+                url: 'https://oapi.dingtalk.com/robot/send',
+                bodyTemplate: '{event}',
+                enabled: true,
+            },
+        ]);
     });
-    expect(channels[0].headers).toEqual({
-      Authorization: 'Bearer secret',
-      'X-Custom': 'ok',
-    });
-  });
 
-  it('omits an empty headers object after normalize', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{ id: 'c1', url: 'https://a.com', headers: { 'Bad Name': 'x' } }],
+    it('drops channels lacking a valid id or http(s) url', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                { id: '', url: 'https://a.com' }, // empty id
+                { id: 'bad id!', url: 'https://a.com' }, // invalid slug
+                { id: 'noUrl' }, // missing url
+                { id: 'ftp', url: 'ftp://a.com' }, // non-http scheme
+                { id: 'ok', url: 'http://a.com' }, // valid
+            ],
+        });
+        expect(channels.map((c) => c.id)).toEqual(['ok']);
     });
-    expect(channels[0].headers).toBeUndefined();
-  });
 
-  it('keeps an email channel without a webhook url and fills SMTP defaults', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{
-        id: 'ops-mail',
-        type: 'email',
-        smtpHost: 'smtp.qq.com',
-        from: 'SnowLuma <bot@qq.com>',
-        to: 'a@example.com; b@example.com, a@example.com',
-      }],
+    it('dedupes channels by id (first occurrence wins)', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                { id: 'dup', url: 'https://a.com', name: 'first' },
+                { id: 'dup', url: 'https://b.com', name: 'second' },
+            ],
+        });
+        expect(channels).toHaveLength(1);
+        expect(channels[0].name).toBe('first');
+        expect(channels[0].url).toBe('https://a.com');
     });
-    expect(channels).toEqual([{
-      id: 'ops-mail',
-      name: 'ops-mail',
-      type: 'email',
-      url: '',
-      bodyTemplate: DEFAULT_EMAIL_BODY_TEMPLATE,
-      enabled: true,
-      smtpHost: 'smtp.qq.com',
-      smtpPort: 465,
-      smtpSecure: true,
-      from: 'SnowLuma <bot@qq.com>',
-      to: 'a@example.com, b@example.com',
-      subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
-    }]);
-  });
 
-  it('defaults port 587 when smtpSecure is explicitly false', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{
-        id: 'relay',
-        type: 'email',
-        smtpHost: 'relay.internal',
-        smtpSecure: false,
-        from: 'bot@internal',
-        to: 'ops@internal',
-      }],
+    it('defaults enabled=true, name→id, type=webhook, and bodyTemplate→default', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [{ id: 'c1', url: 'https://a.com' }],
+        });
+        expect(channels[0].enabled).toBe(true);
+        expect(channels[0].name).toBe('c1');
+        expect(channels[0].type).toBe('webhook');
+        expect(channels[0].bodyTemplate).toBe(DEFAULT_BODY_TEMPLATE);
+        expect(channels[0].headers).toBeUndefined();
     });
-    expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
-  });
 
-  it('treats port 587 without smtpSecure as STARTTLS (secure=false)', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{
-        id: 'gmail',
-        type: 'email',
-        smtpHost: 'smtp.gmail.com',
-        smtpPort: 587,
-        from: 'bot@gmail.com',
-        to: 'ops@gmail.com',
-      }],
+    it('keeps valid request headers and drops unsafe or empty ones', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'feishu',
+                    url: 'https://open.feishu.cn/hook',
+                    headers: {
+                        Authorization: 'Bearer secret',
+                        'X-Custom': 'ok',
+                        'Bad Name': 'x',
+                        '': 'x',
+                        Inject: 'line\r\nX-Evil: 1',
+                        Empty: '  ',
+                        NotString: 1,
+                    } as Record<string, unknown>,
+                },
+            ],
+        });
+        expect(channels[0].headers).toEqual({
+            Authorization: 'Bearer secret',
+            'X-Custom': 'ok',
+        });
     });
-    expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
-  });
 
-  it('drops email channels missing host / from / to, and unknown types', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [
-        { id: 'no-host', type: 'email', from: 'a@b.com', to: 'c@d.com' },
-        { id: 'no-from', type: 'email', smtpHost: 'smtp.example.com', to: 'c@d.com' },
-        { id: 'bad-to', type: 'email', smtpHost: 'smtp.example.com', from: 'a@b.com', to: 'not-an-email' },
-        { id: 'sms', type: 'sms', url: 'https://a.com' },
-        { id: 'ok', type: 'email', smtpHost: 'smtp.example.com', from: 'a@b.com', to: 'c@d.com', smtpUser: 'a@b.com', smtpPass: 'p' },
-      ],
+    it('omits an empty headers object after normalize', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [{ id: 'c1', url: 'https://a.com', headers: { 'Bad Name': 'x' } }],
+        });
+        expect(channels[0].headers).toBeUndefined();
     });
-    expect(channels.map((c) => c.id)).toEqual(['ok']);
-    expect(channels[0]).toMatchObject({ smtpUser: 'a@b.com', smtpPass: 'p' });
-  });
 
-  it('does not keep webhook-only fields on an email channel', () => {
-    const { channels } = normalizeNotificationsConfig({
-      channels: [{
-        id: 'mail',
-        type: 'email',
-        url: 'https://should.be.ignored',
-        headers: { Authorization: 'Bearer x' },
-        smtpHost: 'smtp.example.com',
-        from: 'a@b.com',
-        to: 'c@d.com',
-        evil: 'x',
-      }],
+    it('keeps an email channel without a webhook url and fills SMTP defaults', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'ops-mail',
+                    type: 'email',
+                    smtpHost: 'smtp.qq.com',
+                    from: 'SnowLuma <bot@qq.com>',
+                    to: 'a@example.com; b@example.com, a@example.com',
+                },
+            ],
+        });
+        expect(channels).toEqual([
+            {
+                id: 'ops-mail',
+                name: 'ops-mail',
+                type: 'email',
+                url: '',
+                bodyTemplate: DEFAULT_EMAIL_BODY_TEMPLATE,
+                enabled: true,
+                smtpHost: 'smtp.qq.com',
+                smtpPort: 465,
+                smtpSecure: true,
+                from: 'SnowLuma <bot@qq.com>',
+                to: 'a@example.com, b@example.com',
+                subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
+            },
+        ]);
     });
-    expect(channels[0].url).toBe('');
-    expect(channels[0].headers).toBeUndefined();
-    expect(channels[0]).not.toHaveProperty('evil');
-  });
+
+    it('defaults port 587 when smtpSecure is explicitly false', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'relay',
+                    type: 'email',
+                    smtpHost: 'relay.internal',
+                    smtpSecure: false,
+                    from: 'bot@internal',
+                    to: 'ops@internal',
+                },
+            ],
+        });
+        expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
+    });
+
+    it('treats port 587 without smtpSecure as STARTTLS (secure=false)', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'gmail',
+                    type: 'email',
+                    smtpHost: 'smtp.gmail.com',
+                    smtpPort: 587,
+                    from: 'bot@gmail.com',
+                    to: 'ops@gmail.com',
+                },
+            ],
+        });
+        expect(channels[0]).toMatchObject({ smtpPort: 587, smtpSecure: false });
+    });
+
+    it('drops email channels missing host / from / to, and unknown types', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                { id: 'no-host', type: 'email', from: 'a@b.com', to: 'c@d.com' },
+                { id: 'no-from', type: 'email', smtpHost: 'smtp.example.com', to: 'c@d.com' },
+                {
+                    id: 'bad-to',
+                    type: 'email',
+                    smtpHost: 'smtp.example.com',
+                    from: 'a@b.com',
+                    to: 'not-an-email',
+                },
+                { id: 'sms', type: 'sms', url: 'https://a.com' },
+                {
+                    id: 'ok',
+                    type: 'email',
+                    smtpHost: 'smtp.example.com',
+                    from: 'a@b.com',
+                    to: 'c@d.com',
+                    smtpUser: 'a@b.com',
+                    smtpPass: 'p',
+                },
+            ],
+        });
+        expect(channels.map((c) => c.id)).toEqual(['ok']);
+        expect(channels[0]).toMatchObject({ smtpUser: 'a@b.com', smtpPass: 'p' });
+    });
+
+    it('does not keep webhook-only fields on an email channel', () => {
+        const { channels } = normalizeNotificationsConfig({
+            channels: [
+                {
+                    id: 'mail',
+                    type: 'email',
+                    url: 'https://should.be.ignored',
+                    headers: { Authorization: 'Bearer x' },
+                    smtpHost: 'smtp.example.com',
+                    from: 'a@b.com',
+                    to: 'c@d.com',
+                    evil: 'x',
+                },
+            ],
+        });
+        expect(channels[0].url).toBe('');
+        expect(channels[0].headers).toBeUndefined();
+        expect(channels[0]).not.toHaveProperty('evil');
+    });
 });
 
 describe('loadNotificationsConfig / saveNotificationsConfig (fs-backed)', () => {
-  let tmp: string;
-  let prevCwd: string;
+    let tmp: string;
+    let prevCwd: string;
 
-  beforeEach(() => {
-    prevCwd = process.cwd();
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-notif-'));
-    process.chdir(tmp);
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    process.chdir(prevCwd);
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  it('creates a default config file when absent', async () => {
-    const mod = await import('../src/notifications/config');
-    const cfg = mod.loadNotificationsConfig();
-    expect(cfg).toEqual(mod.defaultNotificationsConfig());
-    const file = path.join('config', 'notifications.json');
-    expect(fs.existsSync(file)).toBe(true);
-    if (process.platform !== 'win32') {
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    }
-  });
-
-  it('round-trips a saved config across a fresh module load', async () => {
-    const mod = await import('../src/notifications/config');
-    const saved = mod.saveNotificationsConfig({
-      debounceSeconds: 60,
-      channels: [{ id: 'c1', name: 'C1', url: 'https://a.com/hook', bodyTemplate: '{event}', enabled: false }],
-    });
-    expect(saved.debounceSeconds).toBe(60);
-    expect(saved.channels).toHaveLength(1);
-
-    vi.resetModules();
-    const mod2 = await import('../src/notifications/config');
-    expect(mod2.loadNotificationsConfig()).toEqual(saved);
-  });
-
-  it('repairs permissive permissions on an existing sensitive config', async () => {
-    const file = path.join('config', 'notifications.json');
-    fs.mkdirSync('config', { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({
-      version: 1,
-      debounceSeconds: 30,
-      channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
-    }), { encoding: 'utf8', mode: 0o644 });
-    if (process.platform !== 'win32') fs.chmodSync(file, 0o644);
-
-    const mod = await import('../src/notifications/config');
-    expect(mod.loadNotificationsConfig().channels).toHaveLength(1);
-    if (process.platform !== 'win32') {
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    }
-  });
-
-  it('keeps restrictive permissions after replacing an existing config', async () => {
-    const file = path.join('config', 'notifications.json');
-    fs.mkdirSync('config', { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ version: 1, debounceSeconds: 30, channels: [] }), {
-      encoding: 'utf8',
-      mode: 0o644,
-    });
-    if (process.platform !== 'win32') fs.chmodSync(file, 0o644);
-
-    const mod = await import('../src/notifications/config');
-    mod.saveNotificationsConfig({
-      channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
+    beforeEach(() => {
+        prevCwd = process.cwd();
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-notif-'));
+        process.chdir(tmp);
+        vi.resetModules();
     });
 
-    if (process.platform !== 'win32') {
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    }
-  });
+    afterEach(() => {
+        process.chdir(prevCwd);
+        fs.rmSync(tmp, { recursive: true, force: true });
+    });
 
-  it('section-merges partial saves (debounce-only keeps channels)', async () => {
-    const mod = await import('../src/notifications/config');
-    mod.saveNotificationsConfig({ channels: [{ id: 'c1', url: 'https://a.com' }] });
-    const after = mod.saveNotificationsConfig({ debounceSeconds: 120 });
-    expect(after.debounceSeconds).toBe(120);
-    expect(after.channels.map((c) => c.id)).toEqual(['c1']);
-  });
+    it('creates a default config file when absent', async () => {
+        const mod = await import('../src/notifications/config');
+        const cfg = mod.loadNotificationsConfig();
+        expect(cfg).toEqual(mod.defaultNotificationsConfig());
+        const file = path.join('config', 'notifications.json');
+        expect(fs.existsSync(file)).toBe(true);
 
-  it('self-heals an unreadable file on load', async () => {
-    fs.mkdirSync('config', { recursive: true });
-    fs.writeFileSync(path.join('config', 'notifications.json'), '{ not valid json', 'utf8');
-    const mod = await import('../src/notifications/config');
-    expect(mod.loadNotificationsConfig()).toEqual(mod.defaultNotificationsConfig());
-  });
+        if (process.platform !== 'win32') {
+            expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+        }
+    });
+
+    it('round-trips a saved config across a fresh module load', async () => {
+        const mod = await import('../src/notifications/config');
+        const saved = mod.saveNotificationsConfig({
+            debounceSeconds: 60,
+            channels: [
+                {
+                    id: 'c1',
+                    name: 'C1',
+                    url: 'https://a.com/hook',
+                    bodyTemplate: '{event}',
+                    enabled: false,
+                },
+            ],
+        });
+        expect(saved.debounceSeconds).toBe(60);
+        expect(saved.channels).toHaveLength(1);
+
+        vi.resetModules();
+        const mod2 = await import('../src/notifications/config');
+        expect(mod2.loadNotificationsConfig()).toEqual(saved);
+    });
+
+    it('repairs permissive permissions on an existing sensitive config', async () => {
+        const file = path.join('config', 'notifications.json');
+        fs.mkdirSync('config', { recursive: true });
+        fs.writeFileSync(
+            file,
+            JSON.stringify({
+                version: 1,
+                debounceSeconds: 30,
+                channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
+            }),
+            { encoding: 'utf8', mode: 0o644 },
+        );
+
+        if (process.platform !== 'win32') {
+            fs.chmodSync(file, 0o644);
+        }
+
+        const mod = await import('../src/notifications/config');
+        expect(mod.loadNotificationsConfig().channels).toHaveLength(1);
+
+        if (process.platform !== 'win32') {
+            expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+        }
+    });
+
+    it('keeps restrictive permissions after replacing an existing config', async () => {
+        const file = path.join('config', 'notifications.json');
+        fs.mkdirSync('config', { recursive: true });
+        fs.writeFileSync(file, JSON.stringify({ version: 1, debounceSeconds: 30, channels: [] }), {
+            encoding: 'utf8',
+            mode: 0o644,
+        });
+
+        if (process.platform !== 'win32') {
+            fs.chmodSync(file, 0o644);
+        }
+
+        const mod = await import('../src/notifications/config');
+        mod.saveNotificationsConfig({
+            channels: [{ id: 'ops', url: 'https://example.com/private-hook' }],
+        });
+
+        if (process.platform !== 'win32') {
+            expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+        }
+    });
+
+    it('section-merges partial saves (debounce-only keeps channels)', async () => {
+        const mod = await import('../src/notifications/config');
+        mod.saveNotificationsConfig({ channels: [{ id: 'c1', url: 'https://a.com' }] });
+        const after = mod.saveNotificationsConfig({ debounceSeconds: 120 });
+        expect(after.debounceSeconds).toBe(120);
+        expect(after.channels.map((c) => c.id)).toEqual(['c1']);
+    });
+
+    it('self-heals an unreadable file on load', async () => {
+        fs.mkdirSync('config', { recursive: true });
+        fs.writeFileSync(path.join('config', 'notifications.json'), '{ not valid json', 'utf8');
+        const mod = await import('../src/notifications/config');
+        expect(mod.loadNotificationsConfig()).toEqual(mod.defaultNotificationsConfig());
+    });
 });

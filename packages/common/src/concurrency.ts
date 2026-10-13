@@ -12,16 +12,21 @@
  * shape that was previously hand-rolled at each such call site.
  */
 export async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
+    items: readonly T[],
+    concurrency: number,
+    fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const limit = Math.max(1, Math.trunc(concurrency));
-  const results = new Array<R>(items.length);
-  for (let i = 0; i < items.length; i += limit) {
-    const batch = items.slice(i, i + limit);
-    const settled = await Promise.all(batch.map((item, j) => fn(item, i + j)));
-    for (let j = 0; j < settled.length; j++) results[i + j] = settled[j]!;
-  }
-  return results;
+    const limit = Math.max(1, Math.trunc(concurrency));
+    const results = new Array<R>(items.length);
+
+    for (let i = 0; i < items.length; i += limit) {
+        const batch = items.slice(i, i + limit);
+        const settled = await Promise.all(batch.map((item, j) => fn(item, i + j)));
+
+        for (let j = 0; j < settled.length; j++) {
+            results[i + j] = settled[j]!;
+        }
+    }
+
+    return results;
 }

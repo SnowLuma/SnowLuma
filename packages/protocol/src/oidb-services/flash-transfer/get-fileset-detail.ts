@@ -6,37 +6,36 @@
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
 import type {
-  FlashGetDetailReq,
-  FlashGetDetailResp,
-  FlashFileEntry,
+    FlashGetDetailReq,
+    FlashGetDetailResp,
+    FlashFileEntry,
 } from '@snowluma/proto-defs/oidb-actions/flash-transfer';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 export namespace GetFilesetDetail {
-  export const command = 0x93d3;
-  export const subCommand = 1;
+    export const command = 0x93d3;
+    export const subCommand = 1;
 
-  export interface Params {
-    filesetUuid: string;
-  }
-  export type Result = FlashFileEntry[];
+    export interface Params {
+        filesetUuid: string;
+    }
+    export type Result = FlashFileEntry[];
 
-  export type Deps = OidbSender;
+    export type Deps = OidbSender;
 
-  export const serialize = (_ctx: Deps, p: Params): FlashGetDetailReq => ({
-    filesetUuid: p.filesetUuid,
-    field2: 7,
-  });
+    export const serialize = (_ctx: Deps, p: Params): FlashGetDetailReq => ({
+        filesetUuid: p.filesetUuid,
+        field2: 7,
+    });
 
-  export const deserialize = (_ctx: Deps, body: FlashGetDetailResp): Result =>
-    body.entries ?? [];
+    export const deserialize = (_ctx: Deps, body: FlashGetDetailResp): Result => body.entries ?? [];
 
-  export const encode = (env: OidbBase<FlashGetDetailReq>): Uint8Array =>
-    protobuf_encode<OidbBase<FlashGetDetailReq>>(env);
+    export const encode = (env: OidbBase<FlashGetDetailReq>): Uint8Array =>
+        protobuf_encode<OidbBase<FlashGetDetailReq>>(env);
 
-  export const decode = (bytes: Uint8Array): OidbBase<FlashGetDetailResp> =>
-    protobuf_decode<OidbBase<FlashGetDetailResp>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<FlashGetDetailResp> =>
+        protobuf_decode<OidbBase<FlashGetDetailResp>>(bytes);
 
-  export const invoke = (deps: Deps, params: Params): Promise<Result> =>
-    invokeOidb(deps, GetFilesetDetail, params);
+    export const invoke = (deps: Deps, params: Params): Promise<Result> =>
+        invokeOidb(deps, GetFilesetDetail, params);
 }

@@ -3,10 +3,10 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {
-  parseTotpStateLenient,
-  prepareTotpStateForRestore,
-  rewrapTotpSecret,
-  type TotpPersistedState,
+    parseTotpStateLenient,
+    prepareTotpStateForRestore,
+    rewrapTotpSecret,
+    type TotpPersistedState,
 } from './totp';
 
 const log = createLogger('WebUI.Auth');
@@ -22,53 +22,62 @@ const SCRYPT_P = 1;
 const DEV_PASSWORD = 'snowluma-dev';
 
 export function isDevAuthMode(): boolean {
-  return process.env.SNOWLUMA_DEV_MODE === '1';
+    return process.env.SNOWLUMA_DEV_MODE === '1';
 }
 
 function envBootstrapPassword(): string | null {
-  const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
-  if (!raw || typeof raw !== 'string') return null;
-  if (raw.length < 8) return null;
-  return raw;
+    const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
+
+    if (!raw || typeof raw !== 'string') {
+        return null;
+    }
+
+    if (raw.length < 8) {
+        return null;
+    }
+
+    return raw;
 }
 
 export interface WebuiAuthState {
-  passwordHash: string; // hex
-  passwordSalt: string; // hex
-  mustChangePassword: boolean;
-  generatedAt: string;
-  updatedAt: string;
-  totp?: TotpPersistedState;
+    passwordHash: string; // hex
+    passwordSalt: string; // hex
+    mustChangePassword: boolean;
+    generatedAt: string;
+    updatedAt: string;
+    totp?: TotpPersistedState;
 }
 
 export interface PasswordRule {
-  id: string;
-  label: string;
-  test: (pwd: string) => boolean;
+    id: string;
+    label: string;
+    test: (pwd: string) => boolean;
 }
 
 export const PASSWORD_RULES: PasswordRule[] = [
-  { id: 'length', label: '长度不少于 10 位', test: (p) => p.length >= 10 },
-  { id: 'lower', label: '包含小写字母', test: (p) => /[a-z]/.test(p) },
-  { id: 'upper', label: '包含大写字母', test: (p) => /[A-Z]/.test(p) },
-  { id: 'special', label: '包含特殊符号 (!@#$%…)', test: (p) => /[^A-Za-z0-9\s]/.test(p) },
-  { id: 'no-space', label: '不包含空格', test: (p) => !/\s/.test(p) && p.length > 0 },
+    { id: 'length', label: '长度不少于 10 位', test: (p) => p.length >= 10 },
+    { id: 'lower', label: '包含小写字母', test: (p) => /[a-z]/.test(p) },
+    { id: 'upper', label: '包含大写字母', test: (p) => /[A-Z]/.test(p) },
+    { id: 'special', label: '包含特殊符号 (!@#$%…)', test: (p) => /[^A-Za-z0-9\s]/.test(p) },
+    { id: 'no-space', label: '不包含空格', test: (p) => !/\s/.test(p) && p.length > 0 },
 ];
 
-export function evaluatePasswordRules(password: string): { id: string; label: string; ok: boolean }[] {
-  return PASSWORD_RULES.map((r) => ({ id: r.id, label: r.label, ok: r.test(password) }));
+export function evaluatePasswordRules(
+    password: string,
+): { id: string; label: string; ok: boolean }[] {
+    return PASSWORD_RULES.map((r) => ({ id: r.id, label: r.label, ok: r.test(password) }));
 }
 
 export function isStrongPassword(password: string): boolean {
-  return PASSWORD_RULES.every((r) => r.test(password));
+    return PASSWORD_RULES.every((r) => r.test(password));
 }
 
 function hashPassword(password: string, salt: Buffer): Buffer {
-  return scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+    return scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
 }
 
 function ensureConfigDir(): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
 /**
@@ -79,265 +88,332 @@ function ensureConfigDir(): void {
  * operator would be locked out after a restore.
  */
 export function prepareWebuiAuthStateForRestore(value: unknown): WebuiAuthState {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('credential state must be an object');
-  }
-  const v = value as Record<string, unknown>;
-  if (typeof v.passwordHash !== 'string' || !/^[0-9a-f]{128}$/i.test(v.passwordHash)) {
-    throw new Error('passwordHash must be exactly 128 hexadecimal characters');
-  }
-  if (typeof v.passwordSalt !== 'string' || !/^[0-9a-f]{32}$/i.test(v.passwordSalt)) {
-    throw new Error('passwordSalt must be exactly 32 hexadecimal characters');
-  }
-  if (typeof v.mustChangePassword !== 'boolean') {
-    throw new Error('mustChangePassword must be a boolean');
-  }
-  if (typeof v.generatedAt !== 'string' || !Number.isFinite(Date.parse(v.generatedAt))) {
-    throw new Error('generatedAt must be a valid timestamp');
-  }
-  if (typeof v.updatedAt !== 'string' || !Number.isFinite(Date.parse(v.updatedAt))) {
-    throw new Error('updatedAt must be a valid timestamp');
-  }
-  const allowed = new Set(['passwordHash', 'passwordSalt', 'mustChangePassword', 'generatedAt', 'updatedAt', 'totp']);
-  const unknown = Object.keys(v).find((key) => !allowed.has(key));
-  if (unknown) throw new Error(`unknown field $.${unknown}`);
-  const state: WebuiAuthState = {
-    passwordHash: v.passwordHash,
-    passwordSalt: v.passwordSalt,
-    mustChangePassword: v.mustChangePassword,
-    generatedAt: v.generatedAt,
-    updatedAt: v.updatedAt,
-  };
-  if (!Object.prototype.hasOwnProperty.call(v, 'totp') || v.totp === undefined) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('credential state must be an object');
+    }
+
+    const v = value as Record<string, unknown>;
+
+    if (typeof v.passwordHash !== 'string' || !/^[0-9a-f]{128}$/i.test(v.passwordHash)) {
+        throw new Error('passwordHash must be exactly 128 hexadecimal characters');
+    }
+
+    if (typeof v.passwordSalt !== 'string' || !/^[0-9a-f]{32}$/i.test(v.passwordSalt)) {
+        throw new Error('passwordSalt must be exactly 32 hexadecimal characters');
+    }
+
+    if (typeof v.mustChangePassword !== 'boolean') {
+        throw new Error('mustChangePassword must be a boolean');
+    }
+
+    if (typeof v.generatedAt !== 'string' || !Number.isFinite(Date.parse(v.generatedAt))) {
+        throw new Error('generatedAt must be a valid timestamp');
+    }
+
+    if (typeof v.updatedAt !== 'string' || !Number.isFinite(Date.parse(v.updatedAt))) {
+        throw new Error('updatedAt must be a valid timestamp');
+    }
+
+    const allowed = new Set([
+        'passwordHash',
+        'passwordSalt',
+        'mustChangePassword',
+        'generatedAt',
+        'updatedAt',
+        'totp',
+    ]);
+    const unknown = Object.keys(v).find((key) => !allowed.has(key));
+
+    if (unknown) {
+        throw new Error(`unknown field $.${unknown}`);
+    }
+
+    const state: WebuiAuthState = {
+        passwordHash: v.passwordHash,
+        passwordSalt: v.passwordSalt,
+        mustChangePassword: v.mustChangePassword,
+        generatedAt: v.generatedAt,
+        updatedAt: v.updatedAt,
+    };
+
+    if (!Object.prototype.hasOwnProperty.call(v, 'totp') || v.totp === undefined) {
+        return state;
+    }
+
+    state.totp = prepareTotpStateForRestore(v.totp);
     return state;
-  }
-  state.totp = prepareTotpStateForRestore(v.totp);
-  return state;
 }
 
 function parseLiveAuthState(value: unknown): WebuiAuthState | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const v = value as Record<string, unknown>;
-  const totpValue = v.totp;
-  const withoutTotp = { ...v };
-  delete withoutTotp.totp;
-  try {
-    const state = prepareWebuiAuthStateForRestore(
-      Object.prototype.hasOwnProperty.call(v, 'totp')
-        ? withoutTotp
-        : value,
-    );
-    const totp = parseTotpStateLenient(totpValue);
-    if (Object.prototype.hasOwnProperty.call(v, 'totp') && totpValue !== undefined && !totp) {
-      log.warn('webui.json totp field is invalid and will be ignored; password credentials are unchanged');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
     }
-    if (totp) state.totp = totp;
-    return state;
-  } catch {
-    return null;
-  }
+
+    const v = value as Record<string, unknown>;
+    const totpValue = v.totp;
+    const withoutTotp = { ...v };
+    delete withoutTotp.totp;
+
+    try {
+        const state = prepareWebuiAuthStateForRestore(
+            Object.prototype.hasOwnProperty.call(v, 'totp') ? withoutTotp : value,
+        );
+        const totp = parseTotpStateLenient(totpValue);
+
+        if (Object.prototype.hasOwnProperty.call(v, 'totp') && totpValue !== undefined && !totp) {
+            log.warn(
+                'webui.json totp field is invalid and will be ignored; password credentials are unchanged',
+            );
+        }
+
+        if (totp) {
+            state.totp = totp;
+        }
+
+        return state;
+    } catch {
+        return null;
+    }
 }
 
 function generateInitialState(initialPassword: string): WebuiAuthState {
-  const salt = randomBytes(16);
-  const hash = hashPassword(initialPassword, salt);
-  const now = new Date().toISOString();
-  return {
-    passwordHash: hash.toString('hex'),
-    passwordSalt: salt.toString('hex'),
-    mustChangePassword: true,
-    generatedAt: now,
-    updatedAt: now,
-  };
+    const salt = randomBytes(16);
+    const hash = hashPassword(initialPassword, salt);
+    const now = new Date().toISOString();
+    return {
+        passwordHash: hash.toString('hex'),
+        passwordSalt: salt.toString('hex'),
+        mustChangePassword: true,
+        generatedAt: now,
+        updatedAt: now,
+    };
 }
 
 function backupCorruptConfig(): void {
-  try {
-    const dest = `${WEBUI_CONFIG_PATH}.bak.${Date.now()}`;
-    fs.renameSync(WEBUI_CONFIG_PATH, dest);
-    log.warn('previous webui.json moved to %s', dest);
-  } catch (err) {
-    log.warn('failed to back up corrupt webui.json: %s', err instanceof Error ? err.message : String(err));
-  }
+    try {
+        const dest = `${WEBUI_CONFIG_PATH}.bak.${Date.now()}`;
+        fs.renameSync(WEBUI_CONFIG_PATH, dest);
+        log.warn('previous webui.json moved to %s', dest);
+    } catch (err) {
+        log.warn(
+            'failed to back up corrupt webui.json: %s',
+            err instanceof Error ? err.message : String(err),
+        );
+    }
 }
 
 function atomicWrite(state: WebuiAuthState): void {
-  ensureConfigDir();
-  const tmp = WEBUI_CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
-  try {
-    fs.chmodSync(tmp, 0o600);
-  } catch {
-    /* ignore */
-  }
-  fs.renameSync(tmp, WEBUI_CONFIG_PATH);
+    ensureConfigDir();
+    const tmp = WEBUI_CONFIG_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
+
+    try {
+        fs.chmodSync(tmp, 0o600);
+    } catch {
+        /* ignore */
+    }
+
+    fs.renameSync(tmp, WEBUI_CONFIG_PATH);
 }
 
 export class WebuiAuth {
-  private state: WebuiAuthState;
-  private initialPlain: string | null;
-  private readonly devMode: boolean;
+    private state: WebuiAuthState;
+    private initialPlain: string | null;
+    private readonly devMode: boolean;
 
-  private constructor(state: WebuiAuthState, initialPlain: string | null, devMode: boolean) {
-    this.state = state;
-    this.initialPlain = initialPlain;
-    this.devMode = devMode;
-  }
-
-  static load(): WebuiAuth {
-    if (isDevAuthMode()) {
-      const salt = randomBytes(16);
-      const hash = hashPassword(DEV_PASSWORD, salt);
-      const now = new Date().toISOString();
-      const state: WebuiAuthState = {
-        passwordHash: hash.toString('hex'),
-        passwordSalt: salt.toString('hex'),
-        mustChangePassword: false,
-        generatedAt: now,
-        updatedAt: now,
-      };
-      return new WebuiAuth(state, null, true);
+    private constructor(state: WebuiAuthState, initialPlain: string | null, devMode: boolean) {
+        this.state = state;
+        this.initialPlain = initialPlain;
+        this.devMode = devMode;
     }
-    ensureConfigDir();
-    if (fs.existsSync(WEBUI_CONFIG_PATH)) {
-      try {
-        const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
-        const parsed = JSON.parse(raw) as unknown;
-        const live = parseLiveAuthState(parsed);
-        if (live) {
-          if (live.mustChangePassword) {
-            // Previous start generated a bootstrap password but the operator
-            // never completed the forced-change flow. The plaintext is gone
-            // (only the hash is on disk, and the log line from last run may
-            // be lost), so rotate to a fresh CSPRNG password they can see.
-            const initialPassword = randomBytes(8).toString('hex');
-            const state = generateInitialState(initialPassword);
-            atomicWrite(state);
-            log.warn('previous bootstrap password was never rotated; regenerated a new one');
-            return new WebuiAuth(state, initialPassword, false);
-          }
-          return new WebuiAuth(live, null, false);
+
+    static load(): WebuiAuth {
+        if (isDevAuthMode()) {
+            const salt = randomBytes(16);
+            const hash = hashPassword(DEV_PASSWORD, salt);
+            const now = new Date().toISOString();
+            const state: WebuiAuthState = {
+                passwordHash: hash.toString('hex'),
+                passwordSalt: salt.toString('hex'),
+                mustChangePassword: false,
+                generatedAt: now,
+                updatedAt: now,
+            };
+            return new WebuiAuth(state, null, true);
         }
-        log.error('webui.json schema invalid; backing up and regenerating credentials');
-        backupCorruptConfig();
-      } catch (err) {
-        log.error(
-          'webui.json is corrupt and will be regenerated; the previous file is backed up: %s',
-          err instanceof Error ? err.message : String(err),
-        );
-        backupCorruptConfig();
-      }
+
+        ensureConfigDir();
+
+        if (fs.existsSync(WEBUI_CONFIG_PATH)) {
+            try {
+                const raw = fs.readFileSync(WEBUI_CONFIG_PATH, 'utf8');
+                const parsed = JSON.parse(raw) as unknown;
+                const live = parseLiveAuthState(parsed);
+
+                if (live) {
+                    if (live.mustChangePassword) {
+                        // Previous start generated a bootstrap password but the operator
+                        // never completed the forced-change flow. The plaintext is gone
+                        // (only the hash is on disk, and the log line from last run may
+                        // be lost), so rotate to a fresh CSPRNG password they can see.
+                        const initialPassword = randomBytes(8).toString('hex');
+                        const state = generateInitialState(initialPassword);
+                        atomicWrite(state);
+                        log.warn(
+                            'previous bootstrap password was never rotated; regenerated a new one',
+                        );
+                        return new WebuiAuth(state, initialPassword, false);
+                    }
+
+                    return new WebuiAuth(live, null, false);
+                }
+
+                log.error('webui.json schema invalid; backing up and regenerating credentials');
+                backupCorruptConfig();
+            } catch (err) {
+                log.error(
+                    'webui.json is corrupt and will be regenerated; the previous file is backed up: %s',
+                    err instanceof Error ? err.message : String(err),
+                );
+                backupCorruptConfig();
+            }
+        }
+
+        const envPassword = envBootstrapPassword();
+
+        if (envPassword !== null) {
+            const salt = randomBytes(16);
+            const hash = hashPassword(envPassword, salt);
+            const now = new Date().toISOString();
+            const state: WebuiAuthState = {
+                passwordHash: hash.toString('hex'),
+                passwordSalt: salt.toString('hex'),
+                mustChangePassword: false,
+                generatedAt: now,
+                updatedAt: now,
+            };
+            atomicWrite(state);
+            log.info('webui credentials seeded from SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD');
+            return new WebuiAuth(state, null, false);
+        }
+
+        const initialPassword = randomBytes(8).toString('hex');
+        const state = generateInitialState(initialPassword);
+        atomicWrite(state);
+        return new WebuiAuth(state, initialPassword, false);
     }
-    const envPassword = envBootstrapPassword();
-    if (envPassword !== null) {
-      const salt = randomBytes(16);
-      const hash = hashPassword(envPassword, salt);
-      const now = new Date().toISOString();
-      const state: WebuiAuthState = {
-        passwordHash: hash.toString('hex'),
-        passwordSalt: salt.toString('hex'),
-        mustChangePassword: false,
-        generatedAt: now,
-        updatedAt: now,
-      };
-      atomicWrite(state);
-      log.info('webui credentials seeded from SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD');
-      return new WebuiAuth(state, null, false);
+
+    /** True when SNOWLUMA_DEV_MODE was active at load time. */
+    isDevMode(): boolean {
+        return this.devMode;
     }
-    const initialPassword = randomBytes(8).toString('hex');
-    const state = generateInitialState(initialPassword);
-    atomicWrite(state);
-    return new WebuiAuth(state, initialPassword, false);
-  }
 
-  /** True when SNOWLUMA_DEV_MODE was active at load time. */
-  isDevMode(): boolean {
-    return this.devMode;
-  }
-
-  /** Fixed dev password (only meaningful when {@link isDevMode} is true). */
-  static get devPassword(): string {
-    return DEV_PASSWORD;
-  }
-
-  /** Returns the auto-generated initial password if this is a fresh install, else null. */
-  takeInitialPassword(): string | null {
-    const p = this.initialPlain;
-    this.initialPlain = null;
-    return p;
-  }
-
-  mustChangePassword(): boolean {
-    return this.state.mustChangePassword;
-  }
-
-  verify(password: string): boolean {
-    if (typeof password !== 'string' || password.length === 0) return false;
-    try {
-      const salt = Buffer.from(this.state.passwordSalt, 'hex');
-      const expected = Buffer.from(this.state.passwordHash, 'hex');
-      const got = hashPassword(password, salt);
-      if (got.length !== expected.length) return false;
-      return timingSafeEqual(got, expected);
-    } catch {
-      return false;
+    /** Fixed dev password (only meaningful when {@link isDevMode} is true). */
+    static get devPassword(): string {
+        return DEV_PASSWORD;
     }
-  }
 
-  setPassword(newPassword: string, currentPassword?: string): void {
-    if (this.devMode) {
-      throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改');
+    /** Returns the auto-generated initial password if this is a fresh install, else null. */
+    takeInitialPassword(): string | null {
+        const p = this.initialPlain;
+        this.initialPlain = null;
+        return p;
     }
-    if (!isStrongPassword(newPassword)) {
-      throw new Error('密码不符合强度要求');
+
+    mustChangePassword(): boolean {
+        return this.state.mustChangePassword;
     }
-    let totp = this.state.totp;
-    if (totp) {
-      if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
-        throw new Error('修改密码需要当前密码以重新保护 2FA 密钥');
-      }
-      totp = rewrapTotpSecret(currentPassword, newPassword, totp);
+
+    verify(password: string): boolean {
+        if (typeof password !== 'string' || password.length === 0) {
+            return false;
+        }
+
+        try {
+            const salt = Buffer.from(this.state.passwordSalt, 'hex');
+            const expected = Buffer.from(this.state.passwordHash, 'hex');
+            const got = hashPassword(password, salt);
+
+            if (got.length !== expected.length) {
+                return false;
+            }
+
+            return timingSafeEqual(got, expected);
+        } catch {
+            return false;
+        }
     }
-    const salt = randomBytes(16);
-    const hash = hashPassword(newPassword, salt);
-    const next: WebuiAuthState = {
-      passwordHash: hash.toString('hex'),
-      passwordSalt: salt.toString('hex'),
-      mustChangePassword: false,
-      generatedAt: this.state.generatedAt,
-      updatedAt: new Date().toISOString(),
-      ...(totp ? { totp } : {}),
-    };
-    atomicWrite(next);
-    this.state = next;
-  }
 
-  totpEnabled(): boolean {
-    return this.state.totp !== undefined;
-  }
+    setPassword(newPassword: string, currentPassword?: string): void {
+        if (this.devMode) {
+            throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改');
+        }
 
-  totpStatus(): { enabled: false } | { enabled: true; remainingRecoveryCodes: number; label: string } {
-    const totp = this.state.totp;
-    if (!totp) return { enabled: false };
-    return {
-      enabled: true,
-      remainingRecoveryCodes: totp.recoveryCodeHashes.length,
-      label: totp.label,
-    };
-  }
+        if (!isStrongPassword(newPassword)) {
+            throw new Error('密码不符合强度要求');
+        }
 
-  totpState(): TotpPersistedState | undefined {
-    return this.state.totp;
-  }
+        let totp = this.state.totp;
 
-  persistTotp(totp: TotpPersistedState | undefined): void {
-    if (this.devMode) {
-      throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用 2FA');
+        if (totp) {
+            if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+                throw new Error('修改密码需要当前密码以重新保护 2FA 密钥');
+            }
+
+            totp = rewrapTotpSecret(currentPassword, newPassword, totp);
+        }
+
+        const salt = randomBytes(16);
+        const hash = hashPassword(newPassword, salt);
+        const next: WebuiAuthState = {
+            passwordHash: hash.toString('hex'),
+            passwordSalt: salt.toString('hex'),
+            mustChangePassword: false,
+            generatedAt: this.state.generatedAt,
+            updatedAt: new Date().toISOString(),
+            ...(totp ? { totp } : {}),
+        };
+        atomicWrite(next);
+        this.state = next;
     }
-    const next: WebuiAuthState = { ...this.state, updatedAt: new Date().toISOString() };
-    if (totp) next.totp = totp;
-    else delete next.totp;
-    atomicWrite(next);
-    this.state = next;
-  }
+
+    totpEnabled(): boolean {
+        return this.state.totp !== undefined;
+    }
+
+    totpStatus():
+        { enabled: false } | { enabled: true; remainingRecoveryCodes: number; label: string } {
+        const totp = this.state.totp;
+
+        if (!totp) {
+            return { enabled: false };
+        }
+
+        return {
+            enabled: true,
+            remainingRecoveryCodes: totp.recoveryCodeHashes.length,
+            label: totp.label,
+        };
+    }
+
+    totpState(): TotpPersistedState | undefined {
+        return this.state.totp;
+    }
+
+    persistTotp(totp: TotpPersistedState | undefined): void {
+        if (this.devMode) {
+            throw new Error('开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用 2FA');
+        }
+
+        const next: WebuiAuthState = { ...this.state, updatedAt: new Date().toISOString() };
+
+        if (totp) {
+            next.totp = totp;
+        } else {
+            delete next.totp;
+        }
+
+        atomicWrite(next);
+        this.state = next;
+    }
 }

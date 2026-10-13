@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import net from 'node:net';
 import tls from 'node:tls';
 import {
-  buildMimeMessage,
-  extractAddress,
-  formatSmtpError,
-  parseRecipients,
-  sendSmtpMail,
-  SmtpError,
+    buildMimeMessage,
+    extractAddress,
+    formatSmtpError,
+    parseRecipients,
+    sendSmtpMail,
+    SmtpError,
 } from '../src/notifications/smtp';
 
 // Same throwaway pair as webui-tls.test.ts (CN=snowluma-test).
@@ -62,228 +62,264 @@ OUsvSYNSnfvl87tyLIxYLA==
 `;
 
 interface MockOptions {
-  secure?: boolean;
-  starttls?: boolean;
-  mechs?: string;
-  failAuth?: boolean;
+    secure?: boolean;
+    starttls?: boolean;
+    mechs?: string;
+    failAuth?: boolean;
 }
 
 interface MockSmtp {
-  port: number;
-  commands: string[];
-  data: string;
-  close: () => Promise<void>;
+    port: number;
+    commands: string[];
+    data: string;
+    close: () => Promise<void>;
 }
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => {
-  while (closers.length > 0) {
-    const close = closers.pop();
-    if (close) await close();
-  }
+    while (closers.length > 0) {
+        const close = closers.pop();
+
+        if (close) {
+            await close();
+        }
+    }
 });
 
 function attachSession(
-  socket: net.Socket | tls.TLSSocket,
-  opts: MockOptions,
-  sink: MockSmtp,
-  greet = true,
+    socket: net.Socket | tls.TLSSocket,
+    opts: MockOptions,
+    sink: MockSmtp,
+    greet = true,
 ): void {
-  let buf = '';
-  let mode: 'cmd' | 'data' = 'cmd';
-  let loginStep = 0;
-  const write = (s: string) => socket.write(s);
-  if (greet) write('220 mock ESMTP\r\n');
-  socket.on('data', (chunk) => {
-    buf += chunk.toString('utf8');
-    if (mode === 'data') {
-      const end = buf.indexOf('\r\n.\r\n');
-      if (end === -1) return;
-      sink.data = buf.slice(0, end);
-      buf = buf.slice(end + 5);
-      mode = 'cmd';
-      write('250 OK\r\n');
-      return;
+    let buf = '';
+    let mode: 'cmd' | 'data' = 'cmd';
+    let loginStep = 0;
+    const write = (s: string) => socket.write(s);
+
+    if (greet) {
+        write('220 mock ESMTP\r\n');
     }
-    while (true) {
-      const nl = buf.indexOf('\n');
-      if (nl === -1) break;
-      const line = buf.slice(0, nl).replace(/\r$/, '');
-      buf = buf.slice(nl + 1);
-      if (loginStep > 0 && /^[A-Za-z0-9+/=]+$/.test(line)) {
-        sink.commands.push('(b64)');
-      } else if (line.startsWith('AUTH PLAIN ')) {
-        sink.commands.push('AUTH PLAIN');
-      } else {
-        sink.commands.push(line);
-      }
-      if (line.toUpperCase().startsWith('EHLO')) {
-        const extra = opts.starttls ? '250-STARTTLS\r\n' : '';
-        write(`250-mock\r\n${extra}250 AUTH ${opts.mechs ?? 'PLAIN LOGIN'}\r\n`);
-      } else if (line.toUpperCase() === 'STARTTLS' && opts.starttls && socket instanceof net.Socket) {
-        write('220 Go ahead\r\n');
-        socket.removeAllListeners('data');
-        const tlsSock = new tls.TLSSocket(socket, { isServer: true, cert: CERT, key: KEY });
-        attachSession(tlsSock, { ...opts, starttls: false }, sink, false);
-        return;
-      } else if (line.toUpperCase() === 'AUTH LOGIN') {
-        loginStep = 1;
-        write('334 VXNlcm5hbWU6\r\n');
-      } else if (line.toUpperCase().startsWith('AUTH PLAIN')) {
-        write(opts.failAuth ? '535 5.7.8 auth failed\r\n' : '235 2.7.0 OK\r\n');
-      } else if (loginStep === 1 && /^[A-Za-z0-9+/=]+$/.test(line)) {
-        loginStep = 2;
-        write('334 UGFzc3dvcmQ6\r\n');
-      } else if (loginStep === 2 && /^[A-Za-z0-9+/=]+$/.test(line)) {
-        loginStep = 0;
-        write(opts.failAuth ? '535 5.7.8 auth failed\r\n' : '235 2.7.0 OK\r\n');
-      } else if (line.toUpperCase().startsWith('MAIL FROM:')) {
-        write('250 OK\r\n');
-      } else if (line.toUpperCase().startsWith('RCPT TO:')) {
-        write('250 OK\r\n');
-      } else if (line.toUpperCase() === 'DATA') {
-        mode = 'data';
-        write('354 End data with <CR><LF>.<CR><LF>\r\n');
-      } else if (line.toUpperCase() === 'QUIT') {
-        write('221 bye\r\n');
-        socket.end();
-      } else {
-        write('250 OK\r\n');
-      }
-    }
-  });
+
+    socket.on('data', (chunk) => {
+        buf += chunk.toString('utf8');
+
+        if (mode === 'data') {
+            const end = buf.indexOf('\r\n.\r\n');
+
+            if (end === -1) {
+                return;
+            }
+
+            sink.data = buf.slice(0, end);
+            buf = buf.slice(end + 5);
+            mode = 'cmd';
+            write('250 OK\r\n');
+            return;
+        }
+
+        while (true) {
+            const nl = buf.indexOf('\n');
+
+            if (nl === -1) {
+                break;
+            }
+
+            const line = buf.slice(0, nl).replace(/\r$/, '');
+            buf = buf.slice(nl + 1);
+
+            if (loginStep > 0 && /^[A-Za-z0-9+/=]+$/.test(line)) {
+                sink.commands.push('(b64)');
+            } else if (line.startsWith('AUTH PLAIN ')) {
+                sink.commands.push('AUTH PLAIN');
+            } else {
+                sink.commands.push(line);
+            }
+
+            if (line.toUpperCase().startsWith('EHLO')) {
+                const extra = opts.starttls ? '250-STARTTLS\r\n' : '';
+                write(`250-mock\r\n${extra}250 AUTH ${opts.mechs ?? 'PLAIN LOGIN'}\r\n`);
+            } else if (
+                line.toUpperCase() === 'STARTTLS' &&
+                opts.starttls &&
+                socket instanceof net.Socket
+            ) {
+                write('220 Go ahead\r\n');
+                socket.removeAllListeners('data');
+                const tlsSock = new tls.TLSSocket(socket, { isServer: true, cert: CERT, key: KEY });
+                attachSession(tlsSock, { ...opts, starttls: false }, sink, false);
+                return;
+            } else if (line.toUpperCase() === 'AUTH LOGIN') {
+                loginStep = 1;
+                write('334 VXNlcm5hbWU6\r\n');
+            } else if (line.toUpperCase().startsWith('AUTH PLAIN')) {
+                write(opts.failAuth ? '535 5.7.8 auth failed\r\n' : '235 2.7.0 OK\r\n');
+            } else if (loginStep === 1 && /^[A-Za-z0-9+/=]+$/.test(line)) {
+                loginStep = 2;
+                write('334 UGFzc3dvcmQ6\r\n');
+            } else if (loginStep === 2 && /^[A-Za-z0-9+/=]+$/.test(line)) {
+                loginStep = 0;
+                write(opts.failAuth ? '535 5.7.8 auth failed\r\n' : '235 2.7.0 OK\r\n');
+            } else if (line.toUpperCase().startsWith('MAIL FROM:')) {
+                write('250 OK\r\n');
+            } else if (line.toUpperCase().startsWith('RCPT TO:')) {
+                write('250 OK\r\n');
+            } else if (line.toUpperCase() === 'DATA') {
+                mode = 'data';
+                write('354 End data with <CR><LF>.<CR><LF>\r\n');
+            } else if (line.toUpperCase() === 'QUIT') {
+                write('221 bye\r\n');
+                socket.end();
+            } else {
+                write('250 OK\r\n');
+            }
+        }
+    });
 }
 
 function listenMock(opts: MockOptions = {}): Promise<MockSmtp> {
-  return new Promise((resolve, reject) => {
-    const sink: MockSmtp = { port: 0, commands: [], data: '', close: async () => undefined };
-    const onConn = (socket: net.Socket | tls.TLSSocket) => attachSession(socket, opts, sink);
-    const server = opts.secure
-      ? tls.createServer({ cert: CERT, key: KEY }, onConn)
-      : net.createServer(onConn);
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        reject(new Error('no port'));
-        return;
-      }
-      sink.port = addr.port;
-      sink.close = () => new Promise((res) => server.close(() => res()));
-      closers.push(sink.close);
-      resolve(sink);
+    return new Promise((resolve, reject) => {
+        const sink: MockSmtp = { port: 0, commands: [], data: '', close: async () => undefined };
+        const onConn = (socket: net.Socket | tls.TLSSocket) => attachSession(socket, opts, sink);
+        const server = opts.secure
+            ? tls.createServer({ cert: CERT, key: KEY }, onConn)
+            : net.createServer(onConn);
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            const addr = server.address();
+
+            if (!addr || typeof addr === 'string') {
+                reject(new Error('no port'));
+                return;
+            }
+
+            sink.port = addr.port;
+            sink.close = () => new Promise((res) => server.close(() => res()));
+            closers.push(sink.close);
+            resolve(sink);
+        });
     });
-  });
 }
 
 describe('address helpers', () => {
-  it('extracts a bare or angled address and rejects junk', () => {
-    expect(extractAddress('bot@qq.com')).toBe('bot@qq.com');
-    expect(extractAddress('SnowLuma <bot@qq.com>')).toBe('bot@qq.com');
-    expect(extractAddress('not-an-email')).toBeNull();
-    expect(extractAddress('')).toBeNull();
-  });
+    it('extracts a bare or angled address and rejects junk', () => {
+        expect(extractAddress('bot@qq.com')).toBe('bot@qq.com');
+        expect(extractAddress('SnowLuma <bot@qq.com>')).toBe('bot@qq.com');
+        expect(extractAddress('not-an-email')).toBeNull();
+        expect(extractAddress('')).toBeNull();
+    });
 
-  it('parses unique recipients from mixed separators', () => {
-    expect(parseRecipients('a@x.com; b@x.com, a@x.com\nc@x.com')).toEqual([
-      'a@x.com',
-      'b@x.com',
-      'c@x.com',
-    ]);
-    expect(parseRecipients('nope, also nope')).toEqual([]);
-  });
+    it('parses unique recipients from mixed separators', () => {
+        expect(parseRecipients('a@x.com; b@x.com, a@x.com\nc@x.com')).toEqual([
+            'a@x.com',
+            'b@x.com',
+            'c@x.com',
+        ]);
+        expect(parseRecipients('nope, also nope')).toEqual([]);
+    });
 });
 
 describe('buildMimeMessage', () => {
-  const base = {
-    host: 'smtp.example.com',
-    port: 465,
-    secure: true,
-    from: 'SnowLuma <bot@example.com>',
-    to: ['ops@example.com'],
-    subject: '账号offline：Alice (1)',
-    body: 'hello',
-  };
+    const base = {
+        host: 'smtp.example.com',
+        port: 465,
+        secure: true,
+        from: 'SnowLuma <bot@example.com>',
+        to: ['ops@example.com'],
+        subject: '账号offline：Alice (1)',
+        body: 'hello',
+    };
 
-  it('encodes a non-ASCII subject and a plain body as base64', () => {
-    const raw = buildMimeMessage(base, new Date('2026-09-16T01:00:00Z'));
-    expect(raw).toContain('Content-Type: text/plain; charset=UTF-8');
-    expect(raw).toContain('Subject: =?UTF-8?B?');
-    expect(raw).toContain(Buffer.from('hello', 'utf8').toString('base64'));
-    expect(raw).toContain('From: SnowLuma <bot@example.com>');
-  });
+    it('encodes a non-ASCII subject and a plain body as base64', () => {
+        const raw = buildMimeMessage(base, new Date('2026-09-16T01:00:00Z'));
+        expect(raw).toContain('Content-Type: text/plain; charset=UTF-8');
+        expect(raw).toContain('Subject: =?UTF-8?B?');
+        expect(raw).toContain(Buffer.from('hello', 'utf8').toString('base64'));
+        expect(raw).toContain('From: SnowLuma <bot@example.com>');
+    });
 
-  it('marks a body that starts with < as HTML', () => {
-    const raw = buildMimeMessage({ ...base, body: '<p>hi</p>' });
-    expect(raw).toContain('Content-Type: text/html; charset=UTF-8');
-  });
+    it('marks a body that starts with < as HTML', () => {
+        const raw = buildMimeMessage({ ...base, body: '<p>hi</p>' });
+        expect(raw).toContain('Content-Type: text/html; charset=UTF-8');
+    });
 });
 
 describe('formatSmtpError', () => {
-  it('maps connect failures and 535 without leaking the exception class name only', () => {
-    expect(formatSmtpError(new SmtpError('x', { code: 'ECONNREFUSED' }), 'smtp.qq.com', 465))
-      .toBe('无法连接 SMTP：smtp.qq.com:465');
-    expect(formatSmtpError(new SmtpError('AUTH failed: 535', { responseCode: 535 }), 'h', 25))
-      .toBe('SMTP 认证失败');
-    expect(formatSmtpError(new SmtpError('MAIL FROM failed: 550 denied', { responseCode: 550 }), 'h', 25))
-      .toBe('MAIL FROM failed: 550 denied');
-  });
+    it('maps connect failures and 535 without leaking the exception class name only', () => {
+        expect(
+            formatSmtpError(new SmtpError('x', { code: 'ECONNREFUSED' }), 'smtp.qq.com', 465),
+        ).toBe('无法连接 SMTP：smtp.qq.com:465');
+        expect(
+            formatSmtpError(new SmtpError('AUTH failed: 535', { responseCode: 535 }), 'h', 25),
+        ).toBe('SMTP 认证失败');
+        expect(
+            formatSmtpError(
+                new SmtpError('MAIL FROM failed: 550 denied', { responseCode: 550 }),
+                'h',
+                25,
+            ),
+        ).toBe('MAIL FROM failed: 550 denied');
+    });
 });
 
 describe('sendSmtpMail — live mock', () => {
-  const mail = {
-    host: '127.0.0.1',
-    from: 'bot@example.com',
-    to: ['ops@example.com'],
-    subject: 'offline',
-    body: '账号下线',
-    user: 'bot@example.com',
-    pass: 'secret',
-  };
+    const mail = {
+        host: '127.0.0.1',
+        from: 'bot@example.com',
+        to: ['ops@example.com'],
+        subject: 'offline',
+        body: '账号下线',
+        user: 'bot@example.com',
+        pass: 'secret',
+    };
 
-  it('delivers over AUTH PLAIN on a plaintext socket', async () => {
-    const mock = await listenMock({ mechs: 'PLAIN' });
-    await sendSmtpMail({ ...mail, port: mock.port, secure: false });
-    expect(mock.commands).toContain('AUTH PLAIN');
-    expect(mock.commands.some((c) => c.startsWith('MAIL FROM:<bot@example.com>'))).toBe(true);
-    expect(mock.commands.some((c) => c.startsWith('RCPT TO:<ops@example.com>'))).toBe(true);
-    expect(mock.data).toContain('Subject: offline');
-    expect(mock.data).toContain(Buffer.from('账号下线', 'utf8').toString('base64'));
-    expect(mock.commands.join('\n')).not.toContain('secret');
-  });
+    it('delivers over AUTH PLAIN on a plaintext socket', async () => {
+        const mock = await listenMock({ mechs: 'PLAIN' });
+        await sendSmtpMail({ ...mail, port: mock.port, secure: false });
+        expect(mock.commands).toContain('AUTH PLAIN');
+        expect(mock.commands.some((c) => c.startsWith('MAIL FROM:<bot@example.com>'))).toBe(true);
+        expect(mock.commands.some((c) => c.startsWith('RCPT TO:<ops@example.com>'))).toBe(true);
+        expect(mock.data).toContain('Subject: offline');
+        expect(mock.data).toContain(Buffer.from('账号下线', 'utf8').toString('base64'));
+        expect(mock.commands.join('\n')).not.toContain('secret');
+    });
 
-  it('falls back to AUTH LOGIN when PLAIN is not advertised', async () => {
-    const mock = await listenMock({ mechs: 'LOGIN' });
-    await sendSmtpMail({ ...mail, port: mock.port, secure: false });
-    expect(mock.commands).toContain('AUTH LOGIN');
-    expect(mock.data).toContain('Subject: offline');
-  });
+    it('falls back to AUTH LOGIN when PLAIN is not advertised', async () => {
+        const mock = await listenMock({ mechs: 'LOGIN' });
+        await sendSmtpMail({ ...mail, port: mock.port, secure: false });
+        expect(mock.commands).toContain('AUTH LOGIN');
+        expect(mock.data).toContain('Subject: offline');
+    });
 
-  it('rejects 535 without sending DATA', async () => {
-    const mock = await listenMock({ mechs: 'PLAIN', failAuth: true });
-    await expect(sendSmtpMail({ ...mail, port: mock.port, secure: false }))
-      .rejects.toMatchObject({ name: 'SmtpError', responseCode: 535 });
-    expect(mock.data).toBe('');
-  });
+    it('rejects 535 without sending DATA', async () => {
+        const mock = await listenMock({ mechs: 'PLAIN', failAuth: true });
+        await expect(
+            sendSmtpMail({ ...mail, port: mock.port, secure: false }),
+        ).rejects.toMatchObject({
+            name: 'SmtpError',
+            responseCode: 535,
+        });
+        expect(mock.data).toBe('');
+    });
 
-  it('upgrades via STARTTLS then authenticates', async () => {
-    const mock = await listenMock({ starttls: true, mechs: 'PLAIN' });
-    await sendSmtpMail(
-      { ...mail, port: mock.port, secure: false },
-      { rejectUnauthorized: false },
-    );
-    expect(mock.commands).toContain('STARTTLS');
-    expect(mock.commands).toContain('AUTH PLAIN');
-    expect(mock.data).toContain('Subject: offline');
-  });
+    it('upgrades via STARTTLS then authenticates', async () => {
+        const mock = await listenMock({ starttls: true, mechs: 'PLAIN' });
+        await sendSmtpMail(
+            { ...mail, port: mock.port, secure: false },
+            { rejectUnauthorized: false },
+        );
+        expect(mock.commands).toContain('STARTTLS');
+        expect(mock.commands).toContain('AUTH PLAIN');
+        expect(mock.data).toContain('Subject: offline');
+    });
 
-  it('speaks implicit TLS when secure=true', async () => {
-    const mock = await listenMock({ secure: true, mechs: 'PLAIN' });
-    await sendSmtpMail(
-      { ...mail, port: mock.port, secure: true },
-      { rejectUnauthorized: false },
-    );
-    expect(mock.commands).toContain('AUTH PLAIN');
-    expect(mock.data).toContain('Subject: offline');
-  });
+    it('speaks implicit TLS when secure=true', async () => {
+        const mock = await listenMock({ secure: true, mechs: 'PLAIN' });
+        await sendSmtpMail(
+            { ...mail, port: mock.port, secure: true },
+            { rejectUnauthorized: false },
+        );
+        expect(mock.commands).toContain('AUTH PLAIN');
+        expect(mock.data).toContain('Subject: offline');
+    });
 });
