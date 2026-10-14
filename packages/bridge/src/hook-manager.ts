@@ -266,8 +266,8 @@ export class HookManager {
                 }
             }
         } catch (error) {
-            // Detection is best-effort: an unreadable login.db or a platform whose
-            // holder probe is not wired up yet leaves the processes unlabelled.
+            // Detection is best-effort: an unreadable login.db or a failing
+            // holder probe leaves the processes unlabelled.
             this.log.warn('account detection failed: %s', errMsg(error));
         }
 

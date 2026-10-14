@@ -9,6 +9,7 @@
  */
 
 import fs from 'node:fs';
+import { getNativeHookAddon } from '../injector';
 
 /** One process holding the database open or locking it. */
 export interface DbLockHolder {
@@ -25,12 +26,48 @@ export interface DbLockHolder {
  */
 export function probeDbLock(dbPath: string): DbLockHolder[] {
     if (process.platform === 'win32') {
-        // Windows attributes holders through the Restart Manager, which the hook
-        // native addon will expose; until that lands no holder is reported.
-        return [];
+        return probeWindowsHolders(dbPath);
     }
 
     return process.platform === 'linux' ? probeLinuxLocks(dbPath) : [];
+}
+
+/**
+ * Windows attributes holders through the Restart Manager, which reports every
+ * process holding the file open together with a name for each. QQ keeps an
+ * account's `nt_msg.db` open while signed in, so a QQ entry in that list both
+ * proves the login and yields the hosting pid.
+ *
+ * When the query cannot run, the result is empty rather than an error, so a
+ * caller never mistakes an unavailable probe for a signed-out account.
+ */
+function probeWindowsHolders(dbPath: string): DbLockHolder[] {
+    const held = getNativeHookAddon()?.probeDbLock?.(dbPath);
+
+    if (!Array.isArray(held)) {
+        return [];
+    }
+
+    const holders: DbLockHolder[] = [];
+    const seen = new Set<number>();
+
+    for (const entry of held) {
+        if (!entry || typeof entry !== 'object') {
+            continue;
+        }
+
+        const pid = (entry as { pid?: unknown }).pid;
+        const name = (entry as { name?: unknown }).name;
+
+        if (!Number.isInteger(pid) || (pid as number) <= 0 || seen.has(pid as number)) {
+            continue;
+        }
+
+        seen.add(pid as number);
+        holders.push({ pid: pid as number, name: typeof name === 'string' ? name : '' });
+    }
+
+    return holders;
 }
 
 /** Whether a platform-reported process name belongs to the QQ client. */

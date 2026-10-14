@@ -26,8 +26,8 @@ export interface AccountLoginState {
  * `roots` exists so callers can name the QQ data directories instead of relying
  * on the well-known locations.
  *
- * Empty means "nothing to report" — a machine without QQ data, a login.db that
- * cannot be read, or a platform whose holder probe is not wired up yet.
+ * Empty means "nothing to report" — a machine without QQ data, or a login.db
+ * that cannot be read.
  */
 export async function detectAccountLogins(
     roots: readonly string[] = qqDataRoots(),
