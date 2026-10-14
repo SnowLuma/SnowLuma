@@ -41,7 +41,15 @@ export const webuiSecurityHeaders: MiddlewareHandler = async (c, next) => {
     );
 };
 
-export function extractBearerToken(request: Request): string {
+export function extractWebuiSessionToken(request: Request): string {
+    const sessionToken = request.headers.get('x-snowluma-token');
+
+    // Authorization belongs to the proxy when it uses HTTP authentication.
+    // Only clients without the dedicated header use the legacy Bearer transport.
+    if (sessionToken !== null) {
+        return sessionToken;
+    }
+
     const authorization = request.headers.get('authorization');
     return authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
 }

@@ -30,6 +30,15 @@ status, OneBot configuration, logs, storage, and server settings.
   visible developer page for safely replaying this wizard and exercising the
   page-level crash screen; replayed consent and passwords are never persisted.
 
+## Authentication behind a reverse proxy
+
+Authenticated WebUI requests send the session token in `X-SnowLuma-Token`, leaving
+`Authorization` available for the reverse proxy's HTTP authentication (such as
+Nginx Basic Auth). Forward `X-SnowLuma-Token` unchanged if the proxy filters
+request headers. The backend still accepts `Authorization: Bearer <token>` for
+existing clients when the dedicated header is absent. Both layers still require
+their own valid credentials.
+
 ## Local development
 
 On Windows, the native API logs the process token and EXE integrity label once

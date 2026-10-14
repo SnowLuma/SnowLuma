@@ -12,6 +12,7 @@ import {
 import { flushSync } from 'react-dom';
 import { MotionConfig } from 'motion/react';
 import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
+import { webuiSessionHeaders } from '@/lib/api/session-headers';
 import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
 
 // Re-export the appearance value types so consumers (settings page etc.) can
@@ -942,7 +943,7 @@ async function fetchAppearance(): Promise<UiAppearance | null> {
         // Authed: fetch the full config so we get `customCss` (which the public
         // subset strips). Pre-auth (login page): the cosmetic public subset only.
         if (token) {
-            const res = await fetch('/api/ui', { headers: { Authorization: `Bearer ${token}` } });
+            const res = await fetch('/api/ui', { headers: webuiSessionHeaders(token) });
 
             if (res.ok) {
                 const data = (await res.json()) as {
@@ -995,7 +996,7 @@ async function persistAppearance(appearance: UiAppearance): Promise<void> {
 
     const response = await fetch('/api/ui', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: webuiSessionHeaders(token, { 'Content-Type': 'application/json' }),
         // Section-level save: only `appearance`; the server preserves `layout`.
         body: JSON.stringify({ appearance }),
     });
@@ -1347,7 +1348,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                     form.append('file', file);
                     const res = await fetch('/api/ui/background', {
                         method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: webuiSessionHeaders(token),
                         body: form,
                     });
 
@@ -1388,7 +1389,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
                     const res = await fetch('/api/ui/background', {
                         method: 'DELETE',
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: webuiSessionHeaders(token),
                     });
 
                     if (!res.ok) {

@@ -8,7 +8,7 @@ describe('API client SSE authentication', () => {
         vi.unstubAllGlobals();
     });
 
-    it('uses an Authorization header, parses frames, and never puts the token in the URL', async () => {
+    it('keeps Authorization available for the proxy while authenticating and parsing frames', async () => {
         let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
         const stream = new ReadableStream<Uint8Array>({
             start(controller) {
@@ -41,7 +41,8 @@ describe('API client SSE authentication', () => {
         await expect(received).resolves.toEqual({ kind: 'ready' });
         const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
         expect(url).toBe('/api/state/stream');
-        expect(new Headers(init.headers).get('authorization')).toBe('Bearer secret-session-token');
+        expect(new Headers(init.headers).get('x-snowluma-token')).toBe('secret-session-token');
+        expect(new Headers(init.headers).has('authorization')).toBe(false);
         expect(init.signal?.aborted).toBe(true);
     });
 

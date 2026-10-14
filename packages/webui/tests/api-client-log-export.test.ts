@@ -32,7 +32,7 @@ describe('API client full TRACE export', () => {
         expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
             '/api/logs/export/trace',
             expect.objectContaining({
-                headers: { Authorization: 'Bearer trace-token' },
+                headers: new Headers({ 'X-SnowLuma-Token': 'trace-token' }),
             }),
         );
     });
