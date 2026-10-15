@@ -6,7 +6,6 @@ import {
     accountDirName,
     loginDbPaths,
     ntMsgDbPath,
-    pickQqDataRoot,
     tencentFilesRootFromUserDataInfo,
 } from '../src/qq-account/paths';
 
@@ -36,21 +35,6 @@ describe('QQ data paths', () => {
                 ? path.join(root, '10001', 'nt_qq', 'nt_db', 'nt_msg.db')
                 : path.join(root, 'nt_qq_7b9b3c3f2cf89e087b2e024777ea5f5f', 'nt_db', 'nt_msg.db'),
         );
-    });
-
-    it('picks the first data root that exists', async () => {
-        const directory = await mkdtemp(path.join(os.tmpdir(), 'snowluma-roots-'));
-
-        try {
-            const missing = path.join(directory, 'elsewhere');
-            const present = path.join(directory, 'QQ');
-            await mkdir(present);
-
-            expect(pickQqDataRoot([missing, present])).toBe(present);
-            expect(pickQqDataRoot([missing])).toBeNull();
-        } finally {
-            await rm(directory, { recursive: true, force: true });
-        }
     });
 });
 

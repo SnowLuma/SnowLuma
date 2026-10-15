@@ -30,6 +30,21 @@ export interface LocalAccount {
     nickname: string;
 }
 
+/**
+ * Why one login.db could not contribute accounts.
+ *
+ * Kept apart from the empty list so "the client has nothing cached" never gets
+ * confused with "the file is there but we could not read it" — the latter means
+ * detection is broken and has to say so.
+ */
+export type LoginDbFailure = 'read-failed' | 'undecryptable' | 'query-failed';
+
+/** The accounts under one root, plus the login.db files that could not be read. */
+export interface LocalAccountReport {
+    accounts: LocalAccount[];
+    failures: Array<{ path: string; reason: LoginDbFailure }>;
+}
+
 interface CachedAccounts {
     /** Modification stamp of the database plus sidecar the accounts came from. */
     stamp: string;
@@ -39,59 +54,94 @@ interface CachedAccounts {
 const accountCache = new Map<string, CachedAccounts>();
 
 /**
- * Every cached account under `root`, deduplicated by uin.
+ * Every cached account under `root`, deduplicated by uin, with a note for each
+ * login.db that was present but unreadable.
  *
- * An empty list is a normal outcome — a machine where QQ never signed in, or a
- * login.db that cannot be decrypted, both simply have no accounts to report.
+ * An empty account list is a normal outcome: a machine where QQ never signed in
+ * has no accounts to report. A login.db that cannot be decrypted also yields no
+ * accounts, but it is reported through `failures` so the caller can log it
+ * instead of silently reading it as "not signed in".
  */
-export async function readLocalAccounts(root: string): Promise<LocalAccount[]> {
+export async function readLocalAccounts(root: string): Promise<LocalAccountReport> {
     const merged = new Map<string, LocalAccount>();
+    const failures: Array<{ path: string; reason: LoginDbFailure }> = [];
 
     for (const dbPath of loginDbPaths(root)) {
-        for (const account of await readLoginDb(dbPath)) {
+        const result = await readLoginDb(dbPath);
+
+        if ('failure' in result) {
+            failures.push({ path: dbPath, reason: result.failure });
+            continue;
+        }
+
+        for (const account of result.accounts) {
             if (!merged.has(account.uin)) {
                 merged.set(account.uin, account);
             }
         }
     }
 
-    return [...merged.values()];
+    return { accounts: [...merged.values()], failures };
 }
 
-/** Accounts from one login.db, re-decrypted whenever the file changes. */
-async function readLoginDb(dbPath: string): Promise<LocalAccount[]> {
+/**
+ * Accounts from one login.db, re-decrypted whenever the file changes.
+ *
+ * A missing file is a normal, account-free result (QQ may use the other
+ * candidate path); every other way of failing names a reason.
+ */
+async function readLoginDb(
+    dbPath: string,
+): Promise<{ accounts: LocalAccount[] } | { failure: LoginDbFailure }> {
     const stamp = await databaseStamp(dbPath);
     const cached = accountCache.get(dbPath);
 
     if (cached && cached.stamp === stamp) {
-        return cached.accounts;
+        return { accounts: cached.accounts };
     }
 
-    const accounts = await decryptAndQuery(dbPath);
+    const result = await decryptAndQuery(dbPath);
 
-    if (accounts === null) {
+    if ('missing' in result) {
+        // QQ may keep its login.db at the other candidate path; an absent file
+        // here is normal and is not something to report.
+        accountCache.delete(dbPath);
+        return { accounts: [] };
+    }
+
+    if ('failure' in result) {
         // Unreadable for now: drop the entry so a later change is retried rather
         // than pinned to an empty list.
         accountCache.delete(dbPath);
-        return [];
+        return result;
     }
 
-    accountCache.set(dbPath, { stamp, accounts });
-    return accounts;
+    accountCache.set(dbPath, { stamp, accounts: result.accounts });
+    return result;
 }
 
-/** Decrypt one database and read its account rows, or null when unreadable. */
-async function decryptAndQuery(dbPath: string): Promise<LocalAccount[] | null> {
-    const image = await readFileOrNull(dbPath);
+/**
+ * Decrypt one database and read its account rows, name why it could not, or
+ * report that the file is simply not there.
+ */
+async function decryptAndQuery(
+    dbPath: string,
+): Promise<{ accounts: LocalAccount[] } | { missing: true } | { failure: LoginDbFailure }> {
+    let image: Buffer;
 
-    if (!image) {
-        return null;
+    try {
+        image = await readFile(dbPath);
+    } catch (error) {
+        // A missing candidate path is normal; a present-but-unreadable one is a
+        // detection failure and has to be visible.
+        return isNotFound(error) ? { missing: true } : { failure: 'read-failed' };
     }
 
     const algorithm = detectAlgorithm(image, LOGIN_DB_PASSPHRASE);
 
     if (!algorithm) {
-        return null;
+        // The passphrase or the SQLCipher page layout is not what we expect.
+        return { failure: 'undecryptable' };
     }
 
     const decrypted = decryptDatabase(
@@ -102,10 +152,15 @@ async function decryptAndQuery(dbPath: string): Promise<LocalAccount[] | null> {
     );
 
     if (!decrypted) {
-        return null;
+        return { failure: 'undecryptable' };
     }
 
-    return queryLoginTable(decrypted.image);
+    try {
+        return { accounts: await queryLoginTable(decrypted.image) };
+    } catch {
+        // A decrypted image the schema does not match: worth a name, not a throw.
+        return { failure: 'query-failed' };
+    }
 }
 
 /**
@@ -170,6 +225,15 @@ async function readFileOrNull(file: string): Promise<Buffer | null> {
     } catch {
         return null;
     }
+}
+
+/** Whether a filesystem error means the file is simply not there. */
+function isNotFound(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+    );
 }
 
 async function statOrNull(file: string): Promise<{ mtimeMs: number; size: number } | null> {

@@ -13,13 +13,18 @@
  *   <root>/global/nt_db/login.db            (primary)
  *   <root>/nt_qq/global/nt_db/login.db      (supplementary, older layout)
  *   <root>/nt_qq_<hash>/nt_db/nt_msg.db
- *   <root> is ~/.config/QQ and <hash> = md5(md5(uid) + "nt_kernel"), where
- *   `uid` is the account's `u_...` string, not its numeric uin. The directory
- *   name hides the uin, so the accounts come from login.db instead.
+ *   <root> is <XDG_CONFIG_HOME|$HOME/.config>/QQ and <hash> =
+ *   md5(md5(uid) + "nt_kernel"), where `uid` is the account's `u_...` string,
+ *   not its numeric uin. The directory name hides the uin, so the accounts come
+ *   from login.db instead.
+ *
+ *   Every client instance can carry its own HOME (the official Docker framework
+ *   runs each extra instance under `/app/qq-acctN`), so the root is resolved per
+ *   process rather than once for SnowLuma itself — see `qqDataRootsForPid`.
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -33,13 +38,80 @@ export function qqDataRoots(): string[] {
     }
 
     if (process.platform === 'linux') {
-        const configHome = process.env.XDG_CONFIG_HOME;
-        const base =
-            configHome && configHome.length > 0 ? configHome : path.join(homedir(), '.config');
-        return [path.join(base, 'QQ')];
+        return linuxDataRoots(process.env);
     }
 
     return [];
+}
+
+/**
+ * Candidate QQ data roots for the HOME `pid` runs under.
+ *
+ * A client's databases live under the HOME that client was started with, which
+ * is not necessarily SnowLuma's own: the official Docker framework gives every
+ * extra QQ instance its own HOME. Reading the process environment is the only
+ * way to reach those accounts.
+ *
+ * Falls back to this process's own roots when `pid`'s environment cannot be
+ * read (process already gone, or `/proc` hides it), which is the previous
+ * behaviour rather than "no roots".
+ */
+export function qqDataRootsForPid(pid: number): string[] {
+    if (process.platform === 'win32') {
+        return windowsDataRoots();
+    }
+
+    if (process.platform !== 'linux') {
+        return [];
+    }
+
+    const environment = readProcessEnvironment(pid);
+    return environment ? linuxDataRoots(environment) : qqDataRoots();
+}
+
+/** Linux roots derived from one environment: `<XDG_CONFIG_HOME|~/.config>/QQ`. */
+function linuxDataRoots(environment: { HOME?: string; XDG_CONFIG_HOME?: string }): string[] {
+    const configHome = environment.XDG_CONFIG_HOME;
+    const home = environment.HOME;
+    const base =
+        configHome && configHome.length > 0
+            ? configHome
+            : home && home.length > 0
+              ? path.join(home, '.config')
+              : path.join(homedir(), '.config');
+    return [path.join(base, 'QQ')];
+}
+
+/**
+ * The NUL-separated environment of `pid` from `/proc`, or null when it cannot
+ * be read. Only the variables the data root depends on are kept.
+ */
+function readProcessEnvironment(pid: number): { HOME?: string; XDG_CONFIG_HOME?: string } | null {
+    let raw: string;
+
+    try {
+        raw = readFileSync(`/proc/${pid}/environ`, 'utf8');
+    } catch {
+        return null;
+    }
+
+    const environment: { HOME?: string; XDG_CONFIG_HOME?: string } = {};
+
+    for (const entry of raw.split('\0')) {
+        const separator = entry.indexOf('=');
+
+        if (separator <= 0) {
+            continue;
+        }
+
+        const name = entry.slice(0, separator);
+
+        if (name === 'HOME' || name === 'XDG_CONFIG_HOME') {
+            environment[name] = entry.slice(separator + 1);
+        }
+    }
+
+    return environment;
 }
 
 /**
@@ -171,9 +243,4 @@ export function tencentFilesRootFromUserDataInfo(home = homedir()): string | nul
     }
 
     return null;
-}
-
-/** The first root that exists on disk, or null. */
-export function pickQqDataRoot(roots: readonly string[] = qqDataRoots()): string | null {
-    return roots.find((root) => existsSync(root)) ?? null;
 }

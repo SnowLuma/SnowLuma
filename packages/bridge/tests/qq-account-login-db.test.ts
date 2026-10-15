@@ -86,9 +86,10 @@ describe('local account list', () => {
     it('reads the accounts QQ cached locally', async () => {
         const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
 
-        await expect(readLocalAccounts(root)).resolves.toEqual([
-            { uin: '10001', uid: 'u_a', nickname: 'Alice' },
-        ]);
+        await expect(readLocalAccounts(root)).resolves.toEqual({
+            accounts: [{ uin: '10001', uid: 'u_a', nickname: 'Alice' }],
+            failures: [],
+        });
     });
 
     it('merges both login.db locations, letting the primary win on a clash', async () => {
@@ -103,11 +104,14 @@ describe('local account list', () => {
             ],
         );
 
-        expect(await readLocalAccounts(root)).toEqual([
-            { uin: '10001', uid: 'u_a', nickname: 'Alice' },
-            { uin: '10002', uid: 'u_b', nickname: 'Bob' },
-            { uin: '10003', uid: 'u_c', nickname: 'Carol' },
-        ]);
+        expect(await readLocalAccounts(root)).toEqual({
+            accounts: [
+                { uin: '10001', uid: 'u_a', nickname: 'Alice' },
+                { uin: '10002', uid: 'u_b', nickname: 'Bob' },
+                { uin: '10003', uid: 'u_c', nickname: 'Carol' },
+            ],
+            failures: [],
+        });
     });
 
     it('re-decrypts only when the database or its sidecar changes', async () => {
@@ -125,7 +129,7 @@ describe('local account list', () => {
             ['10002', 'u_b', 'Bob'],
         ]);
         await utimes(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
-        expect(await readLocalAccounts(root)).toHaveLength(2);
+        expect((await readLocalAccounts(root)).accounts).toHaveLength(2);
         expect(mocks.decryptDatabase).toHaveBeenCalledTimes(2);
 
         // The sidecar counts as a change too: a batch committed to the WAL only
@@ -139,13 +143,45 @@ describe('local account list', () => {
         const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
         mocks.detectAlgorithm.mockReturnValue(null);
 
-        await expect(readLocalAccounts(root)).resolves.toEqual([]);
+        await expect(readLocalAccounts(root)).resolves.toEqual({
+            accounts: [],
+            failures: [{ path: path.join(root, PRIMARY), reason: 'undecryptable' }],
+        });
 
         mocks.detectAlgorithm.mockReturnValue({ pageHmac: 'sha1', kdfHmac: 'sha512' });
         const file = path.join(root, PRIMARY);
         await utimes(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
 
-        await expect(readLocalAccounts(root)).resolves.toHaveLength(1);
+        await expect(readLocalAccounts(root)).resolves.toEqual({
+            accounts: [{ uin: '10001', uid: 'u_a', nickname: 'Alice' }],
+            failures: [],
+        });
+    });
+
+    it('names an unreadable login.db instead of reporting "no accounts"', async () => {
+        const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
+        mocks.detectAlgorithm.mockReturnValue(null);
+
+        // A login.db that cannot be decrypted is not the same as a machine with
+        // no accounts, and the caller has to be able to tell them apart.
+        await expect(readLocalAccounts(root)).resolves.toEqual({
+            accounts: [],
+            failures: [{ path: path.join(root, PRIMARY), reason: 'undecryptable' }],
+        });
+    });
+
+    it('keeps an unreadable sidecar from hiding the accounts a good database has', async () => {
+        const root = await trackedRoot([['10001', 'u_a', 'Alice']], [['10002', 'u_b', 'Bob']]);
+        const secondary = path.join(root, SECONDARY);
+        const bogus = Buffer.alloc(8192, 7);
+        mocks.detectAlgorithm.mockImplementation((image: Buffer) =>
+            image[0] === 7 ? null : { pageHmac: 'sha1', kdfHmac: 'sha512' },
+        );
+        await writeFile(secondary, bogus);
+
+        const report = await readLocalAccounts(root);
+        expect(report.accounts.map((account) => account.uin)).toEqual(['10001']);
+        expect(report.failures).toEqual([{ path: secondary, reason: 'undecryptable' }]);
     });
 
     it('skips rows that carry no usable identity', async () => {
@@ -155,15 +191,17 @@ describe('local account list', () => {
             ['', 'u_d', 'Nameless'],
         ]);
 
-        await expect(readLocalAccounts(root)).resolves.toEqual([
-            { uin: '10001', uid: 'u_a', nickname: 'Alice' },
-        ]);
+        await expect(readLocalAccounts(root)).resolves.toEqual({
+            accounts: [{ uin: '10001', uid: 'u_a', nickname: 'Alice' }],
+            failures: [],
+        });
     });
 
     it('reports no accounts when login.db is missing', async () => {
         const root = await mkdtemp(path.join(os.tmpdir(), 'snowluma-login-'));
         roots.push(root);
 
-        await expect(readLocalAccounts(root)).resolves.toEqual([]);
+        // Neither candidate file exists: nothing cached, and nothing to report.
+        await expect(readLocalAccounts(root)).resolves.toEqual({ accounts: [], failures: [] });
     });
 });

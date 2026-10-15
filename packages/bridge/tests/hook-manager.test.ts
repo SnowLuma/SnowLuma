@@ -30,7 +30,7 @@ function makeManager(opts: {
     processes?: number[];
     onSessionsChanged?: () => void;
     inject?: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
-    detectAccounts?: () => Promise<AccountLoginState[]>;
+    detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
 }) {
     let pids = opts.processes ?? [];
     const live = new Set<number>();

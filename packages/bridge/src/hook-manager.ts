@@ -14,7 +14,7 @@ import {
 import { PipeWatcher } from './pipe-watcher';
 import { createNativeProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
-import { detectAccountLogins, type AccountLoginState } from './qq-account';
+import { detectAccountLoginsForPids, type AccountLoginState } from './qq-account';
 import type { HookProcessAccount, HookProcessInfo } from './types';
 
 const AUTO_LOAD_MAX_ATTEMPTS = 3;
@@ -60,8 +60,10 @@ export type HookManagerDeps = {
     /** Native process lister used by `listProcesses()`. Defaults to the native addon. */
     listProcesses?: () => HookProcessBaseInfo[];
     /** Local account detection used to label each process with the account QQ is
-     *  signed in as. Defaults to reading QQ's own account data. */
-    detectAccounts?: () => Promise<AccountLoginState[]>;
+     *  signed in as. Receives the pids to label so each one is resolved against
+     *  the HOME it actually runs under (a container can give every QQ instance
+     *  its own). Defaults to reading QQ's own account data. */
+    detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
     /** How often the watcher re-probes the account label of each process, in
      *  milliseconds. Defaults to `DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS`. */
     accountReprobeIntervalMs?: number;
@@ -112,7 +114,7 @@ export class HookManager {
     /** The owned enumerator (worker lifecycle), or null when a custom lister was
      *  injected (tests) — nothing to tear down in that case. */
     private readonly enumerator: ProcessEnumerator | null;
-    private readonly detectAccounts: () => Promise<AccountLoginState[]>;
+    private readonly detectAccounts: (pids: readonly number[]) => Promise<AccountLoginState[]>;
     private readonly accountReprobeIntervalMs: number;
     private readonly autoLoadOnDiscovery: boolean;
     private readonly onSessionsChangedRaw?: () => void;
@@ -150,7 +152,7 @@ export class HookManager {
             },
         };
         this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
-        this.detectAccounts = deps.detectAccounts ?? detectAccountLogins;
+        this.detectAccounts = deps.detectAccounts ?? detectAccountLoginsForPids;
         this.accountReprobeIntervalMs =
             deps.accountReprobeIntervalMs ?? DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS;
         this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
@@ -282,7 +284,7 @@ export class HookManager {
         let states: AccountLoginState[] | null = null;
 
         try {
-            states = await this.detectAccounts();
+            states = await this.detectAccounts(infos.map((info) => info.pid));
 
             for (const state of states) {
                 if (state.pid !== null) {
@@ -334,7 +336,7 @@ export class HookManager {
 
         void runWithTraceRequest(async () => {
             try {
-                const key = accountLabelKey(await this.detectAccounts());
+                const key = accountLabelKey(await this.detectAccounts([...this.sessions.keys()]));
                 this.lastAccountProbeFailure = '';
 
                 if (key === this.lastAccountLabelKey) {

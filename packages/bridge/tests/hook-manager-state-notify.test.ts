@@ -30,7 +30,7 @@ function makeManager(
     opts: {
         processes?: number[];
         livePipes?: number[];
-        detectAccounts?: () => Promise<AccountLoginState[]>;
+        detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
         accountReprobeIntervalMs?: number;
     } = {},
 ): Harness {
