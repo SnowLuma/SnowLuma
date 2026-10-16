@@ -81,6 +81,9 @@ importers:
       '@snowluma/common':
         specifier: workspace:*
         version: link:../common
+      '@snowluma/sqlite':
+        specifier: workspace:*
+        version: link:../sqlite
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

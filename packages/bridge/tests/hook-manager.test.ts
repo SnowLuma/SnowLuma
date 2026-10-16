@@ -7,6 +7,7 @@ import { HookManager, shouldAutoLoadPid } from '../src/hook-manager';
 import { PipeWatcher } from '../src/pipe-watcher';
 import type { HookInjectResult, ManualMapHandle } from '../src/injector';
 import type { BridgeManagerSink } from '../src/hook-manager';
+import type { AccountLoginState } from '../src/qq-account';
 import type { QqHookClient } from '../src/qq-hook-client';
 import {
     createLogger,
@@ -29,6 +30,7 @@ function makeManager(opts: {
     processes?: number[];
     onSessionsChanged?: () => void;
     inject?: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
+    detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
 }) {
     let pids = opts.processes ?? [];
     const live = new Set<number>();
@@ -76,6 +78,8 @@ function makeManager(opts: {
         autoLoadOnDiscovery: opts.autoLoadOnDiscovery,
         onSessionsChanged: opts.onSessionsChanged,
         listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        // Detection reads QQ's own data directories; tests stay off the host.
+        detectAccounts: opts.detectAccounts ?? (async () => []),
     });
     return {
         manager,
@@ -467,5 +471,43 @@ describe('shouldAutoLoadPid', () => {
 
     it('allows when /proc is unreadable (dead PID, permission issue)', () => {
         expect(shouldAutoLoadPid(99999, log)).toBe(true);
+    });
+});
+
+describe('HookManager — signed-in account labelling', () => {
+    it('labels each process with the account detected on it', async () => {
+        const ctx = makeManager({
+            processes: [4242, 5151],
+            detectAccounts: async () => [
+                { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+                { uin: '10002', uid: 'u_b', nickname: 'Bob', pid: null },
+            ],
+        });
+
+        try {
+            const list = await ctx.manager.listProcesses();
+            expect(list.map((info) => [info.pid, info.account])).toEqual([
+                [4242, { uin: '10001', nickname: 'Alice' }],
+                [5151, null],
+            ]);
+        } finally {
+            ctx.manager.dispose();
+        }
+    });
+
+    it('leaves processes unlabelled when detection fails', async () => {
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts: async () => {
+                throw new Error('login.db unreadable');
+            },
+        });
+
+        try {
+            const list = await ctx.manager.listProcesses();
+            expect(list[0]!.account).toBeNull();
+        } finally {
+            ctx.manager.dispose();
+        }
     });
 });

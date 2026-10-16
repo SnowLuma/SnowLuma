@@ -44,7 +44,7 @@ describe('API client request deadline', () => {
         await rejection;
     });
 
-    it('cancels a login probe without preventing a later retry', async () => {
+    it('cancels a request without preventing a later retry', async () => {
         const fetchMock = vi
             .fn()
             .mockImplementationOnce(
@@ -60,29 +60,22 @@ describe('API client request deadline', () => {
                     }),
             )
             .mockResolvedValueOnce(
-                new Response(
-                    JSON.stringify({
-                        info: { port: 0, uin: '', identityKnown: false },
-                    }),
-                    {
-                        status: 200,
-                        headers: { 'content-type': 'application/json' },
-                    },
-                ),
+                new Response(JSON.stringify({ list: [] }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                }),
             );
         vi.stubGlobal('fetch', fetchMock);
         const client = createApiClient({ tokenStore });
         const controller = new AbortController();
 
-        const cancelled = client.processes.probeLoginInfo(4242, controller.signal);
+        const cancelled = client.request('/api/processes', { signal: controller.signal });
         controller.abort();
 
         await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
-        await expect(client.processes.probeLoginInfo(4242)).resolves.toEqual({
-            port: 0,
-            uin: '',
-            identityKnown: false,
-        });
+        await expect(
+            client.request('/api/processes').then((response) => response.json()),
+        ).resolves.toEqual({ list: [] });
     });
 
     it('settles a pending login with a retryable timeout message', async () => {

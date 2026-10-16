@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, RefreshCw, Unplug } from 'lucide-react';
+import { AlertCircle, Cpu, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
@@ -18,6 +18,11 @@ const SORT_OPTIONS: { id: string; label: string }[] = [
     { id: 'name', label: '名称' },
     { id: 'status', label: '状态' },
 ];
+
+function qqAvatarUrl(uin: string) {
+    return `/avatar/${encodeURIComponent(uin)}`;
+}
+
 // Online-first, then by how actionable the state is.
 const STATUS_ORDER: Record<HookProcessInfo['status'], number> = {
     online: 0,
@@ -76,8 +81,6 @@ export function ProcessesPage() {
         pid: number;
         name: string;
     } | null>(null);
-    const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
-
     const sortKey = pages.processesSort;
     const sorted = useMemo(() => {
         const arr = [...processList];
@@ -203,7 +206,6 @@ export function ProcessesPage() {
                                         const unloading = op === 'unload';
                                         const refreshing = op === 'refresh';
                                         const busy = op != null || proc.status === 'loading';
-                                        const isOnline = proc.status === 'online';
                                         const canUnload = proc.injected;
                                         // Refresh is meaningful whenever a hook may exist (so the user
                                         // can re-check the pipe and trigger a reconnect on demand).
@@ -230,28 +232,46 @@ export function ProcessesPage() {
                         a second row so name / PID / path get the full width
                         instead of collapsing to "Q..". */}
                                                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                                                    <div
-                                                        className={cn(
-                                                            'flex size-10 shrink-0 items-center justify-center rounded-xl',
-                                                            isOnline
-                                                                ? 'bg-success/15 text-success'
-                                                                : proc.status === 'error'
-                                                                  ? 'bg-destructive/15 text-destructive'
-                                                                  : 'bg-primary/10 text-primary',
-                                                        )}
-                                                    >
-                                                        {isOnline ? (
-                                                            <CheckCircle2 className="size-5" />
-                                                        ) : proc.status === 'error' ? (
-                                                            <AlertCircle className="size-5" />
-                                                        ) : (
-                                                            <Cpu className="size-5" />
-                                                        )}
-                                                    </div>
+                                                    {proc.account ? (
+                                                        <Avatar size={40}>
+                                                            <AvatarImage
+                                                                src={qqAvatarUrl(proc.account.uin)}
+                                                                alt={
+                                                                    proc.account.nickname ||
+                                                                    proc.account.uin
+                                                                }
+                                                            />
+                                                            <AvatarFallback>
+                                                                {(
+                                                                    proc.account.nickname ||
+                                                                    proc.account.uin
+                                                                ).slice(0, 2)}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                    ) : (
+                                                        <div
+                                                            className={cn(
+                                                                'flex size-10 shrink-0 items-center justify-center rounded-xl',
+                                                                proc.status === 'error'
+                                                                    ? 'bg-destructive/15 text-destructive'
+                                                                    : 'bg-primary/10 text-primary',
+                                                            )}
+                                                        >
+                                                            {proc.status === 'error' ? (
+                                                                <AlertCircle className="size-5" />
+                                                            ) : (
+                                                                <Cpu className="size-5" />
+                                                            )}
+                                                        </div>
+                                                    )}
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex items-center gap-2">
                                                             <span className="min-w-0 truncate text-sm font-semibold">
-                                                                {proc.name || 'QQ.exe'}
+                                                                {proc.account
+                                                                    ? proc.account.nickname
+                                                                        ? `${proc.account.nickname}/${proc.account.uin}`
+                                                                        : proc.account.uin
+                                                                    : `${proc.name || 'QQ.exe'}（未登录）`}
                                                             </span>
                                                             <Badge
                                                                 variant={processBadgeVariant(
@@ -287,20 +307,6 @@ export function ProcessesPage() {
                                                     </div>
                                                 </div>
                                                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        disabled={busy}
-                                                        onClick={() =>
-                                                            setProbeDialog({
-                                                                pid: proc.pid,
-                                                                name:
-                                                                    proc.name || `PID ${proc.pid}`,
-                                                            })
-                                                        }
-                                                    >
-                                                        <Eye className="size-3.5" /> 探测登录
-                                                    </Button>
                                                     {showRefresh && (
                                                         <Button
                                                             size="icon"
@@ -385,25 +391,6 @@ export function ProcessesPage() {
                     }
                 }}
             />
-
-            {probeDialog && (
-                <ProcessProbeDialog
-                    pid={probeDialog.pid}
-                    processName={probeDialog.name}
-                    open={!!probeDialog}
-                    onOpenChange={(open) => !open && setProbeDialog(null)}
-                    onLoad={() => {
-                        if (probeDialog) {
-                            setConfirm({
-                                kind: 'load',
-                                pid: probeDialog.pid,
-                                name: probeDialog.name,
-                            });
-                            setProbeDialog(null);
-                        }
-                    }}
-                />
-            )}
         </div>
     );
 }

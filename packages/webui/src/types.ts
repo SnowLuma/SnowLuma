@@ -55,6 +55,11 @@ export interface AccountConnections {
     databaseMigration?: AccountDatabaseMigration;
 }
 
+export interface HookProcessAccount {
+    uin: string;
+    nickname: string;
+}
+
 export interface HookProcessInfo {
     pid: number;
     name: string;
@@ -66,6 +71,7 @@ export interface HookProcessInfo {
     status: 'available' | 'loading' | 'connecting' | 'loaded' | 'online' | 'error' | 'disconnected';
     error: string;
     method: string;
+    account: HookProcessAccount | null;
 }
 
 export type MessageFormat = 'array' | 'string';

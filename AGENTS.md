@@ -16,7 +16,7 @@ This is a pnpm workspace. Package ownership matters more than directory names:
 | Location | Responsibility |
 | --- | --- |
 | `packages/core` | Application entry, per-account Bridge orchestration, WebUI backend, notifications, release assembly |
-| `packages/bridge` | QQ process discovery, Hook sessions, native transport lifecycle |
+| `packages/bridge` | QQ process discovery, local account/login detection, Hook sessions, native transport lifecycle |
 | `packages/protocol` | Packet decoding, typed QQ events, identity resolution, protocol requests and media transfers |
 | `packages/onebot` | Action validation and dispatch, event conversion, message storage, HTTP/WebSocket adapters |
 | `packages/common` | Shared logging, configuration and utilities without business dependencies |
@@ -38,6 +38,7 @@ Read the relevant owner before changing a path:
 | Change | Start here |
 | --- | --- |
 | Connection or account lifecycle | [Hook manager](packages/bridge/src/hook-manager.ts), [Bridge manager](packages/core/src/bridge/manager.ts), [OneBot instance](packages/onebot/src/instance.ts) |
+| Which account a QQ process is signed in as | [Account detection](packages/bridge/src/qq-account/detect.ts), [login.db reader](packages/bridge/src/qq-account/login-db.ts), [QQ data paths](packages/bridge/src/qq-account/paths.ts) |
 | Incoming QQ events or identity | [Packet pipeline](packages/protocol/src/packet-pipeline.ts), [message decoders](packages/protocol/src/msg-push/index.ts), [identity service](packages/protocol/src/identity-service.ts) |
 | OneBot actions or message segments | [Action definitions](packages/onebot/src/actions/index.ts), [validation helpers](packages/onebot/src/action-kit.ts), [event conversion](packages/onebot/src/event-converter/index.ts) |
 | WebUI | [Interaction conventions](packages/webui/README.md), `packages/webui/src`, `packages/core/src/webui` |
