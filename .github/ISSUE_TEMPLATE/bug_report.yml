@@ -123,7 +123,7 @@ body:
     attributes:
       label: TRACE 日志 / 错误堆栈
       description: |
-        **必须提供 TRACE 级别日志**，否则我们几乎无法定位问题。SnowLuma 默认日志级别是 `info`，TRACE 不会输出，请务必先开启再复现。
+        **必须提供 TRACE 级别日志**，否则我们几乎无法定位问题。SnowLuma 默认日志级别是 `info`，TRACE 不会输出，请务必先开启再复现，务必保留原始报文和完整Trace内容。
 
         开启 TRACE 的两种方式（任选其一）：
         - **WebUI（推荐）**：进入「日志」页 →「服务端日志级别」切到 `TRACE` → 显示过滤切到「开发」预设（确保 TRACE 行可见，否则导出不含 trace）→ 复现问题 → 点「导出当前视图」得到 `snowluma-logs-*.log`，拖到本输入框上传。
