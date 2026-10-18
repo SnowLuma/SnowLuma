@@ -3,8 +3,10 @@ import { createApiClient } from '../src/lib/api/client';
 
 const encoder = new TextEncoder();
 
-describe('API client SSE authentication', () => {
+describe('API client SSE lifecycle', () => {
     afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
@@ -47,6 +49,12 @@ describe('API client SSE authentication', () => {
     });
 
     it('clears the session and stops reconnecting after an unauthorized response', async () => {
+        const page = new EventTarget();
+        const document = new EventTarget();
+        const removePageListener = vi.spyOn(page, 'removeEventListener');
+        const removeDocumentListener = vi.spyOn(document, 'removeEventListener');
+        vi.stubGlobal('window', page);
+        vi.stubGlobal('document', document);
         const save = vi.fn();
         const onUnauthorized = vi.fn();
         const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
@@ -63,6 +71,99 @@ describe('API client SSE authentication', () => {
         expect(save).toHaveBeenCalledWith(null);
         expect(statuses.at(-1)).toBe('closed');
         expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(removePageListener).toHaveBeenCalledWith('pagehide', expect.any(Function));
+        expect(removePageListener).toHaveBeenCalledWith('pageshow', expect.any(Function));
+        expect(removeDocumentListener).toHaveBeenCalledWith(
+            'visibilitychange',
+            expect.any(Function),
+        );
+        expect(removeDocumentListener).toHaveBeenCalledWith('freeze', expect.any(Function));
+    });
+
+    it('stops delivering the current frame batch after disposal', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValue(
+                    new Response(
+                        'data: {"kind":"ready"}\n\ndata: {"kind":"invalidate","resource":"qq-list"}\n\n',
+                    ),
+                ),
+        );
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const onEvent = vi.fn(() => dispose());
+        const dispose = client.stateStream({ onEvent });
+        await vi.waitFor(() => expect(onEvent).toHaveBeenCalled());
+        expect(onEvent).toHaveBeenCalledOnce();
+    });
+
+    it('ignores a delayed unauthorized response from a disposed connection', async () => {
+        vi.useFakeTimers();
+        const response = Promise.withResolvers<Response>();
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(() => response.promise),
+        );
+        const save = vi.fn();
+        const onUnauthorized = vi.fn();
+        const client = createApiClient({
+            tokenStore: { load: () => 'token', save },
+            onUnauthorized,
+        });
+        const dispose = client.stateStream({ onEvent: vi.fn() });
+        dispose();
+        response.resolve(new Response(null, { status: 401 }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onUnauthorized).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+    });
+
+    it('clears the reconnect timer when disposed by the status callback', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('')));
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const dispose = client.stateStream({
+            onEvent: vi.fn(),
+            onStatus: (status) => {
+                if (status === 'reconnecting') {
+                    dispose();
+                }
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('suspends reconnects until the page returns and keeps one active request', async () => {
+        vi.useFakeTimers();
+        const page = new EventTarget();
+        vi.stubGlobal('window', page);
+        vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }));
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(new Response(''))
+            .mockImplementation(
+                (_url: string, init: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init.signal!.addEventListener('abort', () => reject(init.signal!.reason), {
+                            once: true,
+                        });
+                    }),
+            );
+        vi.stubGlobal('fetch', fetchMock);
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const onStatus = vi.fn();
+        const dispose = client.stateStream({ onEvent: vi.fn(), onStatus });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onStatus).toHaveBeenCalledWith('reconnecting');
+        page.dispatchEvent(new Event('pagehide'));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+        page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        dispose();
     });
 
     it('reconnects after a completed stream without leaking the token', async () => {

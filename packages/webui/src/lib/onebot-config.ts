@@ -45,7 +45,11 @@ function normalizeNotifications(raw: unknown): { channelIds: string[] } {
  * into the canonical {@link OneBotConfig} the editor expects.
  */
 export function normalizeOneBotConfig(raw: unknown): OneBotConfig {
-    const cfg = (raw ?? {}) as Record<string, unknown>;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('服务端返回了无效的配置');
+    }
+
+    const cfg = raw as Record<string, unknown>;
     const nets = (cfg.networks as Record<string, unknown> | undefined) ?? {};
     const legacyFormat: MessageFormat = cfg.messageFormat === 'string' ? 'string' : 'array';
     const legacyReport = !!cfg.reportSelfMessage;

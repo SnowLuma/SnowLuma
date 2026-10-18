@@ -22,6 +22,9 @@ status, OneBot configuration, logs, storage, and server settings.
   result; do not convert failed responses into successful feedback.
 - JSON endpoints must return an object. Malformed or non-object responses are
   reported as errors rather than displayed as empty lists or default settings.
+- Configuration responses include `config`; saves also report `saved`, `applied`,
+  `online`, `errors`, and `message`. The UI uses these fields without legacy aliases
+  or a second request after saving.
 - Password change flows use floating labels and inline validation consistently.
 - Password strength details appear only while the new-password field has focus
   and leave with the same motion language when focus moves away.

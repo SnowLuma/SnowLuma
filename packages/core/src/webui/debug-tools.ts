@@ -20,6 +20,7 @@ import os from 'os';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { traceWebuiMutationRequestChunk } from './mutation-trace';
+import { sseResponse } from './sse-response';
 
 /** Temp dir for browser→server uploads. Siblings the Stream API's temp root but
  *  kept distinct so the two cleanup stories don't entangle. */
@@ -203,70 +204,43 @@ export function buildStreamInvokeResponse(
     signal: AbortSignal,
     delay: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Response {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-            let closed = false;
+    return sseResponse(signal, (channel) => {
+        const isAlive = () => !channel.isClosed();
 
-            const onAbort = () => {
-                closed = true;
-            };
+        const emit = async (json: string): Promise<void> => {
+            if (!isAlive()) {
+                throw new Error('stream transport closed');
+            }
 
-            signal.addEventListener('abort', onAbort);
-            const isAlive = () => !closed && !signal.aborted;
+            // Backpressure WITHOUT dropping: wait for the consumer to catch up.
+            let spins = 0;
 
-            const emit = async (json: string): Promise<void> => {
-                if (!isAlive()) {
-                    throw new Error('stream transport closed');
-                }
+            while (isAlive() && (channel.desiredSize() ?? 1) <= 0 && spins < DRAIN_MAX_SPINS) {
+                await delay(DRAIN_WAIT_MS);
+                spins += 1;
+            }
 
-                // Backpressure WITHOUT dropping: wait for the consumer to catch up.
-                let spins = 0;
+            if (!isAlive()) {
+                throw new Error('stream transport closed');
+            }
 
-                while (isAlive() && (controller.desiredSize ?? 1) <= 0 && spins < DRAIN_MAX_SPINS) {
-                    await delay(DRAIN_WAIT_MS);
-                    spins += 1;
-                }
+            channel.raw(channel.encode(`data: ${json}\n\n`));
+        };
 
-                if (!isAlive()) {
-                    throw new Error('stream transport closed');
-                }
-
-                controller.enqueue(encoder.encode(`data: ${json}\n\n`));
-            };
-
+        const run = async () => {
             try {
                 await driver(rawRequest, emit, isAlive);
             } catch (err) {
                 if (isAlive()) {
                     const msg = err instanceof Error ? err.message : 'stream error';
 
-                    try {
-                        controller.enqueue(
-                            encoder.encode(
-                                `data: ${JSON.stringify({ status: 'failed', retcode: 1400, message: msg, wording: msg })}\n\n`,
-                            ),
-                        );
-                    } catch {
-                        /* controller already torn down */
-                    }
+                    channel.send({ status: 'failed', retcode: 1400, message: msg, wording: msg });
                 }
             } finally {
-                signal.removeEventListener('abort', onAbort);
-
-                try {
-                    controller.close();
-                } catch {
-                    /* already closed */
-                }
+                channel.close();
             }
-        },
-    });
-    return new Response(stream, {
-        headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-        },
+        };
+
+        void run();
     });
 }

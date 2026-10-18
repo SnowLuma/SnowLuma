@@ -1,18 +1,75 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { sseResponse } from '../src/webui/sse-response';
 
-// A minimal hono-Context stand-in: sseResponse only reads c.req.raw.signal.
-function fakeCtx(signal: AbortSignal): Parameters<typeof sseResponse>[0] {
-    return { req: { raw: { signal } } } as unknown as Parameters<typeof sseResponse>[0];
-}
-
 describe('sseResponse', () => {
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+    });
+
+    it('releases subscriptions immediately when the response body is canceled', async () => {
+        vi.useFakeTimers();
+        const request = new AbortController();
+        const cleanup = vi.fn();
+        let channel!: Parameters<Parameters<typeof sseResponse>[1]>[0];
+        const response = sseResponse(request.signal, (ch) => {
+            channel = ch;
+            ch.onClose(cleanup);
+        });
+
+        await response.body!.cancel();
+        expect(channel.isClosed()).toBe(true);
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+        request.abort();
+        expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('does not subscribe when the request was already aborted', () => {
+        vi.useFakeTimers();
+        const request = new AbortController();
+        request.abort();
+        const start = vi.fn();
+        sseResponse(request.signal, start);
+        expect(start).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('releases subscriptions registered before and after an abort during setup', () => {
+        vi.useFakeTimers();
+        const request = new AbortController();
+        const before = vi.fn();
+        const after = vi.fn();
+        sseResponse(request.signal, (channel) => {
+            channel.onClose(before);
+            request.abort();
+            channel.onClose(after);
+        });
+        expect(before).toHaveBeenCalledOnce();
+        expect(after).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('releases subscriptions when endpoint setup throws', () => {
+        vi.useFakeTimers();
+        const request = new AbortController();
+        const cleanup = vi.fn();
+        expect(() =>
+            sseResponse(request.signal, (channel) => {
+                channel.onClose(cleanup);
+                throw new Error('setup failed');
+            }),
+        ).toThrow('setup failed');
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
     it('finishes active streams and releases subscriptions during server shutdown', async () => {
         const request = new AbortController();
         const shutdown = new AbortController();
         let cleanups = 0;
         const response = sseResponse(
-            fakeCtx(request.signal),
+            request.signal,
             (channel) => {
                 channel.onClose(() => {
                     cleanups++;
@@ -26,9 +83,10 @@ describe('sseResponse', () => {
         request.abort();
         expect(cleanups).toBe(1);
     });
+
     it('returns an event-stream Response with the SSE headers', () => {
         const ac = new AbortController();
-        const res = sseResponse(fakeCtx(ac.signal), () => {
+        const res = sseResponse(ac.signal, () => {
             /* no-op */
         });
         expect(res.headers.get('Content-Type')).toBe('text/event-stream');
@@ -39,7 +97,7 @@ describe('sseResponse', () => {
 
     it('ch.send frames JSON as `data: …` and ch.raw enqueues verbatim', async () => {
         const ac = new AbortController();
-        const res = sseResponse(fakeCtx(ac.signal), (ch) => {
+        const res = sseResponse(ac.signal, (ch) => {
             ch.send({ type: 'ready' });
             ch.raw(ch.encode(': heartbeat\n\n'));
         });
@@ -56,7 +114,7 @@ describe('sseResponse', () => {
         const cleanupA = vi.fn();
         const cleanupB = vi.fn();
         let channel!: Parameters<Parameters<typeof sseResponse>[1]>[0];
-        const res = sseResponse(fakeCtx(ac.signal), (ch) => {
+        const res = sseResponse(ac.signal, (ch) => {
             channel = ch;
             ch.onClose(cleanupA);
             ch.onClose(cleanupB);
@@ -75,7 +133,7 @@ describe('sseResponse', () => {
     it('send after teardown is a silent no-op', () => {
         const ac = new AbortController();
         let channel!: Parameters<Parameters<typeof sseResponse>[1]>[0];
-        sseResponse(fakeCtx(ac.signal), (ch) => {
+        sseResponse(ac.signal, (ch) => {
             channel = ch;
         });
         ac.abort();

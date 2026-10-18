@@ -1,42 +1,25 @@
-import { type Context } from 'hono';
+import { createLogger } from '@snowluma/common/logger';
 
-/**
- * The per-connection channel handed to an SSE endpoint's `start` callback.
- * Everything the endpoint needs to talk to the client, without owning the
- * transport lifecycle (heartbeat / teardown / abort / headers).
- */
+const log = createLogger('WebUI.SSE');
+
 export interface SseChannel {
-    /** Enqueue a raw chunk. Tears the stream down if the peer is already gone. */
     raw(chunk: Uint8Array): void;
-    /** Encode a string to bytes (shared TextEncoder). */
     encode(s: string): Uint8Array;
-    /** Convenience: enqueue one `data: <json>\n\n` frame. */
     send(payload: unknown): void;
-    /** Register a cleanup to run once on teardown (unsubscribe / dispose). */
-    onClose(fn: () => void): void;
-    /** True after teardown — guard sends from late subscription callbacks. */
+    onClose(cleanup: () => void): void;
+    close(): void;
     isClosed(): boolean;
-    /** Underlying controller backpressure signal, for `createFramePusher`. */
     desiredSize(): number | null;
 }
 
-/**
- * The SSE HTTP transport shell shared by the WebUI's live endpoints. Owns the
- * TextEncoder, a `closed` guard, a 15s `: heartbeat` keep-alive, teardown
- * (clear heartbeat → run registered cleanups → close the controller), safe
- * enqueue (a throw means the peer dropped → teardown), the abort listener, and
- * the `text/event-stream` headers. `start` wires up the endpoint-specific
- * subscription + initial sends via the channel.
- *
- * Each of `/api/debug/stream`, `/api/state/stream`, `/api/logs/stream`
- * previously hand-copied this ~40-line skeleton; a heartbeat-interval /
- * teardown-order / header change had to be kept in sync across all three.
- */
+/** Owns stream cancellation, subscriptions and the keep-alive timer. */
 export function sseResponse(
-    c: Context,
-    start: (ch: SseChannel) => void,
+    request: AbortSignal,
+    start: (channel: SseChannel) => void,
     shutdown?: AbortSignal,
 ): Response {
+    const signal = shutdown ? AbortSignal.any([request, shutdown]) : request;
+    let cancel!: () => void;
     const stream = new ReadableStream<Uint8Array>({
         start(controller) {
             const encoder = new TextEncoder();
@@ -44,66 +27,77 @@ export function sseResponse(
             let heartbeat: ReturnType<typeof setInterval> | undefined;
             const cleanups: Array<() => void> = [];
 
-            const teardown = () => {
+            const cleanup = (fn: () => void) => {
+                try {
+                    fn();
+                } catch (error) {
+                    log.warn('stream cleanup failed: %s', error);
+                }
+            };
+
+            const teardown = (closeStream = true) => {
                 if (closed) {
                     return;
                 }
 
                 closed = true;
+                clearInterval(heartbeat);
+                signal.removeEventListener('abort', onAbort);
+                cleanups.splice(0).forEach(cleanup);
 
-                if (heartbeat) {
-                    clearInterval(heartbeat);
-                }
-
-                for (const fn of cleanups) {
-                    try {
-                        fn();
-                    } catch {
-                        /* ignore */
-                    }
-                }
-
-                try {
+                if (closeStream) {
                     controller.close();
-                } catch {
-                    /* ignore */
                 }
             };
+
+            const onAbort = () => teardown();
+            cancel = () => teardown(false);
+            signal.addEventListener('abort', onAbort, { once: true });
+
+            if (signal.aborted) {
+                teardown();
+                return;
+            }
 
             const raw = (chunk: Uint8Array) => {
-                if (closed) {
-                    return;
-                }
-
-                try {
+                if (!closed) {
                     controller.enqueue(chunk);
-                } catch {
-                    teardown();
                 }
             };
 
-            const ch: SseChannel = {
+            const channel: SseChannel = {
                 raw,
-                encode: (s) => encoder.encode(s),
-                send: (payload) => raw(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)),
-                onClose: (fn) => {
-                    cleanups.push(fn);
+                encode: (text) => encoder.encode(text),
+                send: (payload) => {
+                    if (!closed) {
+                        raw(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+                    }
                 },
+                onClose: (fn) => {
+                    if (closed) {
+                        cleanup(fn);
+                    } else {
+                        cleanups.push(fn);
+                    }
+                },
+                close: () => teardown(),
                 isClosed: () => closed,
                 desiredSize: () => controller.desiredSize,
             };
-            start(ch);
-            heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
-            c.req.raw.signal.addEventListener('abort', teardown);
-            shutdown?.addEventListener('abort', teardown, { once: true });
-            cleanups.push(() => {
-                c.req.raw.signal.removeEventListener('abort', teardown);
-                shutdown?.removeEventListener('abort', teardown);
-            });
 
-            if (shutdown?.aborted) {
+            try {
+                start(channel);
+
+                if (!closed) {
+                    heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
+                }
+            } catch (error) {
                 teardown();
+                throw error;
             }
+        },
+        cancel() {
+            cancel();
         },
     });
     return new Response(stream, {

@@ -82,16 +82,19 @@ export function raceWithAbort<T>(
         return promise;
     }
 
-    throwIfAborted(signal, message);
-
-    return new Promise<T>((resolve, reject) => {
-        const onAbort = (): void => {
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => {
             reject(new SnowLumaAbortError(message, { cause: signal.reason }));
         };
 
-        signal.addEventListener('abort', onAbort, { once: true });
-        promise.then(resolve, reject).finally(() => {
-            signal.removeEventListener('abort', onAbort);
-        });
+        if (signal.aborted) {
+            onAbort();
+        } else {
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
+    });
+    return Promise.race([aborted, promise]).finally(() => {
+        signal.removeEventListener('abort', onAbort);
     });
 }

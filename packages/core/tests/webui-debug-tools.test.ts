@@ -114,6 +114,45 @@ describe('streamUploadToDisk', () => {
 describe('buildStreamInvokeResponse', () => {
     const noDelay = async () => {};
 
+    it('cancels delivery while the action is still pending', async () => {
+        let finish!: () => void;
+        const pending = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
+        let isAlive!: () => boolean;
+        const response = buildStreamInvokeResponse(
+            async (_request, _emit, alive) => {
+                isAlive = alive;
+                await pending;
+            },
+            '{}',
+            new AbortController().signal,
+        );
+        const canceled = response.body!.cancel();
+
+        try {
+            expect(isAlive()).toBe(false);
+        } finally {
+            finish();
+            await canceled;
+        }
+    });
+
+    it('does not invoke an action for an already aborted request', async () => {
+        const controller = new AbortController();
+        controller.abort();
+        let invoked = false;
+        const response = buildStreamInvokeResponse(
+            async () => {
+                invoked = true;
+            },
+            '{}',
+            controller.signal,
+        );
+        await readSse(response);
+        expect(invoked).toBe(false);
+    });
+
     it('relays each emitted frame as one SSE event, in order', async () => {
         const ac = new AbortController();
 

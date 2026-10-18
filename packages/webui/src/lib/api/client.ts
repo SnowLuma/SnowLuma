@@ -32,6 +32,7 @@ import {
     ApiError,
     type ApiClient,
     type ChangePasswordResult,
+    type ConfigSaveResult,
     type CreateApiClientOptions,
     type LoginResult,
     type LogsStreamOptions,
@@ -128,61 +129,13 @@ class HttpApiClient implements ApiClient {
         this.config = {
             get: async (uin) => {
                 const url = `/api/config/${encodeURIComponent(uin)}`;
-                const data = await this.getJson<{ config?: unknown } | unknown>(url);
-                const raw =
-                    typeof data === 'object' &&
-                    data != null &&
-                    'config' in (data as Record<string, unknown>)
-                        ? (data as { config: unknown }).config
-                        : data;
-                return normalizeOneBotConfig(raw);
+                const data = await this.getJson<{ config: unknown }>(url);
+                return normalizeOneBotConfig(data.config);
             },
             save: async (uin, config) => {
                 const url = `/api/config/${encodeURIComponent(uin)}`;
-                const result = await this.fetchJson<{
-                    success?: boolean;
-                    saved?: boolean;
-                    applied?: boolean;
-                    online?: boolean;
-                    reloaded?: boolean;
-                    errors?: Array<{
-                        name: string;
-                        kind?: 'httpServer' | 'httpClient' | 'wsServer' | 'wsClient';
-                        phase: string;
-                        message: string;
-                        at: number;
-                        restored?: boolean;
-                    }>;
-                    config?: unknown;
-                    message?: string;
-                }>(url, {
-                    method: 'POST',
-                    body: JSON.stringify(config),
-                });
-                // Refetch the canonical persisted view after the save. Runtime apply
-                // is a separate fact and is preserved alongside that config.
-                let canonical =
-                    result.config === undefined ? null : normalizeOneBotConfig(result.config);
-
-                if (canonical === null) {
-                    try {
-                        canonical = await this.config.get(uin);
-                    } catch (error) {
-                        // Legacy servers omit `config`. Their POST still confirmed the
-                        // save, so a follow-up GET failure must not become "保存失败".
-                        console.warn('config saved but canonical refetch failed', error);
-                        canonical = config;
-                    }
-                }
-
-                return {
-                    config: canonical,
-                    saved: result.saved ?? result.success === true,
-                    applied: result.applied ?? result.reloaded === true,
-                    online: result.online ?? result.reloaded === true,
-                    errors: Array.isArray(result.errors) ? result.errors : [],
-                    message: result.message ?? '配置保存成功',
-                };
+                const result = await this.postJson<ConfigSaveResult>(url, config);
+                return { ...result, config: normalizeOneBotConfig(result.config) };
             },
         };
 
@@ -747,14 +700,7 @@ class HttpApiClient implements ApiClient {
 
     // ---------- SSE ----------
 
-    /**
-     * Open a token-authed SSE channel to `path`, dispatching each parsed frame to
-     * `onMessage` and surfacing transport state ('open' / 'reconnecting' /
-     * 'closed') via `onStatus`. The fetch stream reconnects after transport loss
-     * so it retains EventSource's user-visible behaviour while keeping the token
-     * in the WebUI session header. A malformed frame (or a throw from
-     * `onMessage`) is skipped. The returned disposer aborts the active request.
-     */
+    /** Fetch-based SSE keeps the session token in a header and reconnects after transport loss. */
     private openSseChannel<T>(
         path: string,
         onMessage: (data: T) => void,
@@ -770,28 +716,47 @@ class HttpApiClient implements ApiClient {
         let active: AbortController | null = null;
         let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+        const clearReconnect = () => {
+            if (reconnectTimer !== null) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+        };
+
+        const disconnect = () => {
+            clearReconnect();
+            active?.abort();
+            active = null;
+        };
+
         const scheduleReconnect = () => {
             if (disposed || reconnectTimer !== null) {
                 return;
             }
 
-            onStatus?.('reconnecting');
             reconnectTimer = setTimeout(() => {
                 reconnectTimer = null;
                 void connect();
             }, 1_000);
+            onStatus?.('reconnecting');
         };
 
         const connect = async () => {
+            if (disposed || active) {
+                return;
+            }
+
             const token = this.currentToken;
 
-            if (disposed || !token) {
-                onStatus?.('closed');
+            if (!token) {
+                dispose();
                 return;
             }
 
             const controller = new AbortController();
             active = controller;
+            const isCurrent = () =>
+                !disposed && active === controller && !controller.signal.aborted;
 
             try {
                 const response = await fetch(path, {
@@ -803,12 +768,15 @@ class HttpApiClient implements ApiClient {
                     signal: controller.signal,
                 });
 
+                if (!isCurrent()) {
+                    await response.body?.cancel();
+                    return;
+                }
+
                 if (response.status === 401) {
-                    disposed = true;
-                    active = null;
+                    dispose();
                     this.setToken(null);
                     this.onUnauthorized?.();
-                    onStatus?.('closed');
                     return;
                 }
 
@@ -822,8 +790,12 @@ class HttpApiClient implements ApiClient {
                 let buffer = '';
 
                 try {
-                    while (!disposed) {
+                    while (isCurrent()) {
                         const { done, value } = await reader.read();
+
+                        if (!isCurrent()) {
+                            break;
+                        }
 
                         if (done) {
                             buffer += decoder.decode();
@@ -836,7 +808,7 @@ class HttpApiClient implements ApiClient {
                             throw new Error('SSE frame buffer exceeded 1 MiB');
                         }
 
-                        for (;;) {
+                        while (isCurrent()) {
                             const lf = buffer.indexOf('\n\n');
                             const crlf = buffer.indexOf('\r\n\r\n');
                             let separator = -1;
@@ -880,18 +852,14 @@ class HttpApiClient implements ApiClient {
                         /* already closed */
                     }
 
-                    try {
-                        reader.releaseLock();
-                    } catch {
-                        /* already released */
-                    }
+                    reader.releaseLock();
                 }
 
-                if (!disposed) {
+                if (isCurrent()) {
                     scheduleReconnect();
                 }
             } catch {
-                if (!disposed && !controller.signal.aborted) {
+                if (isCurrent()) {
                     scheduleReconnect();
                 }
             } finally {
@@ -901,28 +869,18 @@ class HttpApiClient implements ApiClient {
             }
         };
 
-        const onPageHide = () => {
-            active?.abort();
-        };
+        const onPageHide = disconnect;
 
         const onPageShow = (event: PageTransitionEvent) => {
             if (event.persisted && !disposed) {
-                if (reconnectTimer !== null) {
-                    clearTimeout(reconnectTimer);
-                    reconnectTimer = null;
-                }
-
+                clearReconnect();
                 void connect();
             }
         };
 
         const onVisible = () => {
             if (document.visibilityState === 'visible' && !disposed && !active) {
-                if (reconnectTimer !== null) {
-                    clearTimeout(reconnectTimer);
-                    reconnectTimer = null;
-                }
-
+                clearReconnect();
                 void connect();
             }
         };
@@ -936,9 +894,7 @@ class HttpApiClient implements ApiClient {
             document.addEventListener('freeze', onPageHide);
         }
 
-        void connect();
-
-        return () => {
+        const dispose = () => {
             if (disposed) {
                 return;
             }
@@ -952,15 +908,12 @@ class HttpApiClient implements ApiClient {
                 document.removeEventListener('freeze', onPageHide);
             }
 
-            if (reconnectTimer !== null) {
-                clearTimeout(reconnectTimer);
-            }
-
-            reconnectTimer = null;
-            active?.abort();
-            active = null;
+            disconnect();
             onStatus?.('closed');
         };
+
+        void connect();
+        return dispose;
     }
 
     private openLogStream(options: LogsStreamOptions): () => void {
@@ -985,12 +938,7 @@ class HttpApiClient implements ApiClient {
         };
     }
 
-    /** Open the single shared /api/logs/stream connection; every frame and status
-     *  change fans out to all subscribers, each isolated so one throwing handler
-     *  can't drop the frame for the others (and a subscriber unsubscribed mid-frame
-     *  is skipped). A no-token attempt does NOT cache a dead disposer — it reports
-     *  'closed' and returns so a later subscribe / setToken can open for real,
-     *  avoiding poisoning the shared cache. */
+    /** Isolate subscribers and leave unauthenticated attempts free to reconnect after login. */
     private openSharedLogStream(): void {
         if (!this.currentToken) {
             this.lastLogStatus = 'closed';
@@ -1042,10 +990,7 @@ class HttpApiClient implements ApiClient {
         );
     }
 
-    /** Token changed (login / re-login / logout): the shared stream baked the old
-     *  token into its URL, so tear it down and reopen with the new one if anyone is
-     *  still listening. Without this a re-login would leave the feed retrying a
-     *  stale-token URL forever. */
+    /** A new request must pick up the changed session token. */
     private reopenSharedLogStream(): void {
         if (this.logStreamDispose) {
             this.logStreamDispose();

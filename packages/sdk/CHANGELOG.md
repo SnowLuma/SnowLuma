@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Release cancellation listeners as soon as a request stops waiting for a connection.
 - Isolate WebSocket connection lifetimes and release request timers and abort listeners on every outcome.
 - Reject duplicate in-flight WebSocket echoes instead of overwriting the original request.
 - Add `getGroupShareLink()` and typed `get_group_share_link` support for group invitation links.

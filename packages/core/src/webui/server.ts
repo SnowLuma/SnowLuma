@@ -753,8 +753,8 @@ export async function initWebUI(
 
     const app = new Hono();
     const shutdownStreams = new AbortController();
-    const sseResponse = (...args: Parameters<typeof createSseResponse>) =>
-        createSseResponse(args[0], args[1], shutdownStreams.signal);
+    const sseResponse = (c: Context, start: Parameters<typeof createSseResponse>[1]) =>
+        createSseResponse(c.req.raw.signal, start, shutdownStreams.signal);
     app.use('*', webuiSecurityHeaders);
     registerLoginRequestSecurity(app);
     const storageManagement = new StorageManagementService({
@@ -1726,7 +1726,7 @@ export async function initWebUI(
         return buildStreamInvokeResponse(
             (rq, emit, alive) => inst.invokeStream(rq, emit, alive),
             rawRequest,
-            c.req.raw.signal,
+            AbortSignal.any([c.req.raw.signal, shutdownStreams.signal]),
         );
     });
 
