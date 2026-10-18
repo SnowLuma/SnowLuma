@@ -1,28 +1,27 @@
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
 import { getNativeHookAddon } from '../injector';
 
-export interface DbLockHolder {
+export interface DatabaseHolder {
     pid: number;
-
     name: string;
 }
 
-export function probeDbLock(dbPath: string): DbLockHolder[] {
+export async function getDatabaseHolders(dbPath: string): Promise<DatabaseHolder[]> {
     if (process.platform === 'win32') {
-        return probeWindowsHolders(dbPath);
+        return getWindowsHolders(dbPath);
     }
 
-    return process.platform === 'linux' ? probeLinuxLocks(dbPath) : [];
+    return process.platform === 'linux' ? getLinuxHolders(dbPath) : [];
 }
 
-function probeWindowsHolders(dbPath: string): DbLockHolder[] {
+async function getWindowsHolders(dbPath: string): Promise<DatabaseHolder[]> {
     const addon = getNativeHookAddon();
 
-    if (!addon?.probeDbLock) {
-        throw new Error('Windows account detection requires a hook addon with probeDbLock');
+    if (!addon?.getFileHoldersAsync) {
+        throw new Error('Windows account detection requires a hook addon with getFileHoldersAsync');
     }
 
-    const holders = addon.probeDbLock(dbPath);
+    const holders = await addon.getFileHoldersAsync(dbPath);
 
     if (
         !Array.isArray(holders) ||
@@ -50,16 +49,22 @@ export function isQqProcessName(name: string): boolean {
 }
 
 /** Match POSIX locks by device and inode; the table does not contain file paths. */
-function probeLinuxLocks(dbPath: string): DbLockHolder[] {
-    const stat = fs.statSync(dbPath, { throwIfNoEntry: false });
+async function getLinuxHolders(dbPath: string): Promise<DatabaseHolder[]> {
+    const stat = await fs.stat(dbPath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+            return null;
+        }
+
+        throw error;
+    });
 
     if (!stat) {
         return [];
     }
 
     const key = deviceInodeKey(stat.dev, stat.ino);
-    const table = fs.readFileSync('/proc/locks', 'utf8');
-    const holders: DbLockHolder[] = [];
+    const table = await fs.readFile('/proc/locks', 'utf8');
+    const holders: DatabaseHolder[] = [];
     const seen = new Set<number>();
 
     for (const line of table.split('\n')) {
@@ -77,7 +82,7 @@ function probeLinuxLocks(dbPath: string): DbLockHolder[] {
         }
 
         seen.add(pid);
-        holders.push({ pid, name: readProcessName(pid) });
+        holders.push({ pid, name: await readProcessName(pid) });
     }
 
     return holders;
@@ -89,10 +94,14 @@ function deviceInodeKey(device: number, inode: number): string {
     return `${major.toString(16).padStart(2, '0')}:${minor.toString(16).padStart(2, '0')}:${inode}`;
 }
 
-function readProcessName(pid: number): string {
+async function readProcessName(pid: number): Promise<string> {
     try {
-        return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
-    } catch {
-        return '';
+        return (await fs.readFile(`/proc/${pid}/comm`, 'utf8')).trim();
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return '';
+        }
+
+        throw error;
     }
 }

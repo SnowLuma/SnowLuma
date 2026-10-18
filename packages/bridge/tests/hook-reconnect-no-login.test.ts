@@ -59,11 +59,11 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
         const session = new HookSession(61, {
             detectLoginUin: async () => null,
             injector: {
-                inject: vi.fn(() => ({
+                inject: vi.fn(async () => ({
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 })),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             },
             makeClient: () => {
                 const c = new FakeClient();
@@ -103,11 +103,11 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
         const session = new HookSession(61, {
             detectLoginUin: async () => null,
             injector: {
-                inject: vi.fn(() => ({
+                inject: vi.fn(async () => ({
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 })),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             },
             makeClient: () => {
                 const c = new FakeClient();

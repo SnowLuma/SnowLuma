@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { SqliteDatabase } from '@snowluma/sqlite';
-import { isQqProcessName, probeDbLock } from '../src/qq-account/db-lock';
+import { isQqProcessName, getDatabaseHolders } from '../src/qq-account/database-holders';
 
 const native = vi.hoisted(() => ({ addon: vi.fn<() => unknown>(() => null) }));
 
@@ -12,13 +12,13 @@ vi.mock('../src/injector', () => ({ getNativeHookAddon: native.addon }));
 const IS_LINUX = process.platform === 'linux';
 const ORIGINAL_PLATFORM = process.platform;
 
-/** Run `probeDbLock` as if the host were Windows, with a stubbed addon. */
-function asWindows<T>(addon: unknown, run: () => T): T {
+/** Run `getDatabaseHolders` as if the host were Windows, with a stubbed addon. */
+async function asWindows<T>(addon: unknown, run: () => Promise<T>): Promise<T> {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     native.addon.mockReturnValue(addon);
 
     try {
-        return run();
+        return await run();
     } finally {
         Object.defineProperty(process, 'platform', {
             value: ORIGINAL_PLATFORM,
@@ -33,9 +33,9 @@ afterEach(() => {
 });
 
 describe('database holder probe', () => {
-    it.runIf(IS_LINUX)('reports nothing for a file that is not there', () => {
+    it.runIf(IS_LINUX)('reports nothing for a file that is not there', async () => {
         const missing = path.join(os.tmpdir(), `snowluma-absent-${process.pid}.db`);
-        expect(probeDbLock(missing)).toEqual([]);
+        expect(await getDatabaseHolders(missing)).toEqual([]);
     });
 
     it.runIf(IS_LINUX)('finds the process holding a database', async () => {
@@ -51,7 +51,7 @@ describe('database holder probe', () => {
             await db.exec('CREATE TABLE t(value TEXT)');
             await db.exec('BEGIN IMMEDIATE');
 
-            const holders = probeDbLock(file);
+            const holders = await getDatabaseHolders(file);
             const self = holders.find((holder) => holder.pid === process.pid);
             expect(self).toBeDefined();
             // The holder is named from /proc/<pid>/comm, and that name is what
@@ -60,7 +60,9 @@ describe('database holder probe', () => {
             expect(isQqProcessName(self!.name)).toBe(false);
 
             await db.exec('ROLLBACK');
-            expect(probeDbLock(file).some((holder) => holder.pid === process.pid)).toBe(false);
+            expect(
+                (await getDatabaseHolders(file)).some((holder) => holder.pid === process.pid),
+            ).toBe(false);
         } finally {
             await db.close();
             await rm(directory, { recursive: true, force: true });
@@ -69,15 +71,28 @@ describe('database holder probe', () => {
 });
 
 describe('Windows holder probe', () => {
-    it('reports the holders the addon lists', () => {
-        const holders = asWindows(
+    it('propagates rejected native queries instead of treating them as no login', async () => {
+        await expect(
+            asWindows(
+                {
+                    getFileHoldersAsync: async () => {
+                        throw new Error('RmGetList failed: 5');
+                    },
+                },
+                () => getDatabaseHolders('C:\\nt_msg.db'),
+            ),
+        ).rejects.toThrow('RmGetList failed: 5');
+    });
+
+    it('reports the holders the addon lists', async () => {
+        const holders = await asWindows(
             {
-                probeDbLock: () => [
+                getFileHoldersAsync: async () => [
                     { pid: 4242, name: 'QQ.exe' },
                     { pid: 7, name: 'weq' },
                 ],
             },
-            () => probeDbLock('C:\\Tencent Files\\10001\\nt_qq\\nt_db\\nt_msg.db'),
+            () => getDatabaseHolders('C:\\Tencent Files\\10001\\nt_qq\\nt_db\\nt_msg.db'),
         );
 
         expect(holders).toEqual([
@@ -88,22 +103,26 @@ describe('Windows holder probe', () => {
 
     it.each([[{ pid: 0, name: 'QQ' }], [{ pid: 9 }], [null], 'not-an-array'])(
         'reports malformed native results: %j',
-        (result) => {
-            expect(() =>
-                asWindows({ probeDbLock: () => result }, () => probeDbLock('C:\\nt_msg.db')),
-            ).toThrow('Invalid database holders');
+        async (result) => {
+            await expect(
+                asWindows({ getFileHoldersAsync: async () => result }, () =>
+                    getDatabaseHolders('C:\\nt_msg.db'),
+                ),
+            ).rejects.toThrow('Invalid database holders');
         },
     );
 
-    it('accepts an empty holder list', () => {
-        expect(asWindows({ probeDbLock: () => [] }, () => probeDbLock('C:\\nt_msg.db'))).toEqual(
-            [],
-        );
+    it('accepts an empty holder list', async () => {
+        expect(
+            await asWindows({ getFileHoldersAsync: async () => [] }, () =>
+                getDatabaseHolders('C:\\nt_msg.db'),
+            ),
+        ).toEqual([]);
     });
 
-    it.each([null, {}])('reports an unavailable native probe: %j', (addon) => {
-        expect(() => asWindows(addon, () => probeDbLock('C:\\nt_msg.db'))).toThrow(
-            'requires a hook addon with probeDbLock',
+    it.each([null, {}])('reports an unavailable native probe: %j', async (addon) => {
+        await expect(asWindows(addon, () => getDatabaseHolders('C:\\nt_msg.db'))).rejects.toThrow(
+            'requires a hook addon with getFileHoldersAsync',
         );
     });
 });

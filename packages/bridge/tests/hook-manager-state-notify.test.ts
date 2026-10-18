@@ -68,8 +68,11 @@ function makeManager(
         bridgeManager,
         pipeWatcher,
         injector: {
-            inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
-            unload: vi.fn(),
+            inject: vi.fn(async () => ({
+                method: 'loadModuleManual' as const,
+                handle: DUMMY_HANDLE,
+            })),
+            unload: vi.fn(async () => {}),
         },
         makeClient: clientFactory,
         listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
@@ -174,11 +177,11 @@ describe('HookManager.onSessionsChanged', () => {
             } as unknown as BridgeManagerSink,
             pipeWatcher,
             injector: {
-                inject: vi.fn(() => ({
+                inject: vi.fn(async () => ({
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 })),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             },
             makeClient: vi.fn(() => {
                 const c = new EventEmitter() as any;

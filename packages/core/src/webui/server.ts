@@ -1364,7 +1364,7 @@ export async function initWebUI(
         return usage;
     }
 
-    app.get('/api/system', (c) => {
+    app.get('/api/system', async (c) => {
         const cpus = os.cpus();
         const usage = sampleCpuLoad();
         const totalMem = os.totalmem();
@@ -1397,7 +1397,7 @@ export async function initWebUI(
             },
             runtime: {
                 pid: process.pid,
-                lowIntegrity: hasLowProcessIntegrity(getRuntimeIntegrity()),
+                lowIntegrity: hasLowProcessIntegrity(await getRuntimeIntegrity()),
                 rss: runtimeMemory.rss,
                 heapTotal: runtimeMemory.heapTotal,
                 heapUsed: runtimeMemory.heapUsed,

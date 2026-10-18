@@ -58,11 +58,11 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
             bridgeManager,
             pipeWatcher,
             injector: {
-                inject: vi.fn(() => ({
+                inject: vi.fn(async () => ({
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 })),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             },
             makeClient: () => {
                 const c = new FakeClient();

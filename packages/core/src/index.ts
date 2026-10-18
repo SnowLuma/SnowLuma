@@ -59,7 +59,7 @@ async function main() {
         perUinEnabled: runtimeConfig.logPerUin ?? DEFAULT_LOG_PER_UIN,
     });
     log.info('SnowLuma starting');
-    logRuntimeIntegrity(getRuntimeIntegrity());
+    logRuntimeIntegrity(await getRuntimeIntegrity());
     const stopNativeStageSync = startNativeStageSync({
         version: APP_VERSION,
         dataDir: 'data',

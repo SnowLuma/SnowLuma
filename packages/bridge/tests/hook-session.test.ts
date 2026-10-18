@@ -112,8 +112,8 @@ function makeSession(
     let pipeLive = opts.pipeLive ?? false;
     const clients: FakeClient[] = [];
     const injector = {
-        inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
-        unload: vi.fn(),
+        inject: vi.fn(async () => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
+        unload: vi.fn(async () => {}),
     };
     // Default detection exposes no account so the reconcile safety net is inert
     // unless a test opts into a known one.
@@ -200,10 +200,10 @@ describe('HookSession — runtime TRACE', () => {
 
         try {
             const injector = {
-                inject: vi.fn(() => {
+                inject: vi.fn(async () => {
                     throw new Error('fixture inject failure');
                 }),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             };
             const failedLoad = new HookSession(7103, {
                 injector,
@@ -248,11 +248,11 @@ describe('HookSession — runtime TRACE', () => {
         const clients: FakeClient[] = [];
         const session = new HookSession(7108, {
             injector: {
-                inject: () => {
+                inject: async () => {
                     pipeLive = true;
                     throw new Error('component loading failed [COMPONENT_LOAD_FAILED]');
                 },
-                unload: () => undefined,
+                unload: async () => undefined,
             },
             makeClient: () => {
                 const client = new FakeClient();
@@ -451,8 +451,8 @@ describe('HookSession — load', () => {
             },
         );
         const injector = {
-            inject: vi.fn(() => loading),
-            unload: vi.fn(),
+            inject: vi.fn(async () => loading),
+            unload: vi.fn(async () => {}),
         };
         const session = new HookSession(1234, {
             injector,
@@ -474,10 +474,10 @@ describe('HookSession — load', () => {
 
     it('inject failure → status error, error message captured', async () => {
         const injector = {
-            inject: vi.fn(() => {
+            inject: vi.fn(async () => {
                 throw new Error('inject boom');
             }),
-            unload: vi.fn(),
+            unload: vi.fn(async () => {}),
         };
         const session = new HookSession(1234, {
             injector,
@@ -498,7 +498,7 @@ describe('HookSession — load', () => {
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 }),
-            unload: vi.fn(),
+            unload: vi.fn(async () => {}),
         };
         const session = new HookSession(1234, {
             injector,
@@ -678,11 +678,11 @@ describe('HookSession — unload', () => {
 
         const session = new HookSession(pid, {
             injector: {
-                inject: vi.fn(() => ({
+                inject: vi.fn(async () => ({
                     method: 'loadModuleManual' as const,
                     handle: DUMMY_HANDLE,
                 })),
-                unload: vi.fn(),
+                unload: vi.fn(async () => {}),
             },
             makeClient: () => new FakeClient() as unknown as QqHookClient,
             pipeWatcher: { isPipeLive: () => pipeLive, tickNow },
@@ -699,6 +699,48 @@ describe('HookSession — unload', () => {
 });
 
 describe('HookSession — serialization', () => {
+    it('waits for native unload before starting a queued load', async () => {
+        const ctx = makeSession();
+        await ctx.session.load();
+        let finish!: () => void;
+        ctx.injector.unload.mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+                finish = resolve;
+            }),
+        );
+
+        const unloading = ctx.session.unload();
+        const loading = ctx.session.load();
+        await flush();
+        expect(ctx.injector.unload).toHaveBeenCalledOnce();
+        expect(ctx.injector.inject).toHaveBeenCalledTimes(1);
+        expect(ctx.session.toInfo().injected).toBe(true);
+
+        finish();
+        await unloading;
+        await loading;
+        expect(ctx.injector.inject).toHaveBeenCalledTimes(2);
+        ctx.session.dispose();
+    });
+
+    it('retains the handle when native unload rejects so it can be retried', async () => {
+        const ctx = makeSession();
+        await ctx.session.load();
+        ctx.injector.unload.mockRejectedValueOnce(new Error('unload rejected'));
+
+        await expect(ctx.session.unload()).resolves.toMatchObject({
+            status: 'error',
+            error: 'unload rejected',
+            injected: true,
+        });
+        await expect(ctx.session.unload()).resolves.toMatchObject({
+            status: 'available',
+            injected: false,
+        });
+        expect(ctx.injector.unload).toHaveBeenNthCalledWith(2, ctx.session.pid, DUMMY_HANDLE);
+        ctx.session.dispose();
+    });
+
     it('user mashing load → unload → load runs in order, end state consistent', async () => {
         const ctx = makeSession({ pipeLive: false });
 
@@ -864,10 +906,10 @@ describe('HookSession — pipe-down must not clobber a settled error', () => {
 
     it('onPipeDown after a failed load leaves the error status intact', async () => {
         const injector = {
-            inject: vi.fn(() => {
+            inject: vi.fn(async () => {
                 throw new Error('inject boom');
             }),
-            unload: vi.fn(),
+            unload: vi.fn(async () => {}),
         };
         const session = new HookSession(1234, {
             injector,

@@ -10,7 +10,7 @@ import type { PacketSink } from '@snowluma/common/protocol-types';
 import { isRealUin } from '@snowluma/common/uin';
 import { EventEmitter } from 'events';
 import { HookPacketClient } from './hook-packet-client';
-import type { HookInjectResult } from './injector';
+import type { HookInjectResult, ManualMapHandle } from './injector';
 import { detectUinForPid } from './qq-account';
 import type { QqHookClient, QqHookLoginState, QqHookPacket } from './qq-hook-client';
 import { statusFor } from './hook-status';
@@ -33,8 +33,8 @@ const RECEIVE_STALE_CONFIRM_MS = 15_000;
 
 export type HookSessionDeps = {
     injector: {
-        inject: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
-        unload: (pid: number, handle: HookInjectResult['handle']) => void;
+        inject: (pid: number) => Promise<HookInjectResult>;
+        unload: (pid: number, handle: ManualMapHandle) => Promise<void>;
     };
     makeClient: (pid: number) => QqHookClient;
     /** Account QQ's local data reports as signed in on `pid`, or null. Drives the
@@ -440,7 +440,7 @@ export class HookSession extends EventEmitter {
             const handle = this.injectResult?.handle;
 
             if (this.injected && handle) {
-                this.injector.unload(this.pid, handle);
+                await this.injector.unload(this.pid, handle);
                 this.log.info('SnowLuma unloaded from PID=%d', this.pid);
             }
 

@@ -56,20 +56,22 @@ describe('runtime integrity diagnostics', () => {
     });
 
     it('keeps one startup snapshot for logging and all WebUI polls', async () => {
-        const read = vi.fn().mockReturnValue(sample());
-        native.load.mockReturnValue({ getRuntimeIntegrity: read });
+        const read = vi.fn().mockResolvedValue(sample());
+        native.load.mockReturnValue({ getRuntimeIntegrityAsync: read });
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        const first = getRuntimeIntegrity();
+        const pending = getRuntimeIntegrity();
+        expect(getRuntimeIntegrity()).toBe(pending);
+        const first = await pending;
         expect(first).toMatchObject({
             status: 'available',
             process: { rid: 8192 },
             file: { label: null },
         });
-        read.mockReturnValue({
+        read.mockResolvedValue({
             ...sample(),
             file: { status: 'ok', label: { rid: 4096, inherited: true, policy: 1 } },
         });
-        expect(getRuntimeIntegrity()).toBe(first);
+        expect(await getRuntimeIntegrity()).toBe(first);
         expect(read).toHaveBeenCalledTimes(1);
     });
 
@@ -77,13 +79,13 @@ describe('runtime integrity diagnostics', () => {
         'retains %s query errors and the other successful result',
         async (field) => {
             native.load.mockReturnValue({
-                getRuntimeIntegrity: () => ({
+                getRuntimeIntegrityAsync: async () => ({
                     ...sample(),
                     [field]: { status: 'error', operation: 'Win32Query', code: 5 },
                 }),
             });
             const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-            expect(getRuntimeIntegrity()).toMatchObject({
+            expect(await getRuntimeIntegrity()).toMatchObject({
                 status: 'available',
                 [field]: { status: 'error', operation: 'Win32Query', code: 5 },
             });
@@ -93,7 +95,7 @@ describe('runtime integrity diagnostics', () => {
     it('reports old addons as unavailable rather than Medium', async () => {
         native.load.mockReturnValue({});
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        expect(getRuntimeIntegrity()).toMatchObject({
+        expect(await getRuntimeIntegrity()).toMatchObject({
             status: 'unavailable',
             error: expect.stringContaining('不支持'),
         });
@@ -103,7 +105,7 @@ describe('runtime integrity diagnostics', () => {
         native.load.mockReturnValue(null);
         native.error.mockReturnValue('dlopen failed: incompatible binary');
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        expect(getRuntimeIntegrity()).toMatchObject({
+        expect(await getRuntimeIntegrity()).toMatchObject({
             status: 'unavailable',
             error: 'dlopen failed: incompatible binary',
         });
@@ -115,28 +117,26 @@ describe('runtime integrity diagnostics', () => {
         { ...sample(), process: { status: 'ok', rid: -1 } },
         { ...sample(), file: { status: 'ok', label: { rid: 4096, inherited: 'yes', policy: 1 } } },
     ])('rejects malformed or wrong-process native results', async (result) => {
-        native.load.mockReturnValue({ getRuntimeIntegrity: () => result });
+        native.load.mockReturnValue({ getRuntimeIntegrityAsync: async () => result });
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        expect(getRuntimeIntegrity()).toMatchObject({
+        expect(await getRuntimeIntegrity()).toMatchObject({
             status: 'unavailable',
             error: expect.stringContaining('无效数据'),
         });
     });
 
-    it('preserves thrown errors without repeatedly probing on WebUI polls', async () => {
+    it('preserves rejected errors without repeatedly probing on WebUI polls', async () => {
         const read = vi
             .fn()
-            .mockImplementationOnce(() => {
-                throw new Error('allocation failed');
-            })
-            .mockReturnValue(sample());
-        native.load.mockReturnValue({ getRuntimeIntegrity: read });
+            .mockRejectedValueOnce(new Error('allocation failed'))
+            .mockResolvedValue(sample());
+        native.load.mockReturnValue({ getRuntimeIntegrityAsync: read });
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        expect(getRuntimeIntegrity()).toMatchObject({
+        expect(await getRuntimeIntegrity()).toMatchObject({
             status: 'unavailable',
             error: 'allocation failed',
         });
-        expect(getRuntimeIntegrity()).toMatchObject({
+        expect(await getRuntimeIntegrity()).toMatchObject({
             status: 'unavailable',
             error: 'allocation failed',
         });
@@ -146,7 +146,7 @@ describe('runtime integrity diagnostics', () => {
     it('does not load the addon on non-Windows hosts', async () => {
         Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
         const { getRuntimeIntegrity } = await import('../src/runtime-integrity');
-        expect(getRuntimeIntegrity()).toEqual({ status: 'unsupported' });
+        expect(await getRuntimeIntegrity()).toEqual({ status: 'unsupported' });
         expect(native.load).not.toHaveBeenCalled();
     });
 });

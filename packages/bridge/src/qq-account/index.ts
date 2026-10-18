@@ -1,4 +1,4 @@
-export { isQqProcessName, probeDbLock, type DbLockHolder } from './db-lock';
+export { isQqProcessName, getDatabaseHolders, type DatabaseHolder } from './database-holders';
 export {
     detectAccountLogins,
     detectAccountLoginsForPids,

@@ -11,11 +11,11 @@ export interface ManualMapHandle {
 }
 
 interface NativeHookAddon {
-    getRuntimeIntegrity?(): unknown;
+    getRuntimeIntegrityAsync(): Promise<unknown>;
     getAllMainProcessAsync(): Promise<number[]>;
-    probeDbLock?(dbPath: string): { pid: number; name: string }[];
-    loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
-    unloadModuleManual(pid: number, handle: ManualMapHandle): void;
+    getFileHoldersAsync(path: string): Promise<{ pid: number; name: string }[]>;
+    loadModuleManualAsync(pid: number, dylibPath: string): Promise<ManualMapHandle>;
+    unloadModuleManualAsync(pid: number, handle: ManualMapHandle): Promise<void>;
 }
 
 export interface HookProcessBaseInfo {
@@ -26,7 +26,7 @@ export interface HookProcessBaseInfo {
 
 export interface HookInjectResult {
     method: 'loadModuleManual';
-    handle?: ManualMapHandle;
+    handle: ManualMapHandle;
 }
 
 let nativeAddon: NativeHookAddon | null = null;
@@ -123,15 +123,15 @@ export async function injectHookProcess(pid: number): Promise<HookInjectResult> 
         throw new Error(`No hook ${injectableExt} found for ${process.platform}-${process.arch}`);
     }
 
-    return { method: 'loadModuleManual', handle: await addon.loadModuleManual(pid, dllPath) };
+    return { method: 'loadModuleManual', handle: await addon.loadModuleManualAsync(pid, dllPath) };
 }
 
-export function unloadHookProcess(pid: number, handle: ManualMapHandle): void {
+export async function unloadHookProcess(pid: number, handle: ManualMapHandle): Promise<void> {
     const addon = getNativeHookAddon();
 
     if (!addon) {
         throw new Error(getNativeHookLoadError() ?? 'hook native addon is not available');
     }
 
-    addon.unloadModuleManual(pid, handle);
+    await addon.unloadModuleManualAsync(pid, handle);
 }

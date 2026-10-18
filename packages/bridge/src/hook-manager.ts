@@ -129,13 +129,7 @@ export class HookManager {
 
         this.injector = deps.injector ?? {
             inject: injectHookProcess,
-            unload: (pid, handle) => {
-                if (!handle) {
-                    return;
-                }
-
-                unloadHookProcess(pid, handle);
-            },
+            unload: unloadHookProcess,
         };
         this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
         this.detectAccounts = deps.detectAccounts ?? detectAccountLoginsForPids;

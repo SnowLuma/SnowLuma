@@ -29,19 +29,19 @@ function makeManager(opts: {
     autoLoadOnDiscovery?: boolean;
     processes?: number[];
     onSessionsChanged?: () => void;
-    inject?: (pid: number) => HookInjectResult | Promise<HookInjectResult>;
+    inject?: (pid: number) => Promise<HookInjectResult>;
     detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
 }) {
     let pids = opts.processes ?? [];
     const live = new Set<number>();
     const inject = vi.fn(
         opts.inject ??
-            (() => ({
+            (async () => ({
                 method: 'loadModuleManual' as const,
                 handle: DUMMY_HANDLE,
             })),
     );
-    const unload = vi.fn();
+    const unload = vi.fn(async () => {});
     const pipeWatcher = new PipeWatcher({
         listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         listLivePipes: async () => new Set(live),

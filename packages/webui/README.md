@@ -50,9 +50,8 @@ prove that QQ is signed out, and local detection alone never marks a bridge onli
 The manual login probe and `/api/processes/:pid/probe-login` endpoint are removed.
 
 Linux resolves data roots from each QQ process's `XDG_CONFIG_HOME` or `HOME`.
-Windows requires a hook addon with `probeDbLock`; the currently bundled addon does
-not provide it, so pre-injection account detection is unavailable there. A missing
-interface is logged. Hook login events continue to report the online account.
+Windows uses the bundled addon’s `getFileHoldersAsync` to find the process holding
+each account database. Query failures are reported instead of treated as no login.
 
 ## Account notification templates
 

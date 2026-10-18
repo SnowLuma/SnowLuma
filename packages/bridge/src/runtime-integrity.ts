@@ -76,16 +76,16 @@ function isNativeRuntimeIntegrity(value: unknown): value is NativeRuntimeIntegri
     );
 }
 
-let cached: RuntimeIntegrity | undefined;
+let cached: Promise<RuntimeIntegrity> | undefined;
 
 /** One startup snapshot, shared by the startup log and the WebUI warning. */
-export function getRuntimeIntegrity(): RuntimeIntegrity {
+export function getRuntimeIntegrity(): Promise<RuntimeIntegrity> {
+    return (cached ??= readRuntimeIntegrity());
+}
+
+async function readRuntimeIntegrity(): Promise<RuntimeIntegrity> {
     if (process.platform !== 'win32') {
         return { status: 'unsupported' };
-    }
-
-    if (cached) {
-        return cached;
     }
 
     try {
@@ -95,17 +95,17 @@ export function getRuntimeIntegrity(): RuntimeIntegrity {
             throw new Error(getNativeHookLoadError() ?? '原生组件不可用');
         }
 
-        if (typeof addon.getRuntimeIntegrity !== 'function') {
+        if (typeof addon.getRuntimeIntegrityAsync !== 'function') {
             throw new Error('当前原生组件不支持完整性诊断，请更新原生组件');
         }
 
-        const result = addon.getRuntimeIntegrity();
+        const result = await addon.getRuntimeIntegrityAsync();
 
         if (!isNativeRuntimeIntegrity(result)) {
             throw new Error('原生完整性诊断返回了无效数据');
         }
 
-        cached = {
+        return {
             status: 'available',
             pid: result.pid,
             executablePath: result.executablePath,
@@ -113,11 +113,9 @@ export function getRuntimeIntegrity(): RuntimeIntegrity {
             file: result.file,
         };
     } catch (error) {
-        cached = {
+        return {
             status: 'unavailable',
             error: error instanceof Error ? error.message : String(error),
         };
     }
-
-    return cached;
 }

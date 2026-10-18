@@ -7,15 +7,15 @@ import { getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowlum
 
 const mocks = vi.hoisted(() => ({
     readLocalAccounts: vi.fn(),
-    probeDbLock: vi.fn(),
+    getDatabaseHolders: vi.fn(),
 }));
 
 // The account list and the holder probe are covered on their own; this file is
 // about how the two are joined.
 vi.mock('../src/qq-account/login-db', () => ({ readLocalAccounts: mocks.readLocalAccounts }));
-vi.mock('../src/qq-account/db-lock', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../src/qq-account/db-lock')>()),
-    probeDbLock: mocks.probeDbLock,
+vi.mock('../src/qq-account/database-holders', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/qq-account/database-holders')>()),
+    getDatabaseHolders: mocks.getDatabaseHolders,
 }));
 
 import { detectAccountLogins, detectAccountLoginsForPids } from '../src/qq-account/detect';
@@ -29,7 +29,7 @@ const children: Array<ReturnType<typeof spawn>> = [];
 
 afterEach(async () => {
     mocks.readLocalAccounts.mockReset();
-    mocks.probeDbLock.mockReset();
+    mocks.getDatabaseHolders.mockReset();
 
     for (const child of children.splice(0)) {
         child.kill();
@@ -77,7 +77,7 @@ describe('local account detection', () => {
     it('labels each account with the process holding its database', async () => {
         const root = await makeRoot();
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [ALICE, BOB], failures: [] });
-        mocks.probeDbLock.mockImplementation((dbPath: string) => {
+        mocks.getDatabaseHolders.mockImplementation(async (dbPath: string) => {
             if (dbPath === ntMsgDbPath(root, ALICE)) {
                 return [{ pid: 4242, name: 'qq' }];
             }
@@ -98,7 +98,7 @@ describe('local account detection', () => {
         mocks.readLocalAccounts.mockImplementation(async (root: string) =>
             root === own ? { accounts: [ALICE], failures: [] } : { accounts: [BOB], failures: [] },
         );
-        mocks.probeDbLock.mockImplementation((dbPath: string) =>
+        mocks.getDatabaseHolders.mockImplementation(async (dbPath: string) =>
             dbPath === ntMsgDbPath(extra, BOB) ? [{ pid: 5151, name: 'qq' }] : [],
         );
 
@@ -109,7 +109,7 @@ describe('local account detection', () => {
 
         // An account held under an instance's own HOME is still labelled, which
         // is what a single-root lookup cannot do.
-        expect(mocks.probeDbLock).toHaveBeenCalledWith(ntMsgDbPath(extra, BOB));
+        expect(mocks.getDatabaseHolders).toHaveBeenCalledWith(ntMsgDbPath(extra, BOB));
     });
 
     it('keeps account records with the same uin scoped to their own root', async () => {
@@ -120,7 +120,7 @@ describe('local account detection', () => {
                 ? { accounts: [ALICE], failures: [] }
                 : { accounts: [{ ...ALICE, nickname: 'Stale' }], failures: [] },
         );
-        mocks.probeDbLock.mockImplementation((file: string) =>
+        mocks.getDatabaseHolders.mockImplementation(async (file: string) =>
             file === ntMsgDbPath(second, ALICE) ? [{ pid: 5151, name: 'qq' }] : [],
         );
 
@@ -152,7 +152,7 @@ describe('local account detection', () => {
                     },
                 ],
             });
-            mocks.probeDbLock.mockReturnValue([]);
+            mocks.getDatabaseHolders.mockResolvedValue([]);
 
             // An unreadable login.db must not look like "no accounts": an
             // operator reading the log has to see why nothing was reported.
@@ -176,7 +176,7 @@ describe.runIf(process.platform === 'linux')('per-process data roots', () => {
         const home = await makeRoot();
         const pid = await spawnWithHome(home);
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.getDatabaseHolders.mockResolvedValue([]);
 
         await detectAccountLoginsForPids([pid]);
 
@@ -188,7 +188,7 @@ describe.runIf(process.platform === 'linux')('per-process data roots', () => {
         const home = await makeRoot();
         const pids = [await spawnWithHome(home), await spawnWithHome(home)];
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.getDatabaseHolders.mockResolvedValue([]);
 
         await detectAccountLoginsForPids(pids);
 
@@ -200,7 +200,7 @@ describe.runIf(process.platform === 'linux')('per-process data roots', () => {
         const configHome = await makeRoot();
         const pid = await spawnWithHome(home, { XDG_CONFIG_HOME: configHome });
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.getDatabaseHolders.mockResolvedValue([]);
 
         await detectAccountLoginsForPids([pid]);
 
@@ -213,7 +213,7 @@ describe.runIf(process.platform === 'linux')('per-process data roots', () => {
         const second = await makeRoot();
         const pids = [await spawnWithHome(first), await spawnWithHome(second)];
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.getDatabaseHolders.mockResolvedValue([]);
 
         await detectAccountLoginsForPids(pids);
 
@@ -225,7 +225,7 @@ describe.runIf(process.platform === 'linux')('per-process data roots', () => {
         const home = await makeRoot();
         const pid = await spawnWithHome(home);
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.getDatabaseHolders.mockResolvedValue([]);
 
         // The child exits, so its environment is no longer readable.
         await new Promise<void>((resolve) => {

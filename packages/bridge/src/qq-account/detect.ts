@@ -1,5 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
-import { isQqProcessName, probeDbLock } from './db-lock';
+import { isQqProcessName, getDatabaseHolders } from './database-holders';
 import { readLocalAccounts, type LocalAccount } from './login-db';
 import { loginDbPaths, ntMsgDbPath, qqDataRoots, qqDataRootsForPid } from './paths';
 
@@ -39,8 +39,8 @@ export async function detectAccountLogins(
         }
 
         for (const account of report.accounts) {
-            const holder = probeDbLock(ntMsgDbPath(root, account)).find((candidate) =>
-                isQqProcessName(candidate.name),
+            const holder = (await getDatabaseHolders(ntMsgDbPath(root, account))).find(
+                (candidate) => isQqProcessName(candidate.name),
             );
             states.push({ ...account, pid: holder?.pid ?? null });
         }

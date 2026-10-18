@@ -62,14 +62,16 @@ function allowExisting(paths: readonly string[]): void {
 function fakeAddon(
     overrides: {
         getAllMainProcessAsync?: number[];
-        loadModuleManual?: (pid: number, dylibPath: string) => unknown;
-        unloadModuleManual?: (pid: number, handle: typeof HANDLE) => void;
+        loadModuleManualAsync?: (pid: number, dylibPath: string) => Promise<typeof HANDLE>;
+        unloadModuleManualAsync?: (pid: number, handle: typeof HANDLE) => Promise<void>;
     } = {},
 ) {
     return {
         getAllMainProcessAsync: vi.fn(async () => overrides.getAllMainProcessAsync ?? []),
-        loadModuleManual: vi.fn(overrides.loadModuleManual ?? (() => HANDLE)),
-        unloadModuleManual: vi.fn(overrides.unloadModuleManual ?? (() => undefined)),
+        loadModuleManualAsync: vi.fn(overrides.loadModuleManualAsync ?? (async () => HANDLE)),
+        unloadModuleManualAsync: vi.fn(
+            overrides.unloadModuleManualAsync ?? (async () => undefined),
+        ),
     };
 }
 
@@ -335,13 +337,13 @@ describe('injectHookProcess', () => {
         await expect(injectHookProcess(4242)).rejects.toThrow('No hook so found for linux-x64');
     });
 
-    it('awaits a thenable loadModuleManual handle', async () => {
+    it('awaits native asynchronous injection', async () => {
         setPlatform('linux', 'x64');
         const nodePath = nativeCandidate('snowluma-linux-x64.node', 0);
         const soPath = nativeCandidate('snowluma-linux-x64.so', 0);
         allowExisting([nodePath, soPath]);
         const addon = fakeAddon({
-            loadModuleManual: () => Promise.resolve(HANDLE),
+            loadModuleManualAsync: () => Promise.resolve(HANDLE),
         });
         installDlopen(addon);
 
@@ -350,24 +352,8 @@ describe('injectHookProcess', () => {
             method: 'loadModuleManual',
             handle: HANDLE,
         });
-        expect(addon.loadModuleManual).toHaveBeenCalledTimes(1);
-        expect(addon.loadModuleManual).toHaveBeenCalledWith(4242, soPath);
-    });
-
-    it('accepts a synchronous loadModuleManual return value', async () => {
-        setPlatform('darwin', 'arm64');
-        const nodePath = nativeCandidate('snowluma-darwin-arm64.node', 1);
-        const soPath = nativeCandidate('snowluma-darwin-arm64.so', 1);
-        allowExisting([nodePath, soPath]);
-        const addon = fakeAddon({ loadModuleManual: () => HANDLE });
-        installDlopen(addon);
-
-        const { injectHookProcess } = await loadInjector();
-        await expect(injectHookProcess(77)).resolves.toEqual({
-            method: 'loadModuleManual',
-            handle: HANDLE,
-        });
-        expect(addon.loadModuleManual).toHaveBeenCalledWith(77, soPath);
+        expect(addon.loadModuleManualAsync).toHaveBeenCalledTimes(1);
+        expect(addon.loadModuleManualAsync).toHaveBeenCalledWith(4242, soPath);
     });
 
     it('injects snowluma-win32-x64.dll on win32 x64', async () => {
@@ -375,7 +361,7 @@ describe('injectHookProcess', () => {
         const nodePath = nativeCandidate('snowluma-win32-x64.node', 0);
         const dllPath = nativeCandidate('snowluma-win32-x64.dll', 0);
         allowExisting([nodePath, dllPath]);
-        const addon = fakeAddon({ loadModuleManual: () => HANDLE });
+        const addon = fakeAddon({ loadModuleManualAsync: async () => HANDLE });
         installDlopen(addon);
 
         const { injectHookProcess } = await loadInjector();
@@ -383,7 +369,7 @@ describe('injectHookProcess', () => {
             method: 'loadModuleManual',
             handle: HANDLE,
         });
-        expect(addon.loadModuleManual).toHaveBeenCalledWith(5150, dllPath);
+        expect(addon.loadModuleManualAsync).toHaveBeenCalledWith(5150, dllPath);
     });
 
     it('propagates a rejected loadModuleManual', async () => {
@@ -394,7 +380,7 @@ describe('injectHookProcess', () => {
         ]);
         installDlopen(
             fakeAddon({
-                loadModuleManual: () => Promise.reject(new Error('map failed')),
+                loadModuleManualAsync: () => Promise.reject(new Error('map failed')),
             }),
         );
 
@@ -404,10 +390,24 @@ describe('injectHookProcess', () => {
 });
 
 describe('unloadHookProcess', () => {
+    it('propagates native unload rejection', async () => {
+        setPlatform('linux', 'x64');
+        allowExisting([nativeCandidate('snowluma-linux-x64.node', 0)]);
+        installDlopen(
+            fakeAddon({
+                unloadModuleManualAsync: async () => {
+                    throw new Error('unload failed');
+                },
+            }),
+        );
+        const { unloadHookProcess } = await loadInjector();
+        await expect(unloadHookProcess(4242, HANDLE)).rejects.toThrow('unload failed');
+    });
+
     it('throws the missing-addon load error', async () => {
         setPlatform('linux', 'x64');
         const { unloadHookProcess } = await loadInjector();
-        expect(() => unloadHookProcess(4242, HANDLE)).toThrow(
+        await expect(unloadHookProcess(4242, HANDLE)).rejects.toThrow(
             'No hook native addon found for linux-x64',
         );
     });
@@ -419,8 +419,8 @@ describe('unloadHookProcess', () => {
         installDlopen(addon);
 
         const { unloadHookProcess } = await loadInjector();
-        expect(unloadHookProcess(4242, HANDLE)).toBeUndefined();
-        expect(addon.unloadModuleManual).toHaveBeenCalledTimes(1);
-        expect(addon.unloadModuleManual).toHaveBeenCalledWith(4242, HANDLE);
+        await expect(unloadHookProcess(4242, HANDLE)).resolves.toBeUndefined();
+        expect(addon.unloadModuleManualAsync).toHaveBeenCalledTimes(1);
+        expect(addon.unloadModuleManualAsync).toHaveBeenCalledWith(4242, HANDLE);
     });
 });
