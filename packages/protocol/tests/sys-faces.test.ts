@@ -26,6 +26,16 @@ import {
 import { buildSendElems } from '../src/element-builder';
 import { FetchSysFace } from '../src/oidb-services/sys-faces/fetch-sys-face';
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<T>((yes, no) => {
+        resolve = yes;
+        reject = no;
+    });
+    return { promise, resolve, reject };
+}
+
 function entry(
     qSid: string,
     aniStickerType: number | null,
@@ -295,6 +305,79 @@ describe('FetchSysFaces.deserialize', () => {
 
 describe('SysFaceStore — persistent catalog and query seam', () => {
     const sender = {} as never;
+
+    it.each(['snapshot', 'read error'] as const)(
+        'does not replace a refreshed catalog with a late cache %s',
+        async (result) => {
+            const cache = deferred<SysFaceCatalogSnapshot | null>();
+            const store = new SysFaceStore({
+                storage: { load: () => cache.promise, save: async () => {} },
+                fetchCatalog: async () => CATALOG,
+            });
+            const ready = store.ensureReady(sender);
+            await store.refresh(sender);
+
+            if (result === 'snapshot') {
+                cache.resolve({ schemaVersion: 1, fetchedAt: 1, packs: CATALOG.slice(0, 1) });
+            } else {
+                cache.reject(new Error('obsolete cache read failed'));
+            }
+
+            await ready;
+            await expect(store.getCatalog(sender)).resolves.toEqual(CATALOG);
+            expect(store.lookup(392)?.qSid).toBe('392');
+        },
+    );
+
+    it('waits for a refresh that started during the disk read', async () => {
+        const cache = deferred<SysFaceCatalogSnapshot | null>();
+        const remote = deferred<SysFacePackEntry[]>();
+        const store = new SysFaceStore({
+            storage: { load: () => cache.promise, save: async () => {} },
+            fetchCatalog: () => remote.promise,
+        });
+        let ready = false;
+        const reading = store.ensureReady(sender).then(() => {
+            ready = true;
+        });
+        const refreshing = store.refresh(sender);
+        cache.resolve({ schemaVersion: 1, fetchedAt: 1, packs: CATALOG.slice(0, 1) });
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(ready).toBe(false);
+        remote.resolve(CATALOG);
+        await Promise.all([reading, refreshing]);
+        expect(store.lookup(392)?.qSid).toBe('392');
+    });
+
+    it('retains a failed cache read until an explicit refresh repairs the catalog', async () => {
+        const load = vi.fn(async () => {
+            throw new Error('corrupt cache');
+        });
+        const fetchCatalog = vi.fn(async () => CATALOG);
+        const store = new SysFaceStore({ storage: { load, save: async () => {} }, fetchCatalog });
+        await expect(store.ensureReady(sender)).rejects.toThrow('corrupt cache');
+        await expect(store.ensureReady(sender)).rejects.toThrow('corrupt cache');
+        expect(load).toHaveBeenCalledOnce();
+        expect(fetchCatalog).not.toHaveBeenCalled();
+        await store.refresh(sender);
+        await expect(store.getCatalog(sender)).resolves.toEqual(CATALOG);
+    });
+
+    it('retries a failed login prewarm, then shares the completed job', async () => {
+        const load = vi.fn(async () => null);
+        const fetchCatalog = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('network failed'))
+            .mockResolvedValueOnce(CATALOG);
+        const store = new SysFaceStore({ storage: { load, save: async () => {} }, fetchCatalog });
+        await expect(store.prewarm(sender)).rejects.toThrow('network failed');
+        const retry = store.prewarm(sender);
+        expect(store.prewarm(sender)).toBe(retry);
+        await retry;
+        await store.prewarm(sender);
+        expect(load).toHaveBeenCalledOnce();
+        expect(fetchCatalog).toHaveBeenCalledTimes(2);
+    });
 
     it('accepts face id 0 from the authoritative catalog', async () => {
         const zero = entry('0', null, null, null, '/惊讶');
@@ -738,6 +821,56 @@ describe('makeFaceElem (via buildSendElems) — three-way wire encoding', () => 
 });
 
 describe('system faces outside visible panels', () => {
+    it.each(['result', 'error'] as const)(
+        'ignores an older catalog’s lookup %s after refresh',
+        async (outcome) => {
+            const stale = deferred<SysFaceEntry | null>();
+            const started = deferred<void>();
+            const latest = entry('507', 1, 4, 108);
+            const fetchFace = vi
+                .fn()
+                .mockImplementationOnce(() => {
+                    started.resolve();
+                    return stale.promise;
+                })
+                .mockResolvedValue(latest);
+            const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace });
+            const first = store.resolveWire({} as never, 507);
+            await started.promise;
+            await store.refresh({} as never);
+            const second = store.resolveWire({} as never, 507);
+
+            if (outcome === 'result') {
+                stale.resolve(entry('507', 1, 4, 107));
+            } else {
+                stale.reject(new Error('outdated lookup failed'));
+            }
+
+            const expected = { kind: 'super', packId: '4', stickerId: '108', stickerType: 1 };
+            await expect(first).resolves.toEqual(expected);
+            await expect(second).resolves.toEqual(expected);
+            expect(fetchFace).toHaveBeenCalledTimes(2);
+            expect(store.lookup(507)).toEqual(latest);
+        },
+    );
+
+    it('uses an explicitly loaded catalog when an older single-face lookup completes', async () => {
+        const stale = deferred<SysFaceEntry | null>();
+        const started = deferred<void>();
+        const fetchFace = vi.fn(() => {
+            started.resolve();
+            return stale.promise;
+        });
+        const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace });
+        const result = store.resolveWire({} as never, 507);
+        await started.promise;
+        const latest = entry('507', 1, 4, 108);
+        store.load([{ packName: '最新', emojis: [latest] }]);
+        stale.resolve(entry('507', 1, 4, 107));
+        await expect(result).resolves.toMatchObject({ stickerId: '108' });
+        expect(store.lookup(507)).toEqual(latest);
+    });
+
     it('resolves missing animation metadata once and shares concurrent lookups', async () => {
         const fetchFace = vi.fn(async () => entry('507', 1, 4, 107));
         const store = new SysFaceStore({ fetchCatalog: async () => CATALOG, fetchFace });

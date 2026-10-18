@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BridgeEventBus } from '@snowluma/protocol/event-bus';
-import type { FriendMessage, GroupMessage } from '@snowluma/protocol/events';
+import { BridgeEventBus } from '../src/event-bus';
+import type { FriendMessage, GroupMessage } from '../src/events';
 
 function makeFriendMessage(): FriendMessage {
     return {
@@ -33,6 +33,77 @@ function makeGroupMessage(): GroupMessage {
 }
 
 describe('BridgeEventBus', () => {
+    it('keeps the current kind and wildcard subscribers stable while dispatching', async () => {
+        const bus = new BridgeEventBus();
+        const peer = vi.fn();
+        const tap = vi.fn();
+        const later = vi.fn();
+        const laterTap = vi.fn();
+        bus.on('friend_message', () => {
+            offPeer();
+            offTap();
+            bus.on('friend_message', later);
+            bus.onAny(laterTap);
+        });
+        const offPeer = bus.on('friend_message', peer);
+        const offTap = bus.onAny(tap);
+
+        await bus.emit(makeFriendMessage());
+        expect(peer).toHaveBeenCalledOnce();
+        expect(tap).toHaveBeenCalledOnce();
+        expect(later).not.toHaveBeenCalled();
+        expect(laterTap).not.toHaveBeenCalled();
+
+        await bus.emit(makeFriendMessage());
+        expect(peer).toHaveBeenCalledOnce();
+        expect(tap).toHaveBeenCalledOnce();
+        expect(later).toHaveBeenCalledOnce();
+        expect(laterTap).toHaveBeenCalledOnce();
+    });
+
+    it('finishes the current dispatch when a handler clears subscriptions', async () => {
+        const bus = new BridgeEventBus();
+        const peer = vi.fn();
+        const tap = vi.fn();
+        bus.on('friend_message', () => bus.clear());
+        bus.on('friend_message', peer);
+        bus.onAny(tap);
+        await bus.emit(makeFriendMessage());
+        await bus.emit(makeFriendMessage());
+        expect(peer).toHaveBeenCalledOnce();
+        expect(tap).toHaveBeenCalledOnce();
+    });
+
+    it.each(['kind', 'any'] as const)('owns each %s subscription independently', async (type) => {
+        const bus = new BridgeEventBus();
+        const handler = vi.fn();
+        const subscribe = () =>
+            type === 'kind' ? bus.on('friend_message', handler) : bus.onAny(handler);
+        const off = subscribe();
+        subscribe();
+        off();
+        off();
+        await bus.emit(makeFriendMessage());
+        expect(handler).toHaveBeenCalledOnce();
+
+        bus.clear();
+        subscribe();
+        off();
+        await bus.emit(makeFriendMessage());
+        expect(handler).toHaveBeenCalledTimes(2);
+    });
+
+    it('off removes every registration of the named handler', async () => {
+        const bus = new BridgeEventBus();
+        const handler = vi.fn();
+        bus.on('friend_message', handler);
+        bus.on('friend_message', handler);
+        bus.off('friend_message', handler);
+        expect(bus.has('friend_message')).toBe(false);
+        await bus.emit(makeFriendMessage());
+        expect(handler).not.toHaveBeenCalled();
+    });
+
     it('routes events only to subscribers of the matching kind', async () => {
         const bus = new BridgeEventBus();
         const friend = vi.fn();

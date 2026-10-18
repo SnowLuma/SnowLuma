@@ -17,13 +17,8 @@ export interface EventBusOptions {
 const DEFAULT_LOGGER = createLogger('Bridge.Events');
 
 export class BridgeEventBus {
-    // Per-kind subscribers are stored as `Set<unknown>` so the container
-    // doesn't carry a contravariant function type that fights TS variance
-    // rules. The runtime invariant is straightforward: handlers stored under
-    // key `K` only ever see `EventOf<K>` events, which is what the single
-    // narrowing cast at the dispatch site below relies on.
-    private readonly handlers = new Map<EventKind, Set<unknown>>();
-    private readonly anyHandlers = new Set<AnyEventHandler>();
+    private readonly handlers = new Map<EventKind, Set<{ handler: unknown }>>();
+    private readonly anyHandlers = new Set<{ handler: AnyEventHandler }>();
     private readonly onError: (kind: EventKind | '*', err: unknown) => void;
 
     constructor(opts: EventBusOptions = {}) {
@@ -42,7 +37,7 @@ export class BridgeEventBus {
         }
     }
 
-    /** Subscribe to one kind. Returns an unsubscribe function. */
+    /** Each subscription owns its unsubscribe function. */
     on<K extends EventKind>(kind: K, handler: EventHandler<K>): () => void {
         let set = this.handlers.get(kind);
 
@@ -51,24 +46,35 @@ export class BridgeEventBus {
             this.handlers.set(kind, set);
         }
 
-        set.add(handler);
+        const subscription = { handler };
+        set.add(subscription);
 
         return () => {
-            this.handlers.get(kind)?.delete(handler);
+            this.handlers.get(kind)?.delete(subscription);
         };
     }
 
     /** Subscribe to every kind (low-volume callers like loggers). */
     onAny(handler: AnyEventHandler): () => void {
-        this.anyHandlers.add(handler);
+        const subscription = { handler };
+        this.anyHandlers.add(subscription);
 
         return () => {
-            this.anyHandlers.delete(handler);
+            this.anyHandlers.delete(subscription);
         };
     }
 
+    /** Remove every registration of this handler for the given kind. */
     off<K extends EventKind>(kind: K, handler: EventHandler<K>): void {
-        this.handlers.get(kind)?.delete(handler);
+        const subscriptions = this.handlers.get(kind);
+
+        if (subscriptions) {
+            for (const subscription of subscriptions) {
+                if (subscription.handler === handler) {
+                    subscriptions.delete(subscription);
+                }
+            }
+        }
     }
 
     has(kind: EventKind): boolean {
@@ -85,27 +91,20 @@ export class BridgeEventBus {
      * Dispatch an event in parallel to every subscriber for its kind plus every
      * onAny handler. Rejections are isolated per-handler — one bad subscriber
      * never blocks the others, and the returned promise resolves once every
-     * subscriber settles.
+     * subscriber settles. Subscription changes apply to the next event.
      */
     async emit<K extends EventKind>(event: EventOf<K>): Promise<void> {
-        const kindHandlers = this.handlers.get(event.kind);
+        const kindHandlers = [...(this.handlers.get(event.kind) ?? [])];
+        const anyHandlers = [...this.anyHandlers];
+        const tasks: Promise<void>[] = [];
 
-        if ((!kindHandlers || kindHandlers.size === 0) && this.anyHandlers.size === 0) {
-            return;
+        for (const { handler } of kindHandlers) {
+            // Registration keys guarantee this handler accepts the event's kind.
+            const typed = handler as EventHandler<K>;
+            tasks.push(invoke(this.onError, event.kind, () => typed(event)));
         }
 
-        const tasks: Promise<unknown>[] = [];
-
-        if (kindHandlers) {
-            for (const handler of kindHandlers) {
-                // Single narrowing cast — the only place we re-assert that handlers
-                // stored under `event.kind` accept `EventOf<event.kind>` events.
-                const typed = handler as EventHandler<K>;
-                tasks.push(invoke(this.onError, event.kind, () => typed(event)));
-            }
-        }
-
-        for (const handler of this.anyHandlers) {
+        for (const { handler } of anyHandlers) {
             tasks.push(invoke(this.onError, '*', () => handler(event)));
         }
 
@@ -119,11 +118,7 @@ async function invoke(
     fn: () => unknown,
 ): Promise<void> {
     try {
-        const ret = fn();
-
-        if (ret && typeof (ret as Promise<unknown>).then === 'function') {
-            await ret;
-        }
+        await fn();
     } catch (err) {
         onError(kind, err);
     }

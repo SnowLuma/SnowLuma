@@ -37,7 +37,7 @@ describe('BridgeManager subscriptions', () => {
     });
 
     it('keeps subscription handles independent when an observer is reused', () => {
-        const listener = { started: vi.fn() };
+        const listener = { started: vi.fn(), closed: vi.fn() };
         const unsubscribeFirst = manager.subscribeSessions(listener);
         const unsubscribeSecond = manager.subscribeSessions(listener);
         unsubscribeFirst();
@@ -45,9 +45,13 @@ describe('BridgeManager subscriptions', () => {
 
         manager.onHookLogin(101, '10001', sender);
         expect(listener.started).toHaveBeenCalledOnce();
+        manager.onPidDisconnected(101);
+        expect(listener.closed).toHaveBeenCalledOnce();
         unsubscribeSecond();
         manager.onHookLogin(202, '20002', sender);
+        manager.onPidDisconnected(202);
         expect(listener.started).toHaveBeenCalledOnce();
+        expect(listener.closed).toHaveBeenCalledOnce();
     });
 
     it('applies listener changes to the next event while preserving dispatch order', () => {

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SysFaceStore, type SysFaceCatalogStorage } from '@snowluma/protocol/sys-face-store';
 import { BridgeManager } from '../src/bridge/manager';
 import { bindSystemFaceCatalog } from '../src/sys-face-catalog';
@@ -9,6 +10,20 @@ const storage: SysFaceCatalogStorage = {
 };
 
 describe('bindSystemFaceCatalog', () => {
+    let manager: BridgeManager;
+
+    beforeEach(() => {
+        vi.spyOn(IdentityService, 'openForUin').mockImplementation((uin) =>
+            IdentityService.memory(uin),
+        );
+        manager = new BridgeManager();
+    });
+
+    afterEach(async () => {
+        await manager.dispose();
+        vi.restoreAllMocks();
+    });
+
     it('starts one shared catalog prewarm from the first logged-in account', async () => {
         let fetches = 0;
         const store = new SysFaceStore({
@@ -36,7 +51,6 @@ describe('bindSystemFaceCatalog', () => {
                 ];
             },
         });
-        const manager = new BridgeManager();
         bindSystemFaceCatalog(manager, { store, storage });
 
         const packetSender = { sendPacket: vi.fn() } as never;

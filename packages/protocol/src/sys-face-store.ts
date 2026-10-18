@@ -2,6 +2,7 @@
 // 0x9154_1; this store makes that catalog durable, queryable, and safe to use
 // from the asynchronous send path.
 
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger } from '@snowluma/common/logger';
 import {
     FetchSysFaces,
@@ -41,11 +42,14 @@ export interface SysFaceStoreOptions {
     now?: () => number;
 }
 
+type FaceLookup = { promise: Promise<SysFaceEntry | null> } | { entry: SysFaceEntry | null };
+
 interface IndexedCatalog {
     packs: SysFacePackEntry[];
     byId: Map<string, SysFaceEntry>;
     entryCount: number;
     overlapCount: number;
+    lookups: Map<number, FaceLookup>;
 }
 
 /** Use animation metadata when available; any numeric id has a small-face encoding. */
@@ -76,14 +80,10 @@ export class SysFaceStore {
     private readonly fetchCatalog: (sender: OidbSender) => Promise<SysFacePackEntry[]>;
     private readonly now: () => number;
     private readonly fetchFace: NonNullable<SysFaceStoreOptions['fetchFace']>;
-    private readonly singleFaces = new Map<number, SysFaceEntry | null>();
-    private readonly singleInflight = new Map<number, Promise<SysFaceEntry | null>>();
-    private cacheLoadCompleted = false;
-    private cacheLoadInflight: Promise<boolean> | null = null;
+    private cacheLoad: Promise<void> | null = null;
     private refreshInflight: Promise<SysFacePackEntry[]> | null = null;
     private refreshedInProcess = false;
-    private prewarmInflight: Promise<void> | null = null;
-    private prewarmed = false;
+    private prewarmTask: Promise<void> | null = null;
 
     constructor(options: SysFaceStoreOptions = {}) {
         this.storage = options.storage ?? null;
@@ -95,12 +95,7 @@ export class SysFaceStore {
 
     /** Configure persistence before the shared store has been used. */
     configureStorage(storage: SysFaceCatalogStorage): void {
-        if (
-            this.cacheLoadCompleted ||
-            this.cacheLoadInflight ||
-            this.catalog ||
-            this.refreshInflight
-        ) {
+        if (this.cacheLoad || this.catalog || this.refreshInflight) {
             throw new Error('system face catalog storage must be configured before first use');
         }
 
@@ -111,11 +106,14 @@ export class SysFaceStore {
      * obtained a full catalog and want to reuse the same query/send semantics. */
     load(packs: SysFacePackEntry[]): void {
         this.catalog = indexCatalog(validateCatalog(packs));
-        this.singleFaces.clear();
     }
 
     lookup(faceId: number): SysFaceEntry | null {
-        return this.catalog?.byId.get(String(faceId)) ?? this.singleFaces.get(faceId) ?? null;
+        const lookup = this.catalog?.lookups.get(faceId);
+        return (
+            this.catalog?.byId.get(String(faceId)) ??
+            (lookup && 'entry' in lookup ? lookup.entry : null)
+        );
     }
 
     /** Case-insensitive query over id, description, aliases, and pack name. */
@@ -166,47 +164,27 @@ export class SysFaceStore {
 
     /** Load durable state, fetching only when no usable catalog exists. */
     async ensureReady(sender: OidbSender): Promise<void> {
-        if (this.refreshInflight) {
-            await this.refreshInflight;
-            return;
-        }
+        await (this.refreshInflight ?? this.loadCache());
 
-        if (this.catalog) {
-            return;
-        }
-
-        const loaded = await this.loadCache();
-
-        if (!loaded) {
+        if (this.refreshInflight || !this.catalog) {
             await this.refresh(sender);
         }
     }
 
-    /** Login hook: restore the durable snapshot for immediate reads, then refresh
-     * from QQ exactly once per process. Multiple accounts share the same job. */
+    /** Restore once, then refresh from the first logged-in account. */
     prewarm(sender: OidbSender): Promise<void> {
-        if (this.prewarmed) {
-            return Promise.resolve();
-        }
-
-        if (this.prewarmInflight) {
-            return this.prewarmInflight;
-        }
-
-        this.prewarmInflight = (async () => {
+        return (this.prewarmTask ??= (async () => {
             try {
                 await this.loadCache();
             } catch {
-                // loadCache already emitted the path and failure. A fresh server fetch
-                // is the authoritative repair for a corrupt rebuildable snapshot.
+                // The failed restore is logged; the server refresh repairs the cache.
             }
 
             await this.refresh(sender);
-            this.prewarmed = true;
-        })().finally(() => {
-            this.prewarmInflight = null;
-        });
-        return this.prewarmInflight;
+        })().catch((error) => {
+            this.prewarmTask = null;
+            throw error;
+        }));
     }
 
     /** Fetch the current authoritative catalog. Concurrent callers share one
@@ -225,9 +203,9 @@ export class SysFaceStore {
                     fetchedAt: this.now(),
                     packs: validated,
                 };
-                this.catalog = indexCatalog(validated);
+                const catalog = indexCatalog(validated);
+                this.catalog = catalog;
                 this.refreshedInProcess = true;
-                this.singleFaces.clear();
 
                 if (this.storage) {
                     await this.storage.save(snapshot);
@@ -235,9 +213,9 @@ export class SysFaceStore {
 
                 log.info(
                     'system face catalog refreshed: entries=%d uniqueFaces=%d overlaps=%d packs=%d elapsedMs=%d',
-                    this.catalog.entryCount,
-                    this.catalog.byId.size,
-                    this.catalog.overlapCount,
+                    catalog.entryCount,
+                    catalog.byId.size,
+                    catalog.overlapCount,
                     validated.length,
                     this.now() - startedAt,
                 );
@@ -247,7 +225,7 @@ export class SysFaceStore {
                 log.error(
                     'system face catalog refresh failed: elapsedMs=%d error=%s',
                     this.now() - startedAt,
-                    error instanceof Error ? error.message : String(error),
+                    errorMessage(error),
                 );
                 throw error;
             })
@@ -275,51 +253,76 @@ export class SysFaceStore {
             }
         }
 
-        if (this.singleFaces.has(faceId)) {
-            return this.singleFaces.get(faceId)!;
+        const catalog = this.catalog;
+
+        if (!catalog) {
+            throw new Error('system face catalog is unavailable after readiness completed');
         }
 
-        const pending = this.singleInflight.get(faceId);
+        const lookup = catalog.lookups.get(faceId);
 
-        if (pending) {
-            return pending;
+        if (lookup && 'entry' in lookup) {
+            return lookup.entry;
         }
 
-        const request = this.fetchFace(sender, faceId)
-            .then((entry) => {
-                if (entry) {
-                    if (entry.qSid !== String(faceId)) {
-                        throw new Error(
-                            `system face lookup id mismatch: requested=${faceId} received=${entry.qSid}`,
-                        );
-                    }
+        const request =
+            lookup?.promise ??
+            this.fetchSingleFace(sender, faceId)
+                .then((entry) => {
+                    catalog.lookups.set(faceId, { entry });
+                    return entry;
+                })
+                .catch((error) => {
+                    catalog.lookups.delete(faceId);
+                    throw error;
+                });
+        catalog.lookups.set(faceId, { promise: request });
 
-                    validateCatalog([{ packName: '', emojis: [entry] }]);
-                    faceWireFor(entry, faceId);
+        try {
+            const entry = await request;
+
+            if (this.catalog === catalog) {
+                return entry;
+            }
+        } catch (error) {
+            if (this.catalog === catalog) {
+                throw error;
+            }
+        }
+
+        // A replacement catalog owns its own lookups; callers follow the current one.
+        return this.resolve(sender, faceId);
+    }
+
+    private async fetchSingleFace(
+        sender: OidbSender,
+        faceId: number,
+    ): Promise<SysFaceEntry | null> {
+        try {
+            const entry = await this.fetchFace(sender, faceId);
+
+            if (entry) {
+                if (entry.qSid !== String(faceId)) {
+                    throw new Error(
+                        `system face lookup id mismatch: requested=${faceId} received=${entry.qSid}`,
+                    );
                 }
 
-                this.singleFaces.set(faceId, entry);
-                log.debug(
-                    'system face lookup completed: id=%d found=%s animated=%s',
-                    faceId,
-                    entry !== null,
-                    entry !== null && isSuperFaceEntry(entry),
-                );
-                return entry;
-            })
-            .catch((error) => {
-                log.error(
-                    'system face lookup failed: id=%d error=%s',
-                    faceId,
-                    error instanceof Error ? error.message : String(error),
-                );
-                throw error;
-            })
-            .finally(() => {
-                this.singleInflight.delete(faceId);
-            });
-        this.singleInflight.set(faceId, request);
-        return request;
+                validateCatalog([{ packName: '', emojis: [entry] }]);
+                faceWireFor(entry, faceId);
+            }
+
+            log.debug(
+                'system face lookup completed: id=%d found=%s animated=%s',
+                faceId,
+                entry !== null,
+                entry !== null && isSuperFaceEntry(entry),
+            );
+            return entry;
+        } catch (error) {
+            log.error('system face lookup failed: id=%d error=%s', faceId, errorMessage(error));
+            throw error;
+        }
     }
 
     async resolveWire(sender: OidbSender, faceId: number): Promise<FaceWire> {
@@ -349,61 +352,54 @@ export class SysFaceStore {
         return this.catalog.packs;
     }
 
-    private loadCache(): Promise<boolean> {
+    private loadCache(): Promise<void> {
         if (this.catalog) {
-            return Promise.resolve(true);
+            return Promise.resolve();
         }
 
-        if (this.cacheLoadCompleted) {
-            return Promise.resolve(false);
-        }
+        return (this.cacheLoad ??= this.restoreCache());
+    }
 
-        if (this.cacheLoadInflight) {
-            return this.cacheLoadInflight;
-        }
-
+    private async restoreCache(): Promise<void> {
         if (!this.storage) {
-            this.cacheLoadCompleted = true;
-            return Promise.resolve(false);
+            return;
         }
 
         const startedAt = this.now();
-        this.cacheLoadInflight = this.storage
-            .load()
-            .then((snapshot) => {
-                this.cacheLoadCompleted = true;
 
-                if (!snapshot) {
-                    return false;
-                }
+        try {
+            const snapshot = await this.storage.load();
 
-                validateSnapshot(snapshot);
-                this.catalog = indexCatalog(snapshot.packs);
-                log.info(
-                    'system face catalog restored: entries=%d uniqueFaces=%d overlaps=%d packs=%d ' +
-                        'fetchedAt=%d elapsedMs=%d',
-                    this.catalog.entryCount,
-                    this.catalog.byId.size,
-                    this.catalog.overlapCount,
-                    snapshot.packs.length,
-                    snapshot.fetchedAt,
-                    this.now() - startedAt,
-                );
-                return true;
-            })
-            .catch((error) => {
-                this.cacheLoadCompleted = true;
-                log.error(
-                    'system face catalog restore failed: elapsedMs=%d error=%s',
-                    this.now() - startedAt,
-                    error instanceof Error ? error.message : String(error),
-                );
-                throw error;
-            })
-            .finally(() => {
-                this.cacheLoadInflight = null;
-            });
-        return this.cacheLoadInflight;
+            // A newer load or refresh supersedes this disk read.
+            if (this.catalog || !snapshot) {
+                return;
+            }
+
+            validateSnapshot(snapshot);
+            const catalog = indexCatalog(snapshot.packs);
+            this.catalog = catalog;
+            log.info(
+                'system face catalog restored: entries=%d uniqueFaces=%d overlaps=%d packs=%d ' +
+                    'fetchedAt=%d elapsedMs=%d',
+                catalog.entryCount,
+                catalog.byId.size,
+                catalog.overlapCount,
+                snapshot.packs.length,
+                snapshot.fetchedAt,
+                this.now() - startedAt,
+            );
+        } catch (error) {
+            if (this.catalog) {
+                return;
+            }
+
+            log.error(
+                'system face catalog restore failed: elapsedMs=%d error=%s',
+                this.now() - startedAt,
+                errorMessage(error),
+            );
+            throw error;
+        }
     }
 }
 
@@ -574,6 +570,7 @@ function indexCatalog(packs: SysFacePackEntry[]): IndexedCatalog {
         byId,
         entryCount,
         overlapCount: entryCount - byId.size,
+        lookups: new Map(),
     };
 }
 
