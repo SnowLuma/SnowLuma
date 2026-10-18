@@ -1,21 +1,6 @@
-/**
- * StateBus — pure pub/sub for WebUI state-resource invalidations.
- *
- * Three resources are tracked: `processes`, `qq-list`, `connections`. A
- * publisher (HookSession status change, BridgeManager session start/close,
- * the connection-status diff loop) calls `publish(resource)` to signal "the
- * snapshot for THIS resource is stale; whoever cares should re-read". The
- * `/api/state/stream` SSE handler subscribes, debounces, and pushes fresh
- * snapshots to connected WebUI clients.
- *
- * Intentionally pure pub/sub (no debounce, no snapshot caching): debounce
- * and snapshot reads live with the subscriber so different consumers can
- * coalesce on different cadences. Snapshot semantics on fan-out: the
- * subscriber set is FROZEN at the start of each publish, so a listener
- * that subscribes during the fan-out only sees the FOLLOWING publish, and
- * a listener that unsubscribes mid-fan-out does not prevent its peers
- * from completing.
- */
+import { createLogger } from '@snowluma/common/logger';
+
+const log = createLogger('WebUI.State');
 
 export type StateResource = 'processes' | 'qq-list' | 'connections';
 
@@ -54,18 +39,17 @@ export class StateBus {
             return;
         }
 
-        // Snapshot the current subscribers — any subscribe()/unsubscribe()
-        // called by a listener during the fan-out takes effect only for the
-        // NEXT publish, not this one.
         const snapshot = [...this.listeners];
 
         for (const fn of snapshot) {
             try {
                 fn(resource);
-            } catch {
-                // Subscriber-internal failure is its own problem. The bus's job
-                // is to keep delivery moving — surfacing an error here would
-                // partially abort the fan-out and create skip-the-listener bugs.
+            } catch (error) {
+                log.warn(
+                    'state listener failed: resource=%s error=%s',
+                    resource,
+                    error instanceof Error ? error.message : String(error),
+                );
             }
         }
     }

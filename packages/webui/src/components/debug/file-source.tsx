@@ -139,9 +139,7 @@ export function FileSource({
                         onChange={(e) => onChange(e.target.value)}
                         placeholder="/path/on/server/file.jpg"
                     />
-                    <span className="text-xs text-muted-foreground">
-                        这是 <strong>运行 bot 的服务器</strong> 上的路径,不是你本机的。
-                    </span>
+                    <span className="text-xs text-muted-foreground">使用服务器上的文件路径</span>
                 </div>
             )}
 
@@ -188,7 +186,7 @@ export function FileSource({
                             </>
                         ) : (
                             <>
-                                <FileUp className="h-4 w-4" /> 选择或拖入文件上传到服务器
+                                <FileUp className="h-4 w-4" /> 选择或拖入文件
                             </>
                         )}
                     </label>

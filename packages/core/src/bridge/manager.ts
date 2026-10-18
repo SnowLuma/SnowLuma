@@ -58,23 +58,31 @@ export class BridgeManager {
         );
     }
 
-    private sessionStartedListeners_: SessionStartedCallback[] = [];
-    private sessionClosedListeners_: SessionClosedCallback[] = [];
+    private readonly sessionStartedListeners_ = new Set<SessionStartedCallback>();
+    private readonly sessionClosedListeners_ = new Set<SessionClosedCallback>();
 
-    /** Additive subscription: every observer (OneBotManager, NotificationManager,
-     *  …) receives every session edge. (Was a single `set*Callback` setter —
-     *  converted to N listeners so a second observer can't clobber the first.)
-     *  The close edge carries the final detached PID and the bridge so observers
-     *  can identify the process and read its nickname before disposal. */
-    addSessionStartedListener(cb: SessionStartedCallback): void {
-        this.sessionStartedListeners_.push(cb);
+    /** Each subscription has an independent, idempotent unsubscribe handle. */
+    addSessionStartedListener(cb: SessionStartedCallback): () => void {
+        const listener: SessionStartedCallback = (...args) => cb(...args);
+        this.sessionStartedListeners_.add(listener);
+
+        return () => {
+            this.sessionStartedListeners_.delete(listener);
+        };
     }
-    addSessionClosedListener(cb: SessionClosedCallback): void {
-        this.sessionClosedListeners_.push(cb);
+
+    /** The close edge includes the final PID and bridge before disposal. */
+    addSessionClosedListener(cb: SessionClosedCallback): () => void {
+        const listener: SessionClosedCallback = (...args) => cb(...args);
+        this.sessionClosedListeners_.add(listener);
+
+        return () => {
+            this.sessionClosedListeners_.delete(listener);
+        };
     }
 
     private fireSessionStarted(uin: string, bridge: Bridge): void {
-        for (const cb of this.sessionStartedListeners_) {
+        for (const cb of [...this.sessionStartedListeners_]) {
             try {
                 cb(uin, bridge);
             } catch (err) {
@@ -87,7 +95,7 @@ export class BridgeManager {
     }
 
     private fireSessionClosed(uin: string, bridge: Bridge, pid: number): void {
-        for (const cb of this.sessionClosedListeners_) {
+        for (const cb of [...this.sessionClosedListeners_]) {
             try {
                 cb(uin, bridge, pid);
             } catch (err) {

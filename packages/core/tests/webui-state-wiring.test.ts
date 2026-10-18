@@ -4,6 +4,42 @@ import { createStateWiring } from '../src/webui/state-wiring';
 import { BridgeManager } from '../src/bridge/manager';
 
 describe('createStateWiring', () => {
+    it('replaces its bridge subscription without retaining the old manager', async () => {
+        const wiring = createStateWiring();
+        const old = new BridgeManager();
+        const current = new BridgeManager();
+        const listener = vi.fn();
+        wiring.bus.subscribe(listener);
+        wiring.bindBridgeManager(old);
+        wiring.bindBridgeManager(current);
+        wiring.bindBridgeManager(current);
+
+        old.onHookLogin(4100, '12345', {} as never);
+        expect(listener).not.toHaveBeenCalled();
+        current.onHookLogin(4200, '23456', {} as never);
+        expect(listener.mock.calls).toEqual([['qq-list'], ['connections']]);
+
+        wiring.dispose();
+        await old.dispose();
+        await current.dispose();
+    });
+
+    it('unsubscribes on disposal and does not bind again', async () => {
+        const wiring = createStateWiring();
+        const bm = new BridgeManager();
+        const subscribe = vi.spyOn(bm, 'addSessionStartedListener');
+        const publish = vi.spyOn(wiring.bus, 'publish');
+        wiring.bindBridgeManager(bm);
+        wiring.dispose();
+        wiring.dispose();
+        wiring.bindBridgeManager(bm);
+
+        bm.onHookLogin(4300, '34567', {} as never);
+        expect(publish).not.toHaveBeenCalled();
+        expect(subscribe).toHaveBeenCalledTimes(1);
+        await bm.dispose();
+    });
+
     it('provides a fresh StateBus and an onSessionsChanged that publishes "processes"', () => {
         const wiring = createStateWiring();
         expect(wiring.bus).toBeInstanceOf(StateBus);

@@ -4,7 +4,6 @@ import {
     HookPipeRequestError,
     PIPE_STATUS_CONNECTION_UNAVAILABLE,
     QqHookClient,
-    type QqHookSendReply,
 } from './qq-hook-client';
 
 export type OutboundHealthListener = (healthy: boolean) => void;
@@ -33,16 +32,16 @@ export class HookPacketClient implements PacketSender {
         }
 
         try {
-            const reply = (await this.client.send(serviceCmd, body, {
+            const reply = await this.client.send(serviceCmd, body, {
                 wantReply: true,
                 replyTimeoutMs: timeoutMs,
-            })) as QqHookSendReply;
+            });
             this.setOutboundHealthy(true);
             return {
                 success: reply.error === 0,
                 gotResponse: true,
                 errorCode: reply.error,
-                errorMessage: reply.message || '',
+                errorMessage: reply.message,
                 responseData: reply.body,
             };
         } catch (error) {

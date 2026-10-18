@@ -1,19 +1,4 @@
-/**
- * Single-flight + TTL memoization.
- *
- * Concentrates the "don't refetch what's fresh, and don't stampede the same
- * key with concurrent loads" pattern that was hand-rolled (slightly
- * differently each time) across the codebase — e.g. `ContactsApi`'s group
- * member-list cache and the WebUI update-check. Each copy re-implemented the
- * same fiddly trio: a TTL freshness check, an in-flight promise map to
- * de-dupe concurrent callers, and `finally`-cleanup of that map. Getting any
- * of the three subtly wrong (forgetting the `finally`, caching an error,
- * racing the timestamp) is a real hazard — so it lives in one place.
- *
- * The underlying concern is Tencent risk-control: a busy OneBot client can
- * fan out one uncached OIDB fetch per inbound message, and sustained bursts
- * trip a ban. TTL + single-flight collapse that fan-out.
- */
+/** TTL caching and request deduplication to limit repeated upstream requests. */
 
 export interface SingleFlightCacheOptions<K, V> {
     /** Freshness window in ms. A cached entry older than this is reloaded. */
@@ -70,30 +55,35 @@ export class SingleFlightCache<K, V> {
             return existing;
         }
 
-        const task = (async () => {
+        const load = async (): Promise<V> => {
             const value = await this.load(key);
 
-            if (this.shouldCache(value)) {
+            if (this.inflight.get(key) === task && this.shouldCache(value)) {
                 this.fresh.set(key, { at: this.now(), value });
             }
 
             return value;
-        })().finally(() => {
-            // Run after registration even when load throws synchronously.
-            this.inflight.delete(key);
+        };
+
+        const task = load().finally(() => {
+            if (this.inflight.get(key) === task) {
+                this.inflight.delete(key);
+            }
         });
         this.inflight.set(key, task);
         return task;
     }
 
-    /** Drop a cached entry. Does not abort an in-flight load. */
+    /** Detach the entry and its pending load; existing callers still settle. */
     invalidate(key: K): void {
         this.fresh.delete(key);
+        this.inflight.delete(key);
     }
 
-    /** Drop all cached entries. Does not abort in-flight loads. */
+    /** Detach all entries and pending loads without aborting existing callers. */
     clear(): void {
         this.fresh.clear();
+        this.inflight.clear();
     }
 }
 

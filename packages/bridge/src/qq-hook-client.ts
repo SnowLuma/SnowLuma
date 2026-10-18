@@ -560,7 +560,7 @@ export class QqHookClient extends EventEmitter {
     private controlWriteChain: Promise<unknown> = Promise.resolve();
     private closed = false;
     private loginState: QqHookLoginState = { loggedIn: false, uin: '0', uinNumber: 0n };
-    private loginWaiters: Deferred<QqHookLoginState>[] = [];
+    private readonly loginWaiters = new Set<Deferred<QqHookLoginState>>();
 
     constructor(
         pid: number,
@@ -612,13 +612,22 @@ export class QqHookClient extends EventEmitter {
     async waitForLogin({ timeoutMs = 0 } = {}): Promise<QqHookLoginState> {
         await this.connect();
 
+        if (this.closed) {
+            throw new Error('qq_hook client is closed');
+        }
+
         if (this.loginState.loggedIn) {
             return this.getLoginState();
         }
 
         const deferred = createDeferred<QqHookLoginState>();
-        this.loginWaiters.push(deferred);
-        return withTimeout(deferred.promise, timeoutMs, 'waitForLogin');
+        this.loginWaiters.add(deferred);
+
+        try {
+            return await withTimeout(deferred.promise, timeoutMs, 'waitForLogin');
+        } finally {
+            this.loginWaiters.delete(deferred);
+        }
     }
 
     static controlPipeName(pid: number, runtimeDir = resolveHookRuntimeDir(pid)): string {
@@ -735,6 +744,21 @@ export class QqHookClient extends EventEmitter {
         return { control, recv: recvInfo };
     }
 
+    send(
+        cmd: string,
+        body: Buffer | Uint8Array | string | null | undefined,
+        options?: QqHookSendOptions & { wantReply?: true },
+    ): Promise<QqHookSendReply>;
+    send(
+        cmd: string,
+        body: Buffer | Uint8Array | string | null | undefined,
+        options: QqHookSendOptions & { wantReply: false },
+    ): Promise<{ requestId: number }>;
+    send(
+        cmd: string,
+        body: Buffer | Uint8Array | string | null | undefined,
+        options?: QqHookSendOptions,
+    ): Promise<QqHookSendReply | { requestId: number }>;
     async send(
         cmd: string,
         body: Buffer | Uint8Array | string | null | undefined,
@@ -849,9 +873,7 @@ export class QqHookClient extends EventEmitter {
         body: Buffer | Uint8Array | string | null | undefined,
         options: Omit<QqHookSendOptions, 'wantReply'> = {},
     ): Promise<{ requestId: number }> {
-        return this.send(cmd, body, { ...options, wantReply: false }) as Promise<{
-            requestId: number;
-        }>;
+        return this.send(cmd, body, { ...options, wantReply: false });
     }
 
     async sendAndWait(
@@ -859,7 +881,7 @@ export class QqHookClient extends EventEmitter {
         body: Buffer | Uint8Array | string | null | undefined,
         options: Omit<QqHookSendOptions, 'wantReply'> = {},
     ): Promise<QqHookSendReply> {
-        return this.send(cmd, body, { ...options, wantReply: true }) as Promise<QqHookSendReply>;
+        return this.send(cmd, body, { ...options, wantReply: true });
     }
 
     async sendMany(
@@ -971,12 +993,11 @@ export class QqHookClient extends EventEmitter {
     }
 
     private rejectLoginWaiters(error: Error): void {
-        const waiters = this.loginWaiters;
-        this.loginWaiters = [];
-
-        for (const waiter of waiters) {
+        for (const waiter of this.loginWaiters) {
             waiter.reject(error);
         }
+
+        this.loginWaiters.clear();
     }
 
     private rejectControlPending(error: Error): void {
@@ -1266,12 +1287,11 @@ export class QqHookClient extends EventEmitter {
             this.emit('loginState', next);
 
             if (next.loggedIn) {
-                const waiters = this.loginWaiters;
-                this.loginWaiters = [];
-
-                for (const waiter of waiters) {
+                for (const waiter of this.loginWaiters) {
                     waiter.resolve({ ...next });
                 }
+
+                this.loginWaiters.clear();
             }
         });
     }

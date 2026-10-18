@@ -212,6 +212,8 @@ await bot.raw('send_group_forward_msg', {
 
 每次请求都支持覆盖 `echo`、超时和 `AbortSignal`：
 
+WebSocket 并发请求必须使用不同的 `echo`；重复值会被拒绝。省略时由 SDK 自动生成。
+
 ```ts
 const controller = new AbortController();
 

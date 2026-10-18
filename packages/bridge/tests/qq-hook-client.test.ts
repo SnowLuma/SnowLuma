@@ -133,6 +133,20 @@ afterEach(async () => {
     tmpDir = null;
 });
 
+describe('QqHookClient login wait lifecycle', () => {
+    it('rejects when closed while resuming a completed connection', async () => {
+        const client = new QqHookClient(12345);
+        vi.spyOn(client, 'connect').mockResolvedValue({
+            pid: 12345,
+            pipeName: 'test',
+            recvPipe: false,
+        });
+        const waiting = client.waitForLogin();
+        client.close();
+        await expect(waiting).rejects.toThrow('closed');
+    });
+});
+
 describe('listLiveLinuxPipePids', () => {
     it('ignores stale-looking control socket names when the probe rejects them', async () => {
         const runtimeDir = await makeRuntimeDir();

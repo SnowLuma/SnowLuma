@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Isolate WebSocket connection lifetimes and release request timers and abort listeners on every outcome.
+- Reject duplicate in-flight WebSocket echoes instead of overwriting the original request.
 - Add `getGroupShareLink()` and typed `get_group_share_link` support for group invitation links.
 - Breaking: require Node.js 24 or newer.
 - Add `CustomReplySegment` and `message.customReply()` for inline quote previews inside merged-forward nodes.

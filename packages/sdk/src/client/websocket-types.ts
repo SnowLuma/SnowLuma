@@ -53,10 +53,3 @@ export interface SnowLumaWebSocketEvents {
     response: ApiResponse;
     raw: unknown;
 }
-
-export interface PendingRequest {
-    resolve: (response: ApiResponse) => void;
-    reject: (error: Error) => void;
-    timer: ReturnType<typeof setTimeout> | null;
-    cleanup?: () => void;
-}

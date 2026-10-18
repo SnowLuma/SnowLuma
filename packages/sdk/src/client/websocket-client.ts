@@ -59,7 +59,6 @@ import type {
     WsRole,
 } from '../types/index';
 import type {
-    PendingRequest,
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,
@@ -75,6 +74,17 @@ export type {
     WebSocketConstructor,
 } from './websocket-types';
 
+interface SocketConnection {
+    socket: WebSocketLike;
+    opened: Promise<void>;
+    dispose(error: Error): void;
+}
+
+interface PendingRequest {
+    resolve(response: ApiResponse): void;
+    reject(error: Error): void;
+}
+
 /** OneBot WebSocket client for SnowLuma APIs and realtime events. */
 export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     readonly url: string;
@@ -88,8 +98,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     private readonly emitter = new Emitter<SnowLumaWebSocketEvents>();
     private readonly pending = new Map<string, PendingRequest>();
     private readonly middlewares: EventMiddleware[] = [];
-    private socket: WebSocketLike | null = null;
-    private connectPromise: Promise<void> | null = null;
+    private connection: SocketConnection | null = null;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private reconnectAttempts = 0;
     private closedByUser = false;
@@ -112,7 +121,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
 
     /** True when the underlying WebSocket is currently open. */
     get isConnected(): boolean {
-        return this.socket?.readyState === WEBSOCKET_OPEN;
+        return this.connection?.socket.readyState === WEBSOCKET_OPEN;
     }
 
     /** Subscribes to low-level client events. Returns an unsubscribe function. */
@@ -249,43 +258,63 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
 
     /** Connects to SnowLuma's OneBot WebSocket endpoint. */
     async connect(): Promise<void> {
-        if (this.isConnected) {
-            return;
-        }
-
-        if (this.connectPromise) {
-            return this.connectPromise;
+        if (this.connection) {
+            return this.connection.opened;
         }
 
         this.closedByUser = false;
-        this.connectPromise = new Promise((resolve, reject) => {
-            const url = appendAccessToken(this.url, this.accessToken);
-            const socket = new this.WebSocketCtor(url, this.protocols);
-            this.socket = socket;
-
-            const cleanup = [
-                addSocketListener(socket, 'open', () => {
-                    cleanup.forEach((off) => off());
-                    this.bindSocket(socket);
-                    this.reconnectAttempts = 0;
-                    this.connectPromise = null;
-                    this.emitter.emit('open', undefined);
-                    resolve();
-                }),
-                addSocketListener(socket, 'error', (error) => {
-                    this.emitter.emit('error', unwrapEventPayload(error));
-                }),
-                addSocketListener(socket, 'close', (...args) => {
-                    cleanup.forEach((off) => off());
-                    this.connectPromise = null;
-                    this.socket = null;
-                    reject(new SnowLumaConnectionError('SnowLuma WebSocket closed before opening'));
-                    this.handleClose(args);
-                }),
-            ];
+        const socket = new this.WebSocketCtor(
+            appendAccessToken(this.url, this.accessToken),
+            this.protocols,
+        );
+        let resolveOpening!: () => void;
+        let rejectOpening!: (error: Error) => void;
+        const opened = new Promise<void>((resolve, reject) => {
+            resolveOpening = resolve;
+            rejectOpening = reject;
         });
+        const listeners: (() => void)[] = [];
+        const connection: SocketConnection = {
+            socket,
+            opened,
+            dispose: (error) => {
+                listeners.forEach((off) => off());
+                rejectOpening(error);
+            },
+        };
+        this.connection = connection;
+        listeners.push(
+            addSocketListener(socket, 'open', () => {
+                if (this.connection !== connection) {
+                    return;
+                }
 
-        return this.connectPromise;
+                this.reconnectAttempts = 0;
+                resolveOpening();
+                this.emitter.emit('open', undefined);
+            }),
+            addSocketListener(socket, 'message', (...args) => {
+                if (this.connection === connection) {
+                    this.handleMessage(args);
+                }
+            }),
+            addSocketListener(socket, 'error', (error) => {
+                if (this.connection === connection) {
+                    this.emitter.emit('error', unwrapEventPayload(error));
+                }
+            }),
+            addSocketListener(socket, 'close', (...args) => {
+                if (this.connection !== connection) {
+                    return;
+                }
+
+                this.connection = null;
+                connection.dispose(new SnowLumaConnectionError('SnowLuma WebSocket closed'));
+                this.handleClose(args);
+            }),
+        );
+
+        return opened;
     }
 
     /** Closes the socket and rejects all pending API requests. */
@@ -297,14 +326,19 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
             this.reconnectTimer = null;
         }
 
-        this.rejectPending(new SnowLumaConnectionError('SnowLuma WebSocket client closed'));
+        const error = new SnowLumaConnectionError('SnowLuma WebSocket client closed');
+        const connection = this.connection;
+        this.connection = null;
+        connection?.dispose(error);
+        this.rejectPending(error);
 
-        if (this.socket && this.socket.readyState !== WEBSOCKET_CLOSED) {
-            this.socket.close(code, reason);
+        if (connection && connection.socket.readyState !== WEBSOCKET_CLOSED) {
+            const off = addSocketListener(connection.socket, 'close', (...args) => {
+                off();
+                this.emitter.emit('close', closeInfo(args));
+            });
+            connection.socket.close(code, reason);
         }
-
-        this.socket = null;
-        this.connectPromise = null;
     }
 
     /** Sends one OneBot action over WebSocket and returns the raw response envelope. */
@@ -321,7 +355,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         );
         throwIfAborted(options?.signal);
 
-        const socket = this.socket;
+        const socket = this.connection?.socket;
 
         if (!socket || socket.readyState !== WEBSOCKET_OPEN) {
             throw new SnowLumaConnectionError('SnowLuma WebSocket is not open');
@@ -331,26 +365,38 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         const key = echoKey(echo);
         const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
 
-        const promise = new Promise<ApiResponse>((resolve, reject) => {
-            let timer: ReturnType<typeof setTimeout> | null = null;
-            let abortListener: (() => void) | undefined;
+        if (this.pending.has(key)) {
+            throw new SnowLumaConnectionError(
+                'A WebSocket request with this echo is already pending',
+            );
+        }
 
+        return new Promise<ApiResponse<ActionResult<TAction>>>((resolve, reject) => {
             const cleanup = (): void => {
+                this.pending.delete(key);
+
                 if (timer) {
                     clearTimeout(timer);
                 }
 
-                if (abortListener) {
-                    options?.signal?.removeEventListener('abort', abortListener);
-                }
+                options?.signal?.removeEventListener('abort', abortListener);
             };
 
-            timer =
+            const pending: PendingRequest = {
+                resolve: (response) => {
+                    cleanup();
+                    resolve(response as ApiResponse<ActionResult<TAction>>);
+                },
+                reject: (error) => {
+                    cleanup();
+                    reject(error);
+                },
+            };
+
+            const timer =
                 timeoutMs > 0
                     ? setTimeout(() => {
-                          this.pending.delete(key);
-                          cleanup();
-                          reject(
+                          pending.reject(
                               new SnowLumaTimeoutError(
                                   `SnowLuma WebSocket request timed out after ${timeoutMs}ms`,
                                   timeoutMs,
@@ -359,47 +405,33 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
                       }, timeoutMs)
                     : null;
 
-            abortListener = () => {
-                this.pending.delete(key);
-                cleanup();
-                reject(
+            const abortListener = () => {
+                pending.reject(
                     new SnowLumaAbortError('SnowLuma WebSocket request aborted', {
                         cause: options?.signal?.reason,
                     }),
                 );
             };
 
+            this.pending.set(key, pending);
             options?.signal?.addEventListener('abort', abortListener, { once: true });
 
-            this.pending.set(key, { resolve, reject, timer, cleanup });
+            try {
+                socket.send(
+                    JSON.stringify({
+                        action,
+                        params: toJsonObject(params as JsonObject | undefined),
+                        echo,
+                    }),
+                );
+            } catch (error) {
+                pending.reject(
+                    new SnowLumaConnectionError('Failed to send SnowLuma WebSocket request', {
+                        cause: error,
+                    }),
+                );
+            }
         });
-
-        try {
-            socket.send(
-                JSON.stringify({
-                    action,
-                    params: toJsonObject(params as JsonObject | undefined),
-                    echo,
-                }),
-            );
-        } catch (error) {
-            const pending = this.pending.get(key);
-            pending?.cleanup?.();
-            this.pending.delete(key);
-            throw new SnowLumaConnectionError('Failed to send SnowLuma WebSocket request', {
-                cause: error,
-            });
-        }
-
-        return promise as Promise<ApiResponse<ActionResult<TAction>>>;
-    }
-
-    private bindSocket(socket: WebSocketLike): void {
-        addSocketListener(socket, 'message', (...args) => this.handleMessage(args));
-        addSocketListener(socket, 'error', (error) =>
-            this.emitter.emit('error', unwrapEventPayload(error)),
-        );
-        addSocketListener(socket, 'close', (...args) => this.handleClose(args));
     }
 
     private handleMessage(args: unknown[]): void {
@@ -425,21 +457,21 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
             const pending = this.pending.get(key);
 
             if (pending) {
-                this.pending.delete(key);
-                pending.cleanup?.();
+                let response: ApiResponse;
 
                 try {
-                    const response = assertApiResponse(parsed);
-                    pending.resolve(response);
-                    this.emitter.emit('response', response);
+                    response = assertApiResponse(parsed);
                 } catch (error) {
                     pending.reject(
                         new SnowLumaParseError('SnowLuma WebSocket response is invalid', {
                             cause: error,
                         }),
                     );
+                    return;
                 }
 
+                pending.resolve(response);
+                this.emitter.emit('response', response);
                 return;
             }
         }
@@ -475,8 +507,6 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
 
     private handleClose(args: unknown[]): void {
         const info = closeInfo(args);
-        this.socket = null;
-        this.connectPromise = null;
         this.rejectPending(new SnowLumaConnectionError('SnowLuma WebSocket closed'));
         this.emitter.emit('close', info);
 
@@ -520,11 +550,8 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
 
     private rejectPending(error: Error): void {
         for (const pending of this.pending.values()) {
-            pending.cleanup?.();
             pending.reject(error);
         }
-
-        this.pending.clear();
     }
 }
 

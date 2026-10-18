@@ -13,6 +13,46 @@ function deferred<T>() {
 }
 
 describe('SingleFlightCache', () => {
+    it.each(['invalidate', 'clear'] as const)(
+        '%s detaches pending loads from the cache',
+        async (operation) => {
+            const old = deferred<string>();
+            const current = deferred<string>();
+            const load = vi
+                .fn()
+                .mockReturnValueOnce(old.promise)
+                .mockReturnValueOnce(current.promise);
+            const cache = createSingleFlightCache<string, string>({ ttlMs: 1000, load });
+            const first = cache.get('key');
+
+            cache[operation]('key');
+            const second = cache.get('key');
+            expect(load).toHaveBeenCalledTimes(2);
+
+            old.resolve('old');
+            await expect(first).resolves.toBe('old');
+            expect(cache.get('key')).toBe(second);
+
+            current.resolve('current');
+            await expect(second).resolves.toBe('current');
+            await expect(cache.get('key')).resolves.toBe('current');
+            expect(load).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it('does not let a late invalidated result overwrite a newer value', async () => {
+        const old = deferred<string>();
+        const load = vi.fn().mockReturnValueOnce(old.promise).mockResolvedValue('current');
+        const cache = createSingleFlightCache<string, string>({ ttlMs: 1000, load });
+        const first = cache.get('key');
+        cache.invalidate('key');
+
+        await expect(cache.get('key')).resolves.toBe('current');
+        old.resolve('old');
+        await first;
+        await expect(cache.get('key')).resolves.toBe('current');
+    });
+
     it('caches within the TTL and reloads once expired', async () => {
         let clock = 1000;
         const load = vi.fn(async (k: string) => `${k}@${clock}`);

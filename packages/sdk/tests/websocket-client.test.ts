@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     SnowLumaAbortError,
     SnowLumaWebSocketClient,
@@ -75,6 +75,168 @@ const PRIVATE_EVENT: OneBotPrivateMessageEvent = {
 };
 
 describe('SnowLumaWebSocketClient', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('rejects duplicate in-flight echoes without replacing the original request', async () => {
+        const client = new SnowLumaWebSocketClient({ webSocket: MockWebSocket });
+        const opening = client.connect();
+        const socket = MockWebSocket.instances.at(-1)!;
+        socket.open();
+        await opening;
+        const first = client.getStatus({ echo: 'same' });
+        await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+        await expect(client.getStatus({ echo: 'same' })).rejects.toThrow('already pending');
+        expect(socket.sent).toHaveLength(1);
+        socket.message(
+            JSON.stringify({ status: 'ok', retcode: 0, data: { online: true }, echo: 'same' }),
+        );
+        await expect(first).resolves.toEqual({ online: true });
+        client.close();
+    });
+
+    it.each(['response', 'abort', 'timeout', 'send failure', 'invalid response', 'close'] as const)(
+        'releases the timer and abort listener after %s',
+        async (outcome) => {
+            vi.useFakeTimers();
+            const client = new SnowLumaWebSocketClient({
+                webSocket: MockWebSocket,
+                requestTimeoutMs: 1000,
+            });
+            const opening = client.connect();
+            const socket = MockWebSocket.instances.at(-1)!;
+            socket.open();
+            await opening;
+            const controller = new AbortController();
+            const remove = vi.spyOn(controller.signal, 'removeEventListener');
+
+            if (outcome === 'send failure') {
+                vi.spyOn(socket, 'send').mockImplementation(() => {
+                    throw new Error('send failed');
+                });
+            }
+
+            const request = client.getStatus({ echo: 'request', signal: controller.signal });
+            const settled = request.then(
+                () => 'resolved',
+                () => 'rejected',
+            );
+            await vi.advanceTimersByTimeAsync(0);
+
+            switch (outcome) {
+                case 'response':
+                    socket.message(
+                        JSON.stringify({ status: 'ok', retcode: 0, data: {}, echo: 'request' }),
+                    );
+                    break;
+                case 'invalid response':
+                    socket.message(JSON.stringify({ echo: 'request' }));
+                    break;
+                case 'abort':
+                    controller.abort();
+                    break;
+                case 'timeout':
+                    await vi.advanceTimersByTimeAsync(1000);
+                    break;
+                case 'close':
+                    client.close();
+                    break;
+            }
+
+            expect(await settled).toBe(outcome === 'response' ? 'resolved' : 'rejected');
+            expect(vi.getTimerCount()).toBe(0);
+            expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+            client.close();
+        },
+    );
+
+    it('reconnects after a remote close and cancels scheduled retries when closed by the caller', async () => {
+        vi.useFakeTimers();
+        const client = new SnowLumaWebSocketClient({
+            webSocket: MockWebSocket,
+            reconnect: { minDelayMs: 10 },
+        });
+        const opening = client.connect();
+        const first = MockWebSocket.instances.at(-1)!;
+        first.open();
+        await opening;
+        first.close();
+        await vi.advanceTimersByTimeAsync(10);
+        const second = MockWebSocket.instances.at(-1)!;
+        expect(second).not.toBe(first);
+        second.open();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(client.isConnected).toBe(true);
+        second.close();
+        client.close();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('retries after the WebSocket constructor throws', async () => {
+        let attempts = 0;
+        class RetrySocket extends MockWebSocket {
+            constructor(url: string) {
+                if (attempts++ === 0) {
+                    throw new Error('constructor failed');
+                }
+
+                super(url);
+            }
+        }
+        const client = new SnowLumaWebSocketClient({ webSocket: RetrySocket });
+        await expect(client.connect()).rejects.toThrow('constructor failed');
+        const connecting = client.connect();
+        expect(attempts).toBe(2);
+        MockWebSocket.instances.at(-1)!.open();
+        await connecting;
+        client.close();
+    });
+
+    it('ignores events from a closed socket after a new connection opens', async () => {
+        class DelayedCloseSocket extends MockWebSocket {
+            override close(): void {
+                this.readyState = 2;
+            }
+        }
+        const client = new SnowLumaWebSocketClient({ webSocket: DelayedCloseSocket });
+        const first = client.connect();
+        const oldSocket = MockWebSocket.instances.at(-1)!;
+        oldSocket.open();
+        await first;
+        client.close();
+
+        const second = client.connect();
+        const currentSocket = MockWebSocket.instances.at(-1)!;
+        currentSocket.open();
+        await second;
+        const raw = vi.fn();
+        client.on('raw', raw);
+        oldSocket.message(JSON.stringify(PRIVATE_EVENT));
+        oldSocket.emit('close', { code: 1000 });
+
+        expect(client.isConnected).toBe(true);
+        expect(raw).not.toHaveBeenCalled();
+        client.close();
+    });
+
+    it('settles an opening connection when the caller closes it before the close event', async () => {
+        class DelayedCloseSocket extends MockWebSocket {
+            override close(): void {
+                this.readyState = 2;
+            }
+        }
+        const client = new SnowLumaWebSocketClient({ webSocket: DelayedCloseSocket });
+        const opening = client.connect();
+        const oldSocket = MockWebSocket.instances.at(-1)!;
+        const result = expect(opening).rejects.toThrow('closed');
+        client.close();
+        await result;
+
+        oldSocket.open();
+        expect(client.isConnected).toBe(false);
+    });
+
     it('matches API responses by echo', async () => {
         MockWebSocket.instances = [];
         const client = new SnowLumaWebSocketClient({
