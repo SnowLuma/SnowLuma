@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
 
+Upgrade to Node.js 24 or newer before updating the SDK. SDK and application versions are released together.
+
+- Add typed `get_qzone_msg_detail` support for reading a post and its comment page with inline replies.
 - Release cancellation listeners as soon as a request stops waiting for a connection.
 - Isolate WebSocket connection lifetimes and release request timers and abort listeners on every outcome.
 - Reject duplicate in-flight WebSocket echoes instead of overwriting the original request.

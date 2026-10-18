@@ -7,17 +7,9 @@ The SDK follows SemVer for its public package surface:
 - Supported subpath exports: `client`, `messages`, `events`, `errors`, `actions`, and `types`.
 - Runtime behavior of typed client helpers, message builders, event helpers, and SDK error classes.
 
-## Current 0.x Policy
+## Version policy
 
-While the SDK is below `1.0.0`, breaking changes should use a minor release and include a migration note. Patch releases should remain bug fixes only.
-
-Examples:
-
-- `0.1.1`: bug fix, doc fix, type refinement that does not break consumers.
-- `0.2.0`: new client helper, new event helper, new action typing, or documented breaking change before 1.0.
-- `1.0.0`: first stable release where breaking changes move to major versions.
-
-## After 1.0
+SDK and application versions are synchronized by `pnpm bump <version>` from the repository root.
 
 - Major: removes or changes a public export, changes runtime behavior incompatibly, changes supported Node version, or changes package subpaths.
 - Minor: adds new public API, supports new SnowLuma actions, adds optional parameters, or adds error subclasses.
@@ -25,7 +17,7 @@ Examples:
 
 ## Release Checklist
 
-1. Update `packages/sdk/package.json` version.
+1. Run `pnpm bump <version>` to update all workspace versions.
 2. Update `packages/sdk/CHANGELOG.md`.
 3. Run `pnpm --filter @snowluma/sdk typecheck`.
 4. Run `pnpm --filter @snowluma/sdk test`.

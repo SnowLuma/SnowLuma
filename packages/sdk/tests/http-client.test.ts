@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import type { QzoneMsgDetailResult } from '../src';
 import {
     SnowLumaAbortError,
     SnowLumaAuthError,
@@ -7,6 +8,38 @@ import {
 } from '../src';
 
 describe('SnowLumaHttpClient', () => {
+    it('reads a typed Qzone comment page through raw', async () => {
+        const data: QzoneMsgDetailResult = {
+            tid: 'T1',
+            content: 'Post',
+            comment_num: 1,
+            comments: [
+                {
+                    uin: 20002,
+                    name: 'Reader',
+                    time: 1700000000,
+                    content: 'Hi',
+                    comment_id: '0',
+                    replies: [],
+                },
+            ],
+        };
+        const fetchImpl = vi.fn(
+            async () => new Response(JSON.stringify({ status: 'ok', retcode: 0, data })),
+        );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const params = { tid: 'T1', target_uin: 10001, pos: 0, num: 20 };
+        const result = await client.raw('get_qzone_msg_detail', params);
+        expectTypeOf(result).toEqualTypeOf<QzoneMsgDetailResult>();
+        expect(result).toEqual(data);
+        expect(fetchImpl).toHaveBeenCalledWith(
+            'http://127.0.0.1:3000/',
+            expect.objectContaining({
+                body: JSON.stringify({ action: 'get_qzone_msg_detail', params }),
+            }),
+        );
+    });
+
     it('requests group share links with default and explicit options', async () => {
         const url = 'https://qm.qq.com/q/example';
         const fetchImpl = vi

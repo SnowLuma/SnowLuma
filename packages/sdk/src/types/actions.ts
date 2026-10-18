@@ -78,6 +78,7 @@ import type {
     DeleteGroupFolderParams,
     SendPacketParams,
     SearchSysFacesParams,
+    GetQzoneMsgDetailParams,
 } from './params';
 import type {
     CapabilityInfo,
@@ -115,11 +116,13 @@ import type {
     SystemFaceCatalogInfo,
     SystemFaceInfo,
     SystemFaceSearchInfo,
+    QzoneMsgDetailResult,
 } from './results';
 
 export type ActionData = JsonValue;
 
 export interface SnowLumaActionMap {
+    get_qzone_msg_detail: { params: GetQzoneMsgDetailParams; data: QzoneMsgDetailResult };
     get_login_info: { params: JsonObject; data: LoginInfo };
     get_status: { params: JsonObject; data: StatusInfo };
     get_version_info: { params: JsonObject; data: VersionInfo };

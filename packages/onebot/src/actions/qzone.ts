@@ -25,6 +25,16 @@ async function uploadQzoneImages(
 
 const QZONE_UGC_RIGHTS = new Set<number>([1, 4, 16, 64, 128]);
 
+const qzoneCommentProperties = {
+    uin: { type: 'integer', description: '评论者 QQ 号' },
+    name: { type: 'string', description: '评论者昵称' },
+    time: { type: 'integer', description: '评论时间（unix 秒）' },
+    content: { type: 'string', description: '评论正文，保留空间表情和 @ 标记' },
+    comment_id: { type: 'string', description: '评论 ID，在所属说说或父评论内唯一' },
+};
+
+const qzoneCommentRequired = ['uin', 'name', 'time', 'content', 'comment_id'];
+
 export const actions = [
     // get_qzone_msg_list — 获取 QQ 空间说说列表。无 go-cqhttp 标准，自定义命名。
     // 默认取机器人自己的空间；传 target_uin 可查看指定账号（需有权限）。
@@ -73,6 +83,56 @@ export const actions = [
             const res = await ctx.bridge.apis.qzone.getMsgList(p.target_uin, p.pos, p.num);
             return okResponse(res as unknown as JsonValue);
         },
+    }),
+
+    defineAction({
+        name: 'get_qzone_msg_detail',
+        readOnly: true,
+        summary: '获取 QQ 空间说说详情与一页评论（含服务端内联回复，需有访问权限）',
+        returns:
+            '说说详情、服务端报告的评论总数与本页评论；replies 仅含服务端内联返回的二级回复，不保证完整。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                tid: { type: 'string', description: '说说 ID' },
+                content: { type: 'string', description: '说说正文' },
+                comment_num: { type: 'integer', description: '服务端报告的评论总数（非本页数量）' },
+                comments: {
+                    type: 'array',
+                    description: '本页一级评论，数量可能少于 num',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            ...qzoneCommentProperties,
+                            replies: {
+                                type: 'array',
+                                description: '服务端内联二级回复，可能不完整',
+                                items: {
+                                    type: 'object',
+                                    properties: qzoneCommentProperties,
+                                    required: qzoneCommentRequired,
+                                },
+                            },
+                        },
+                        required: [...qzoneCommentRequired, 'replies'],
+                    },
+                },
+            },
+            required: ['tid', 'content', 'comment_num', 'comments'],
+        },
+        params: {
+            tid: f
+                .string({ allowEmpty: false })
+                .describe('说说 tid（来自 get_qzone_msg_list / send_qzone_msg）'),
+            target_uin: f.userId().describe('说说所属 QQ 号，省略则取机器人自己').optional(),
+            pos: f.int({ min: 0 }).describe('一级评论起始偏移').default(0),
+            num: f
+                .int({ min: 1, max: 100 })
+                .describe('请求的一级评论数量，实际数量受服务端限制')
+                .default(20),
+        },
+        run: async (p, ctx) =>
+            okResponse(await ctx.bridge.apis.qzone.getMsgDetail(p.tid, p.target_uin, p.pos, p.num)),
     }),
 
     // get_qzone_feeds — 获取好友动态（feed）。只读，始终以机器人自己身份拉取。

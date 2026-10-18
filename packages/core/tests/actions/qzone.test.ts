@@ -20,6 +20,38 @@ describe('apis/qzone', () => {
         return { bridge, getCookies, fetchSpy };
     }
 
+    it.each([undefined, 20002])(
+        'getMsgDetail uses current-account credentials for owner %s',
+        async (targetUin) => {
+            const { bridge, getCookies } = bridgeWithWeb();
+            const detail = { tid: 'T1', content: 'Post', comment_num: 0, comments: [] };
+            const fetchDetail = vi.spyOn(qzoneWeb, 'getQzoneMsgDetail').mockResolvedValue(detail);
+            const result = await new QzoneApi(bridge as never).getMsgDetail('T1', targetUin);
+            expect(result).toEqual(detail);
+            expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+            expect(fetchDetail).toHaveBeenCalledWith(
+                { p_skey: 'PSK' },
+                String(targetUin ?? 10001),
+                'T1',
+                0,
+                20,
+            );
+        },
+    );
+
+    it('getMsgDetail passes pagination and propagates cookie and protocol failures', async () => {
+        const { bridge, getCookies } = bridgeWithWeb();
+        const api = new QzoneApi(bridge as never);
+        const fetchDetail = vi
+            .spyOn(qzoneWeb, 'getQzoneMsgDetail')
+            .mockRejectedValue(new Error('denied'));
+        await expect(api.getMsgDetail('T1', 20002, 10, 5)).rejects.toThrow('denied');
+        expect(fetchDetail).toHaveBeenCalledWith({ p_skey: 'PSK' }, '20002', 'T1', 10, 5);
+        getCookies.mockRejectedValueOnce(new Error('cookie failure'));
+        await expect(api.getMsgDetail('T1')).rejects.toThrow('cookie failure');
+        expect(fetchDetail).toHaveBeenCalledTimes(1);
+    });
+
     it("defaults target_uin to the bot's own uin and uses default pos/num", async () => {
         const { bridge, getCookies, fetchSpy } = bridgeWithWeb();
         await new QzoneApi(bridge as never).getMsgList();

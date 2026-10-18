@@ -144,6 +144,28 @@ const response = await bot.rawResponse('get_status');
 
 `raw` 会在 SnowLuma 返回 `status: "failed"` 或非零 `retcode` 时抛出 `SnowLumaApiError`；`rawResponse` 会保留完整响应。
 
+### 读取空间说说评论
+
+`get_qzone_msg_detail` 是只读扩展动作，`raw` 提供参数和结果类型：
+
+```ts
+const detail = await bot.raw('get_qzone_msg_detail', {
+  tid: '说说 ID', // 来自 get_qzone_msg_list / send_qzone_msg
+  // target_uin: 10001, // 省略时读取机器人自己的空间
+  pos: 0,
+  num: 20,
+});
+
+for (const comment of detail.comments) {
+  console.log(comment.comment_id, comment.uin, comment.name, comment.time, comment.content);
+  console.log(comment.replies); // 服务端内联返回的二级回复
+}
+```
+
+`comment_num` 是服务端报告的总数，`comments` 是本页一级评论；`num` 范围为 1–100，实际返回数量可能更少。二级回复不单独分页，`replies` 不保证完整。评论 ID 在所属说说内唯一，二级回复 ID 在父评论内唯一；时间均为 Unix 秒，正文保留空间表情和 @ 标记。该接口复用当前账号的空间登录态，登录或访问权限失败会抛出 `SnowLumaApiError`。
+
+分页参数及 `commentlist` / `list_3` 字段参考 [Qzone-API](https://github.com/SmartHypercube/Qzone-API/blob/master/qzone.py)。实际分页和可见内容取决于 QQ 空间服务端。
+
 ## Message Builder
 
 ```ts

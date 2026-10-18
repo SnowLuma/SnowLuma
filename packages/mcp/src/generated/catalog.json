@@ -7505,6 +7505,190 @@
       "category": "空间"
     },
     {
+      "name": "get_qzone_msg_detail",
+      "aliases": [],
+      "summary": "获取 QQ 空间说说详情与一页评论（含服务端内联回复，需有访问权限）",
+      "returns": "说说详情、服务端报告的评论总数与本页评论；replies 仅含服务端内联返回的二级回复，不保证完整。",
+      "returnsSchema": {
+        "type": "object",
+        "properties": {
+          "tid": {
+            "type": "string",
+            "description": "说说 ID"
+          },
+          "content": {
+            "type": "string",
+            "description": "说说正文"
+          },
+          "comment_num": {
+            "type": "integer",
+            "description": "服务端报告的评论总数（非本页数量）"
+          },
+          "comments": {
+            "type": "array",
+            "description": "本页一级评论，数量可能少于 num",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uin": {
+                  "type": "integer",
+                  "description": "评论者 QQ 号"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "评论者昵称"
+                },
+                "time": {
+                  "type": "integer",
+                  "description": "评论时间（unix 秒）"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "评论正文，保留空间表情和 @ 标记"
+                },
+                "comment_id": {
+                  "type": "string",
+                  "description": "评论 ID，在所属说说或父评论内唯一"
+                },
+                "replies": {
+                  "type": "array",
+                  "description": "服务端内联二级回复，可能不完整",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "uin": {
+                        "type": "integer",
+                        "description": "评论者 QQ 号"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "评论者昵称"
+                      },
+                      "time": {
+                        "type": "integer",
+                        "description": "评论时间（unix 秒）"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "评论正文，保留空间表情和 @ 标记"
+                      },
+                      "comment_id": {
+                        "type": "string",
+                        "description": "评论 ID，在所属说说或父评论内唯一"
+                      }
+                    },
+                    "required": [
+                      "uin",
+                      "name",
+                      "time",
+                      "content",
+                      "comment_id"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "uin",
+                "name",
+                "time",
+                "content",
+                "comment_id",
+                "replies"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tid",
+          "content",
+          "comment_num",
+          "comments"
+        ]
+      },
+      "readOnly": true,
+      "params": [
+        {
+          "name": "tid",
+          "type": "string",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          },
+          "desc": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+        },
+        {
+          "name": "target_uin",
+          "type": "uint",
+          "required": false,
+          "role": "user_id",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "desc": "说说所属 QQ 号，省略则取机器人自己"
+        },
+        {
+          "name": "pos",
+          "type": "int",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "desc": "一级评论起始偏移",
+          "default": 0
+        },
+        {
+          "name": "num",
+          "type": "int",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "desc": "请求的一级评论数量，实际数量受服务端限制",
+          "default": 20
+        }
+      ],
+      "invariants": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tid": {
+            "type": "string",
+            "minLength": 1,
+            "description": "说说 tid（来自 get_qzone_msg_list / send_qzone_msg）"
+          },
+          "target_uin": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "说说所属 QQ 号，省略则取机器人自己",
+            "x-role": "user_id"
+          },
+          "pos": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "一级评论起始偏移",
+            "default": 0
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "请求的一级评论数量，实际数量受服务端限制",
+            "default": 20
+          }
+        },
+        "required": [
+          "tid"
+        ],
+        "additionalProperties": true
+      },
+      "category": "空间"
+    },
+    {
       "name": "get_qzone_msg_list",
       "aliases": [],
       "summary": "获取 QQ 空间说说列表（默认机器人自己的空间）",
@@ -13448,7 +13632,7 @@
     },
     {
       "category": "空间",
-      "count": 9
+      "count": 10
     },
     {
       "category": "系统表情",

@@ -1,5 +1,28 @@
 import type { JsonArray, JsonObject, JsonValue } from './json';
 
+export interface QzoneCommentReply {
+    uin: number;
+    name: string;
+    /** Unix seconds. */
+    time: number;
+    content: string;
+    /** Scoped to the post, or parent comment for replies. */
+    comment_id: string;
+}
+
+export interface QzoneComment extends QzoneCommentReply {
+    /** Inline replies only; Qzone may omit further replies. */
+    replies: QzoneCommentReply[];
+}
+
+export interface QzoneMsgDetailResult {
+    tid: string;
+    content: string;
+    /** Server-reported total, not the number of comments on this page. */
+    comment_num: number;
+    comments: QzoneComment[];
+}
+
 export interface SendMessageResult {
     message_id: number;
 }

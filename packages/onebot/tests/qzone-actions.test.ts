@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { ApiHandler, type ApiActionContext } from '../src/api-handler';
+import { actions } from '../src/actions/qzone';
 
 function makeHandler(qzone: Record<string, unknown>): ApiHandler {
     const bridge = { apis: { qzone } } as unknown as BridgeInterface;
@@ -9,6 +10,74 @@ function makeHandler(qzone: Record<string, unknown>): ApiHandler {
 }
 
 describe('qzone actions', () => {
+    it('get_qzone_msg_detail returns the comment page with default parameters', async () => {
+        const detail = {
+            tid: 'T1',
+            content: 'Post',
+            comment_num: 1,
+            comments: [
+                {
+                    uin: 20002,
+                    name: 'Reader',
+                    time: 1700000000,
+                    content: 'Hello',
+                    comment_id: '0',
+                    replies: [],
+                },
+            ],
+        };
+        const getMsgDetail = vi.fn().mockResolvedValue(detail);
+        const res = await makeHandler({ getMsgDetail }).handle('get_qzone_msg_detail', {
+            tid: 'T1',
+        });
+        expect(res).toMatchObject({ status: 'ok', retcode: 0, data: detail });
+        expect(getMsgDetail).toHaveBeenCalledWith('T1', undefined, 0, 20);
+        expect(
+            actions.find((action) => action.names.includes('get_qzone_msg_detail'))?.describe()
+                .readOnly,
+        ).toBe(true);
+    });
+
+    it('get_qzone_msg_detail accepts HTTP query strings for owner and pagination', async () => {
+        const getMsgDetail = vi
+            .fn()
+            .mockResolvedValue({ tid: 'T1', content: '', comment_num: 0, comments: [] });
+        const res = await makeHandler({ getMsgDetail }).handle('get_qzone_msg_detail', {
+            tid: 'T1',
+            target_uin: '20002',
+            pos: '5',
+            num: '10',
+        });
+        expect(res).toMatchObject({ status: 'ok', retcode: 0 });
+        expect(getMsgDetail).toHaveBeenCalledWith('T1', 20002, 5, 10);
+    });
+
+    it.each([
+        {},
+        { tid: '' },
+        { tid: 'T1', target_uin: 0 },
+        { tid: 'T1', target_uin: 'bad' },
+        { tid: 'T1', pos: -1 },
+        { tid: 'T1', num: 0 },
+        { tid: 'T1', num: 101 },
+    ])('get_qzone_msg_detail rejects invalid params (%j) before fetching', async (params) => {
+        const getMsgDetail = vi.fn();
+        const res = await makeHandler({ getMsgDetail }).handle('get_qzone_msg_detail', params);
+        expect(res).toMatchObject({ status: 'failed', retcode: 1400 });
+        expect(getMsgDetail).not.toHaveBeenCalled();
+    });
+
+    it('get_qzone_msg_detail exposes upstream failures', async () => {
+        const getMsgDetail = vi
+            .fn()
+            .mockRejectedValue(new Error('qzone msg detail failed: code=-3000 need login'));
+        const res = await makeHandler({ getMsgDetail }).handle('get_qzone_msg_detail', {
+            tid: 'T1',
+        });
+        expect(res).toMatchObject({ status: 'failed', retcode: 100 });
+        expect(res.wording).toContain('code=-3000 need login');
+    });
+
     it('send_qzone_msg uploads images and publishes richvals joined with tab', async () => {
         const uploadImageFromSource = vi
             .fn()

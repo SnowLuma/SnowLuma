@@ -62,6 +62,31 @@ export interface QzoneMsgListResult {
     msglist: QzoneEmotion[];
 }
 
+export interface QzoneCommentReply {
+    [key: string]: JsonValue;
+    uin: number;
+    name: string;
+    /** Unix seconds. */
+    time: number;
+    content: string;
+    /** Scoped to the containing post (or parent comment for replies). */
+    comment_id: string;
+}
+
+export interface QzoneComment extends QzoneCommentReply {
+    /** Inline replies supplied by Qzone; may not include every reply. */
+    replies: QzoneCommentReply[];
+}
+
+export interface QzoneMsgDetailResult {
+    [key: string]: JsonValue;
+    tid: string;
+    content: string;
+    /** Server-reported total, not the length of this comment page. */
+    comment_num: number;
+    comments: QzoneComment[];
+}
+
 /**
  * Parse a Qzone CGI body that may be raw JSON or a JSONP callback wrapper
  * (`_Callback({...});` / `callback({...})`). Uses a layered fallback approach:
@@ -1553,6 +1578,8 @@ interface RawMsgDetailResponse {
     tid?: string;
     uin?: number | string;
     content?: string;
+    cmtnum?: unknown;
+    commentlist?: unknown;
     conlist?: Array<{ con?: string }> | null;
     pic?: RawMsgDetailPic[] | null;
     richtype?: number | string;
@@ -1686,32 +1713,36 @@ export function buildQzoneUpdatePayload(
     });
 }
 
-/** Fetch one 说说's full detail (the update payload's source of truth). */
-async function getQzoneMsgDetail(
+/** Shared raw detail for reading comments and rebuilding permission updates. */
+async function fetchQzoneMsgDetail(
     cookieObject: Record<string, string>,
-    selfUin: string,
+    targetUin: string,
     tid: string,
+    page?: { pos: number; num: number },
 ): Promise<RawMsgDetailResponse> {
     const bkn = getBknFromCookie(cookieObject);
     const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msgdetail_v6?${new URLSearchParams(
         {
             tid,
-            uin: selfUin,
+            uin: targetUin,
             t1_source: '1',
             not_trunc_con: '1',
             need_right: '1',
             not_adapt_outpic: '1',
             g_tk: bkn,
+            ...(page ? { pos: String(page.pos), num: String(page.num) } : {}),
         },
     ).toString()}`;
 
     const text = await RequestUtil.HttpGetText(url, 'GET', '', {
         Cookie: cookieToString(cookieObject),
     });
-    log.trace('getQzoneMsgDetail raw body (tid=%s): %s', tid, text);
     const data = parseQzoneJson<RawMsgDetailResponse>(text);
+    detailObject(data, 'response');
 
-    const code = data.subcode ?? data.code ?? -1;
+    // Either error field can carry the failure; subcode=0 must not mask code!=0.
+    const code =
+        data.code !== undefined && data.code !== 0 ? data.code : (data.subcode ?? data.code ?? -1);
 
     if (code !== 0) {
         log.warn(
@@ -1726,6 +1757,102 @@ async function getQzoneMsgDetail(
     }
 
     return data;
+}
+
+function detailObject(value: unknown, field: string): Record<string, unknown> {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`invalid qzone msg detail: ${field} must be an object`);
+    }
+
+    return value as Record<string, unknown>;
+}
+
+function detailString(value: unknown, field: string): string {
+    if (typeof value !== 'string') {
+        throw new Error(`invalid qzone msg detail: ${field} must be a string`);
+    }
+
+    return value;
+}
+
+function detailInteger(value: unknown, field: string, min = 0): number {
+    const number = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+
+    if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < min) {
+        throw new Error(`invalid qzone msg detail: ${field} must be an integer >= ${min}`);
+    }
+
+    return number;
+}
+
+function detailList(value: unknown, field: string): unknown[] {
+    if (value === undefined || value === null) {
+        return [];
+    }
+
+    if (!Array.isArray(value)) {
+        throw new Error(`invalid qzone msg detail: ${field} must be an array`);
+    }
+
+    return value;
+}
+
+function mapQzoneComment(value: Record<string, unknown>, field: string): QzoneCommentReply {
+    const id =
+        typeof value.tid === 'number'
+            ? String(detailInteger(value.tid, `${field}.tid`))
+            : detailString(value.tid, `${field}.tid`);
+
+    if (!id) {
+        throw new Error(`invalid qzone msg detail: ${field}.tid is empty`);
+    }
+
+    return {
+        comment_id: id,
+        uin: detailInteger(value.uin, `${field}.uin`, 1),
+        name: detailString(value.name, `${field}.name`),
+        time: detailInteger(value.create_time, `${field}.create_time`),
+        content: detailString(value.content, `${field}.content`),
+    };
+}
+
+/**
+ * Read one post and a page of comments, with the inline replies Qzone supplies.
+ * Wire fields and pos/num follow SmartHypercube/Qzone-API's Comment / Emotion.load:
+ * https://github.com/SmartHypercube/Qzone-API/blob/master/qzone.py
+ * Mapping is independent of the update payload; malformed data must not look
+ * like a successful empty page. No raw response (private content) is logged.
+ */
+export async function getQzoneMsgDetail(
+    cookieObject: Record<string, string>,
+    targetUin: string,
+    tid: string,
+    pos = 0,
+    num = 20,
+): Promise<QzoneMsgDetailResult> {
+    const data = await fetchQzoneMsgDetail(cookieObject, targetUin, tid, { pos, num });
+    const resultTid = detailString(data.tid, 'tid');
+
+    if (!resultTid || resultTid !== tid) {
+        throw new Error('invalid qzone msg detail: tid does not match the requested post');
+    }
+
+    return {
+        tid: resultTid,
+        content: detailString(data.content, 'content'),
+        comment_num: detailInteger(data.cmtnum, 'cmtnum'),
+        comments: detailList(data.commentlist, 'commentlist').map((value, index) => {
+            const field = `commentlist[${index}]`;
+            const comment = detailObject(value, field);
+            return {
+                ...mapQzoneComment(comment, field),
+                replies: detailList(comment.list_3, `${field}.list_3`).map((reply, replyIndex) => {
+                    const replyField = `${field}.list_3[${replyIndex}]`;
+                    return mapQzoneComment(detailObject(reply, replyField), replyField);
+                }),
+            };
+        }),
+    };
 }
 
 /**
@@ -1760,7 +1887,7 @@ export async function updateQzoneMsgRight(
         throw new Error('target_uins is required when ugc_right is 16 or 128');
     }
 
-    const detail = await getQzoneMsgDetail(cookieObject, selfUin, tid);
+    const detail = await fetchQzoneMsgDetail(cookieObject, selfUin, tid);
     const bodyParams = buildQzoneUpdatePayload(detail, selfUin);
     bodyParams.set('ugc_right', String(right));
 

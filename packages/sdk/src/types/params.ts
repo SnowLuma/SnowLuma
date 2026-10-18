@@ -423,3 +423,13 @@ export interface SendPacketParams extends JsonObject {
     data?: string;
     rsp?: boolean;
 }
+
+export interface GetQzoneMsgDetailParams extends JsonObject {
+    tid: string;
+    /** Post owner; defaults to the current account. */
+    target_uin?: number | string;
+    /** Top-level comment offset (default 0). */
+    pos?: number | string;
+    /** Requested page size, 1–100 (default 20); Qzone may return fewer. */
+    num?: number | string;
+}

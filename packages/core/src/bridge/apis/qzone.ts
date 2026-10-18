@@ -2,6 +2,7 @@ import {
     commentQzoneMsg,
     deleteQzoneMsg,
     getQzoneFeeds,
+    getQzoneMsgDetail,
     getQzoneMsgList,
     publishQzoneMsg,
     setQzoneBlack,
@@ -10,6 +11,7 @@ import {
     uploadQzoneImageFromSource,
     type QzoneCommentResult,
     type QzoneFeedsResult,
+    type QzoneMsgDetailResult,
     type QzoneMsgListResult,
     type QzonePublishResult,
     type QzoneUpdateRightResult,
@@ -34,6 +36,18 @@ export class QzoneApi {
         const uin = targetUin && targetUin > 0 ? targetUin.toString() : this.ctx.identity.uin;
         const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
         return getQzoneMsgList(cookieObject, uin, pos, num);
+    }
+
+    /** 获取说说详情和一页评论。省略 targetUin 时使用当前账号。 */
+    async getMsgDetail(
+        tid: string,
+        targetUin?: number,
+        pos = 0,
+        num = 20,
+    ): Promise<QzoneMsgDetailResult> {
+        const uin = targetUin === undefined ? this.ctx.identity.uin : String(targetUin);
+        const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzoneMsgDetail(cookieObject, uin, tid, pos, num);
     }
 
     /**

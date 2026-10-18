@@ -1,15 +1,21 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/sqlite",
-  "version": "1.14.22",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "SnowLuma asynchronous SQLite facade, native loader and release assets.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
-    "./vite": { "types": "./src/vite.ts", "default": "./src/vite.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./vite": {
+      "types": "./src/vite.ts",
+      "default": "./src/vite.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -24,5 +30,7 @@
     "vite": "catalog:",
     "vitest": "^4.1.4"
   },
-  "engines": { "node": ">=24" }
+  "engines": {
+    "node": ">=24"
+  }
 }
