@@ -111,6 +111,25 @@ function isXmlCardContent(content: string): boolean {
     return trimmed.startsWith('<') && trimmed.endsWith('>');
 }
 
+/**
+ * XML attribute values arrive escaped by the sending side (element-builder's
+ * `escapeXml` escapes `& < > " '` plus control whitespace), so attribute
+ * values used as lookup keys must be unescaped before use or they never
+ * match the values cached at send time. Named entities first, `&amp;` last —
+ * otherwise `&amp;lt;` would decode twice.
+ */
+function decodeXmlAttribute(value: string): string {
+    return value
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&#x9;', '\t')
+        .replaceAll('&#xA;', '\n')
+        .replaceAll('&#xD;', '\r')
+        .replaceAll('&amp;', '&');
+}
+
 function decodeRichMsgCard(
     elem: ElemDecoded,
     remainingOutputBytes: number,
@@ -135,15 +154,24 @@ function decodeRichMsgCard(
         return invalidCard(data.length, 'invalid_xml', decoded.budgetBytes);
     }
 
-    if (svcId === 35) {
+    if (svcId === 35 || (svcId === 0 && /\bserviceID="35"/.test(content))) {
         const match = /\bm_resid="([^"]+)"/.exec(content);
         // XML forwards link bundled inner messages by m_fileName, just as
         // LightApp forwards use uniseq. Keep it for the outer payload lookup.
         const fileName = /\bm_fileName="([^"]+)"/.exec(content)?.[1];
         return {
             element: match
-                ? { type: 'forward', resId: match[1], forwardUuid: fileName }
-                : { type: 'xml', text: content, subType: svcId },
+                ? {
+                      type: 'forward',
+                      // The sending side escapes attribute values (see
+                      // element-builder's escapeXml), so the lookup keys must
+                      // be unescaped or a resId containing `&` etc. never
+                      // matches the value cached at send time — same family
+                      // as bdf224c's missing m_fileName.
+                      resId: decodeXmlAttribute(match[1]),
+                      forwardUuid: fileName !== undefined ? decodeXmlAttribute(fileName) : undefined,
+                  }
+                : { type: 'xml', text: content, subType: 35 },
             error: null,
             inputBytes: data.length,
             budgetBytes: decoded.budgetBytes,

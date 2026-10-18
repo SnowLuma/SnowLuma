@@ -246,6 +246,56 @@ describe('decodeRichBody / forward LightApp', () => {
         },
     );
 
+    it('unescapes XML entities in m_resid / m_fileName lookup keys', () => {
+        // The sending side (element-builder escapeXml) escapes attribute
+        // values; keys must come back unescaped or they never match the
+        // values cached at send time.
+        const xml =
+            '<msg serviceID="35" m_resid="res&amp;&lt;1&gt;" m_fileName="key&quot;x&apos;y" />';
+        const xmlBuf = new Uint8Array(xml.length + 1);
+        xmlBuf[0] = 0x00;
+        xmlBuf.set(new TextEncoder().encode(xml), 1);
+
+        const body: MessageBody = {
+            richText: {
+                elems: [
+                    {
+                        richMsg: { serviceId: 35, template1: xmlBuf },
+                    } as any,
+                ],
+            },
+        };
+        const out = decodeRichBody(body, true);
+        expect(out).toEqual([
+            { type: 'forward', resId: 'res&<1>', forwardUuid: 'key"x\'y' },
+        ]);
+    });
+
+    it('recognises an XML forward when the proto serviceId is omitted (defaults to 0)', () => {
+        // A sender may leave the proto field at its default while the XML
+        // body still carries serviceID="35" — without a content sniff the
+        // forward identity (resId + fileName) is dropped entirely.
+        const xml =
+            '<msg serviceID="35" m_resid="sniffed-res" m_fileName="sniffed-key" />';
+        const xmlBuf = new Uint8Array(xml.length + 1);
+        xmlBuf[0] = 0x00;
+        xmlBuf.set(new TextEncoder().encode(xml), 1);
+
+        const body: MessageBody = {
+            richText: {
+                elems: [
+                    {
+                        richMsg: { serviceId: 0, template1: xmlBuf },
+                    } as any,
+                ],
+            },
+        };
+        const out = decodeRichBody(body, true);
+        expect(out).toEqual([
+            { type: 'forward', resId: 'sniffed-res', forwardUuid: 'sniffed-key' },
+        ]);
+    });
+
     it('still decodes the legacy richMsg serviceID=35 path (backward compat with mobile QQ)', () => {
         // Older clients (and some bridges) still emit the m_resid XML
         // shape. The decoder must keep treating it as a forward element
