@@ -92,7 +92,9 @@ function restoreDevNoNative(): void {
 }
 
 async function loadNative(): Promise<NativeAddon> {
-    return (await import('../src/native')).default;
+    const addon = (await import('../src/native')).default;
+    void addon.Parser;
+    return addon;
 }
 
 function installFakeAddon(exports: NativeAddon): string[] {
@@ -402,6 +404,17 @@ describe('addon path resolution', () => {
     });
 
     afterEach(cleanupLoaderTest);
+
+    it('does not load a native library until first use, then caches it', async () => {
+        const opened = installFakeAddon(fakeAddon('lazy'));
+        existsSyncMock.mockReturnValue(true);
+        const addon = (await import('../src/native')).default;
+        expect(opened).toEqual([]);
+        expect(existsSyncMock).not.toHaveBeenCalled();
+        expect(addon.computeAcceptKey(RFC_KEY)).toBe('lazy');
+        expect(addon.computeAcceptKey(RFC_KEY)).toBe('lazy');
+        expect(opened).toHaveLength(1);
+    });
 
     it('dlopens the first existing websocket-<platform>-<arch>.node candidate', async () => {
         const opened = installFakeAddon(fakeAddon('from-first-hit'));

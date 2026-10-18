@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { compareVersions, currentVersion, getUpdateInfo } from '../src/webui/update-check';
+import { compareVersions, getUpdateInfo } from '../src/update/check';
 
 const LATEST_RELEASE_URL = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest';
 const NOTES_MAX = 4_000;
@@ -44,11 +44,7 @@ afterEach(() => {
     }
 });
 
-describe('currentVersion', () => {
-    it('falls back to 0.0.0 when the build-time version is unset', () => {
-        expect(currentVersion()).toBe('0.0.0');
-    });
-});
+vi.mock('@snowluma/common/version', () => ({ APP_VERSION: '0.0.0' }));
 
 describe('compareVersions', () => {
     it.each([

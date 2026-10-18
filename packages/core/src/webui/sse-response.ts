@@ -32,7 +32,11 @@ export interface SseChannel {
  * previously hand-copied this ~40-line skeleton; a heartbeat-interval /
  * teardown-order / header change had to be kept in sync across all three.
  */
-export function sseResponse(c: Context, start: (ch: SseChannel) => void): Response {
+export function sseResponse(
+    c: Context,
+    start: (ch: SseChannel) => void,
+    shutdown?: AbortSignal,
+): Response {
     const stream = new ReadableStream<Uint8Array>({
         start(controller) {
             const encoder = new TextEncoder();
@@ -91,6 +95,15 @@ export function sseResponse(c: Context, start: (ch: SseChannel) => void): Respon
             start(ch);
             heartbeat = setInterval(() => raw(encoder.encode(': heartbeat\n\n')), 15000);
             c.req.raw.signal.addEventListener('abort', teardown);
+            shutdown?.addEventListener('abort', teardown, { once: true });
+            cleanups.push(() => {
+                c.req.raw.signal.removeEventListener('abort', teardown);
+                shutdown?.removeEventListener('abort', teardown);
+            });
+
+            if (shutdown?.aborted) {
+                teardown();
+            }
         },
     });
     return new Response(stream, {

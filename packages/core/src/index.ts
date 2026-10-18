@@ -1,4 +1,5 @@
 import { getRuntimeIntegrity, HookManager } from '@snowluma/bridge';
+import { APP_VERSION } from '@snowluma/common/version';
 import { configureFileTransport } from '@snowluma/common/log-file-transport';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import {
@@ -15,14 +16,20 @@ import {
     runMessageStoreMigrationWorker,
 } from '@snowluma/onebot/message-store-migration-worker';
 import { workerData } from 'node:worker_threads';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BridgeManager } from './bridge/manager';
 import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
+import { initWebUI } from './webui/server';
 import { bindSystemFaceCatalog } from './sys-face-catalog';
-import { readAppVersion, startNativeStageSync, tempStagePath } from './native-stage-sync';
+import { startNativeStageSync, tempStagePath } from './native-stage-sync';
 import { logRuntimeIntegrity } from './runtime-integrity-log';
+import { RESTART_EXIT_CODE, runApplication } from './update/startup';
 
 const log = createLogger('App');
+const updateRoot =
+    typeof __PACKAGED__ === 'undefined' ? undefined : path.dirname(fileURLToPath(import.meta.url));
 
 function installProcessGuards(): void {
     // Last-resort process guards. This is a long-running daemon: a hooked QQ pipe
@@ -54,7 +61,7 @@ async function main() {
     log.info('SnowLuma starting');
     logRuntimeIntegrity(getRuntimeIntegrity());
     const stopNativeStageSync = startNativeStageSync({
-        version: readAppVersion(import.meta.url),
+        version: APP_VERSION,
         dataDir: 'data',
         tempPath: tempStagePath(),
     });
@@ -108,7 +115,6 @@ async function main() {
         process.env.SNOWLUMA_DEV_WEBUI === '1'
     ) {
         try {
-            const { initWebUI } = await import('./webui/server');
             const started = await initWebUI(
                 runtimeConfig.webuiPort || 5099,
                 oneBotManager,
@@ -119,6 +125,10 @@ async function main() {
                     tlsEnabled: runtimeConfig.webuiTls?.enabled,
                     trustProxy: runtimeConfig.trustProxy,
                     stateBus: stateWiring.bus,
+                    updateRoot,
+                    restart: () => {
+                        void shutdown('update', RESTART_EXIT_CODE);
+                    },
                 },
             );
             stopWebUI = started.stop;
@@ -131,14 +141,14 @@ async function main() {
     // SIGINT (Ctrl-C) and SIGTERM (Docker/systemd) take the same path.
     let shutdownStarted = false;
 
-    const shutdown = (signal: string) => async () => {
+    const shutdown = async (signal: string, requestedExitCode = 0) => {
         if (shutdownStarted) {
             return;
         }
 
         shutdownStarted = true;
         log.warn(`Shutting down (${signal})...`);
-        let exitCode = 0;
+        let exitCode = requestedExitCode;
 
         try {
             await oneBotManager.dispose();
@@ -219,8 +229,24 @@ async function main() {
         process.exit(exitCode);
     };
 
-    process.on('SIGINT', shutdown('SIGINT'));
-    process.on('SIGTERM', shutdown('SIGTERM'));
+    process.on('SIGINT', () => {
+        void shutdown('SIGINT');
+    });
+    process.on('SIGTERM', () => {
+        void shutdown('SIGTERM');
+    });
+
+    if (process.send) {
+        process.on('message', (message) => {
+            if (message === 'shutdown') {
+                void shutdown('launcher');
+            }
+        });
+        process.on('disconnect', () => {
+            void shutdown('launcher disconnected');
+        });
+        process.send('ready');
+    }
 }
 
 function resolveAutoLoad(fromConfig: boolean | undefined): boolean {
@@ -245,6 +271,8 @@ if (isMessageStoreMigrationWorkerData(workerData)) {
     runMessageStoreMigrationWorker(workerData).catch(() => {
         process.exitCode = 1;
     });
+} else if (updateRoot && !process.env.SNOWLUMA_UPDATE_ROOT) {
+    void runApplication(updateRoot);
 } else {
     installProcessGuards();
     main().catch(async (error) => {

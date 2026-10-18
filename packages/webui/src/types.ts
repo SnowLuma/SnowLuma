@@ -1,8 +1,14 @@
 export const APP_NAME = 'SnowLuma';
 // Injected at build time by Vite from the monorepo root package.json.
-export const APP_VERSION = __APP_VERSION__;
+export { APP_VERSION } from '@snowluma/common/version';
 
-/** Advisory update-availability info from `GET /api/update/check`. */
+export type UpdateStatus = { current: string } & (
+    | { phase: 'unavailable' | 'error'; message: string }
+    | { phase: 'idle' }
+    | { phase: 'downloading' | 'ready' | 'restarting'; version: string }
+);
+
+/** Update-availability info from `GET /api/update/check`. */
 export interface UpdateInfo {
     /** The running build's version (no `v` prefix). */
     current: string;

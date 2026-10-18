@@ -68,6 +68,10 @@ account does not delay other accounts.
 
 ## Local development
 
+Packaged installations offer download and restart controls in Settings → About.
+Downloads are verified and staged; files are applied before the application starts.
+Restart confirmation uses the shared modal, and download results use action feedback.
+
 On Windows, the native API logs the process token and EXE integrity label once
 at startup. A Low (or lower) token triggers a WebUI warning; file labels and
 query failures alone do not. “临时关闭” lasts for the tab session, including

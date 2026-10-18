@@ -1,9 +1,4 @@
-// Settings → 服务 tab (Wave A1). Edits the WebUI listener's own config
-// (port / bind host / trust-proxy / HTTPS). Listener-level changes are
-// persisted but apply only after a restart — there is no supervisor to
-// self-restart, so we never offer a "restart now" button, only a banner.
-// Fields currently pinned by SNOWLUMA_* env vars are flagged (edits to them
-// won't take effect until the env var is removed).
+// Listener changes apply after restart; environment overrides remain authoritative.
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {

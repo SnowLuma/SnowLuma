@@ -27,6 +27,7 @@ import type {
     UiAppearance,
     UiConfig,
     UpdateInfo,
+    UpdateStatus,
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-form';
 
@@ -275,6 +276,9 @@ export interface ApiClient {
     update: {
         /** Advisory check for a newer stable release. Read-only — never downloads. */
         check(force?: boolean): Promise<UpdateInfo>;
+        status(): Promise<UpdateStatus>;
+        download(version: string): Promise<UpdateStatus>;
+        restart(): Promise<UpdateStatus>;
     };
 
     // ---- WebUI customization (config/ui.json) ----

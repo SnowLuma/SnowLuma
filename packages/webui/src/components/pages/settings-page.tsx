@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@/types';
 import {
     createContext,
     useContext,
@@ -93,6 +94,7 @@ import { settingsRoute, type SettingsTab } from '@/router';
 import { NotificationsPanel } from '@/components/settings/notifications-panel';
 import { GlobalConfigPanel } from '@/components/settings/global-config-panel';
 import { SystemPanel } from '@/components/settings/system-panel';
+import { UpdateInstaller } from '@/components/settings/update-installer';
 import { StoragePanel } from '@/components/settings/storage-panel';
 import { DeveloperCrashProbe, developerCrashReducer } from '@/components/settings/developer-tools';
 
@@ -1864,31 +1866,8 @@ function DeveloperPanel() {
 
 const REPO_URL = 'https://github.com/SnowLuma/SnowLuma';
 
-// Best-effort guess of the release asset matching the running platform, so
-// the user knows which file to grab on the GitHub release page. Returns null
-// for platforms with no official asset (e.g. macOS).
-function assetHint(latest: string, platform?: string, arch?: string): string | null {
-    if (!platform) {
-        return null;
-    }
-
-    const tag = `v${latest}`;
-
-    if (platform === 'win32') {
-        return `SnowLuma-${tag}-win-x64.zip`;
-    }
-
-    if (platform === 'linux') {
-        return `SnowLuma-${tag}-linux-${arch === 'arm64' ? 'arm64' : 'x64'}.tar.gz`;
-    }
-
-    return null;
-}
-
-// Advisory software update, shown as a grouped list. Read-only: links to the
-// GitHub release; SnowLuma never downloads or applies anything itself.
 function UpdateGroup() {
-    const { updateInfo, refreshUpdate, systemInfo, resources } = useAppState();
+    const { updateInfo, refreshUpdate, resources } = useAppState();
     const { runAction } = useActionFeedback();
     const [checking, setChecking] = useState(false);
 
@@ -1899,7 +1878,7 @@ function UpdateGroup() {
             await runAction(
                 {
                     title: '正在检查更新',
-                    detail: `当前版本 v${__APP_VERSION__}`,
+                    detail: `当前版本 v${APP_VERSION}`,
                     successTitle: '更新检查完成',
                     successDetail: (result) =>
                         result?.hasUpdate && result.latest
@@ -1954,7 +1933,6 @@ function UpdateGroup() {
 
     if (updateInfo?.hasUpdate && updateInfo.latest) {
         const latest = updateInfo.latest;
-        const hint = assetHint(latest, systemInfo?.platform, systemInfo?.arch);
         detail = (
             <div className="bg-primary/[0.05] px-5 py-4 text-left">
                 <div className="flex items-center gap-2">
@@ -1974,17 +1952,10 @@ function UpdateGroup() {
                         {updateInfo.notes}
                     </pre>
                 )}
-                {hint && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                        适合你的平台：
-                        <code className="rounded bg-muted px-1 py-0.5 font-mono">{hint}</code>
-                        （在下载页选择）
-                    </p>
-                )}
                 {updateInfo.htmlUrl && (
                     <Button asChild size="sm" className="mt-3">
                         <a href={updateInfo.htmlUrl} target="_blank" rel="noreferrer noopener">
-                            <Download className="size-4" /> 前往下载
+                            <ExternalLink className="size-4" /> 发布说明
                         </a>
                     </Button>
                 )}
@@ -1993,10 +1964,10 @@ function UpdateGroup() {
     }
 
     return (
-        <Group title="软件更新" icon={Sparkles} description="仅提示新版本，从不自动下载或安装。">
+        <Group title="软件更新" icon={Sparkles}>
             <SettingRow label="当前版本" layout="inline">
                 <code className="rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-xs tabular-nums">
-                    v{__APP_VERSION__}
+                    v{APP_VERSION}
                 </code>
             </SettingRow>
             <SettingRow label="检查更新">
@@ -2029,6 +2000,7 @@ function UpdateGroup() {
                 </div>
             </SettingRow>
             {detail}
+            <UpdateInstaller version={updateInfo?.hasUpdate ? updateInfo.latest : null} />
         </Group>
     );
 }
@@ -2059,7 +2031,7 @@ function AboutPanel() {
                         <div className="flex items-center gap-2">
                             <span className="text-2xl font-semibold tracking-tight">SnowLuma</span>
                             <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-meta text-primary tabular-nums">
-                                v{__APP_VERSION__}
+                                v{APP_VERSION}
                             </span>
                         </div>
                         <p className="text-sm text-muted-foreground">

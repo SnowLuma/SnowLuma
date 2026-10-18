@@ -43,7 +43,7 @@ SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/SnowLuma/SnowLuma/releases) 下载对应平台的完整发行包并解压。Lite 版需 Node.js 22.13+（23 系需 23.4+）。
+1. 从 [Releases](https://github.com/SnowLuma/SnowLuma/releases) 下载对应平台的完整发行包并解压。Lite 版需 Node.js 24+。
 2. Windows 运行 `launcher.bat`；Linux 执行：
 
    ```bash
@@ -52,6 +52,8 @@ SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生
    ```
 
 3. 打开 [`http://localhost:5099`](http://localhost:5099)，使用启动日志中的初始密码登录 WebUI，按引导接入 QQ 进程并配置 OneBot 连接。
+
+在「设置 → 关于 → 软件更新」下载新版本，再点「重启更新」。文件优先暂存于系统临时目录，不可用时使用安装目录的 `tmp/update`，下次启动时替换并清理，配置、日志与消息数据保留。更新沿用当前 Node.js；容器部署请更新镜像。
 
 ## 接入与文档
 
@@ -65,7 +67,7 @@ JSON 消息段接受标准的 `data.data` 字符串，也兼容 `data.data` 非�
 
 ## 开发
 
-需要 Node.js 22.13+（23 系需 23.4+）与 pnpm 10.28.0，日常开发基于 `dev` 分支：
+需要 Node.js 24+ 与 pnpm 11.25.0，日常开发基于 `dev` 分支：
 
 ```bash
 git clone https://github.com/SnowLuma/SnowLuma.git

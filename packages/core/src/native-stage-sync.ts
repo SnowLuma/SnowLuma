@@ -109,25 +109,6 @@ export function tempStagePath(
     return `/tmp/sl-${uid}/${STAGE_FILE_NAME}`;
 }
 
-export function readAppVersion(moduleUrl: string | URL = import.meta.url): string {
-    if (typeof __APP_VERSION__ === 'string' && __APP_VERSION__) {
-        return __APP_VERSION__;
-    }
-
-    try {
-        const raw = readFileSync(new URL('../package.json', moduleUrl), 'utf8');
-        const version = JSON.parse(raw).version;
-
-        if (typeof version === 'string' && version.trim()) {
-            return version.trim();
-        }
-    } catch {
-        // Built layouts that do not sit next to a package manifest keep the fallback.
-    }
-
-    return '0.0.0';
-}
-
 export function errorCode(error: unknown): string {
     if (error && typeof error === 'object' && 'code' in error) {
         const code = (error as { code?: unknown }).code;

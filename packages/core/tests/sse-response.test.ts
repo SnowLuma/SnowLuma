@@ -7,6 +7,25 @@ function fakeCtx(signal: AbortSignal): Parameters<typeof sseResponse>[0] {
 }
 
 describe('sseResponse', () => {
+    it('finishes active streams and releases subscriptions during server shutdown', async () => {
+        const request = new AbortController();
+        const shutdown = new AbortController();
+        let cleanups = 0;
+        const response = sseResponse(
+            fakeCtx(request.signal),
+            (channel) => {
+                channel.onClose(() => {
+                    cleanups++;
+                });
+            },
+            shutdown.signal,
+        );
+        const reader = response.body!.getReader();
+        shutdown.abort();
+        expect(await reader.read()).toEqual({ done: true, value: undefined });
+        request.abort();
+        expect(cleanups).toBe(1);
+    });
     it('returns an event-stream Response with the SSE headers', () => {
         const ac = new AbortController();
         const res = sseResponse(fakeCtx(ac.signal), () => {

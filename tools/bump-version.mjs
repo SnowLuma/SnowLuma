@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Sync the `version` field across the monorepo root and every workspace package.
-// Usage: pnpm bump <version>   (e.g. pnpm bump 0.2.0)
+// Usage: pnpm bump [version]; without an argument, sync the root version.
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -9,11 +9,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
-const nextVersion = process.argv[2];
-if (!nextVersion) {
-  console.error('Usage: pnpm bump <version>   (e.g. pnpm bump 0.2.0)');
-  process.exit(1);
-}
+const nextVersion = process.argv[2] ?? JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8')).version;
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(nextVersion)) {
   console.error(`Invalid semver: "${nextVersion}"`);
   process.exit(1);

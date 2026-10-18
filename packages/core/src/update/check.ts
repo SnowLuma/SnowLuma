@@ -1,15 +1,4 @@
-// Advisory update check against the public GitHub Releases API.
-//
-// Strictly read-only (T0): SnowLuma never downloads or applies anything
-// itself — cross-platform self-update is a minefield (Windows locks loaded
-// .node/.dll/node.exe, Docker bakes the app into image layers, bare installs
-// have no supervisor). We only tell the WebUI that a newer *stable* release
-// exists and link the user to it; they download and apply manually.
-//
-// The result is cached to stay well under GitHub's 60 req/hr unauthenticated
-// rate limit, and every failure degrades silently (the UI just shows
-// "无法检查更新" rather than nagging).
-
+import { APP_VERSION } from '@snowluma/common/version';
 import { createLogger } from '@snowluma/common/logger';
 import { createSingleFlightCache } from '@snowluma/common/single-flight-cache';
 
@@ -44,10 +33,6 @@ interface GithubRelease {
     html_url?: string;
     body?: string;
     published_at?: string;
-}
-
-export function currentVersion(): string {
-    return typeof __APP_VERSION__ === 'string' && __APP_VERSION__ ? __APP_VERSION__ : '0.0.0';
 }
 
 function isEnabled(): boolean {
@@ -173,7 +158,7 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
  * are not cached so the next check retries.
  */
 export async function getUpdateInfo(force = false): Promise<UpdateCheckResult> {
-    const current = currentVersion();
+    const current = APP_VERSION;
 
     if (!isEnabled()) {
         return { ...emptyResult(current), error: 'disabled' };

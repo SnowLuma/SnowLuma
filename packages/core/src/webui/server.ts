@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@snowluma/common/version';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
@@ -77,7 +78,7 @@ import { restoreBackup, RestoreTransactionError, type RestorePhase } from './res
 import { collectActionDocs, collectCategories } from '@snowluma/onebot/action-docs';
 import { createFramePusher } from './debug-stream';
 import { buildStreamInvokeResponse, streamUploadToDisk } from './debug-tools';
-import { sseResponse } from './sse-response';
+import { sseResponse as createSseResponse } from './sse-response';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
 import { startConnectionDiffLoop } from './connection-diff-loop';
@@ -99,7 +100,9 @@ import {
     sniffImageMime,
     writeBackgroundImage,
 } from './ui-config';
-import { currentVersion, getUpdateInfo } from './update-check';
+import { getUpdateInfo } from '../update/check';
+import { createUpdateService } from '../update/service';
+import { updateRoutes } from './update-routes';
 import { buildFullTraceDownload } from './log-export';
 import { loadNotificationsConfig, saveNotificationsConfig } from '../notifications/config';
 import type { NotificationManager } from '../notifications/manager';
@@ -629,6 +632,8 @@ export async function initWebUI(
         tlsEnabled?: boolean;
         trustProxy?: string;
         stateBus?: StateBus;
+        restart?: () => void;
+        updateRoot?: string;
     } = {},
 ): Promise<{ port: number; stop: () => Promise<void> }> {
     const host = listener.host || '127.0.0.1';
@@ -747,6 +752,9 @@ export async function initWebUI(
     }
 
     const app = new Hono();
+    const shutdownStreams = new AbortController();
+    const sseResponse = (...args: Parameters<typeof createSseResponse>) =>
+        createSseResponse(args[0], args[1], shutdownStreams.signal);
     app.use('*', webuiSecurityHeaders);
     registerLoginRequestSecurity(app);
     const storageManagement = new StorageManagementService({
@@ -1312,11 +1320,15 @@ export async function initWebUI(
         return c.json({ status: 'running' });
     });
 
-    // Advisory update check — compares the running build against the latest
-    // GitHub stable release and links the user to it. Read-only: SnowLuma
-    // never downloads or applies the update itself. `?force=1` bypasses the
-    // server-side cache (the "立即检查" button). Never errors out — a failed
-    // check returns `{ hasUpdate: false, error }` and the UI degrades quietly.
+    const updater = await createUpdateService(
+        listener.restart ? listener.updateRoot : undefined,
+        APP_VERSION,
+    );
+    app.route(
+        '/api/update',
+        updateRoutes(updater, () => listener.restart?.()),
+    );
+
     app.get('/api/update/check', async (c) => {
         const force = c.req.query('force') === 'true' || c.req.query('force') === '1';
         return c.json(await getUpdateInfo(force));
@@ -1397,7 +1409,7 @@ export async function initWebUI(
 
     // ── System settings (WebUI listener) — Wave A1 ──
     // Listener-level changes (port/host/TLS) are persisted but apply only on the
-    // next restart (no supervisor → no self-restart). The panel surfaces which
+    // next restart. The panel surfaces which
     // fields are currently overridden by env so edits that won't take effect are
     // visible.
     const SYSTEM_CERT_PATH = path.join('config', 'cert.pem');
@@ -1850,7 +1862,7 @@ export async function initWebUI(
     app.get('/api/logs/export/trace', (c) => {
         const exportedAt = new Date().toISOString();
         const download = buildFullTraceDownload(getLogSnapshot(), {
-            version: currentVersion(),
+            version: APP_VERSION,
             operatingSystem: os.platform(),
             architecture: os.arch(),
             nodeVersion: process.version,
@@ -2344,6 +2356,7 @@ export async function initWebUI(
         port: finalPort,
         async stop() {
             connectionDiffLoop?.dispose();
+            shutdownStreams.abort();
             await new Promise<void>((resolve, reject) => {
                 listeningServer.close((err) => (err ? reject(err) : resolve()));
             });

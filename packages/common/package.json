@@ -8,6 +8,10 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./version": {
+      "types": "./src/version.ts",
+      "default": "./src/version.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"

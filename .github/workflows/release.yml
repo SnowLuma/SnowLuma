@@ -85,10 +85,6 @@ jobs:
           SNOWLUMA_TARGET: ${{ matrix.target }}
         run: pnpm run build:all
 
-      - name: Bundle runtime dependencies
-        working-directory: dist
-        run: npm install --omit=dev
-
       - name: Verify release layout
         run: pnpm check:release-layout
 

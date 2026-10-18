@@ -132,5 +132,22 @@ function tryLoad(): NativeAddon {
     }
 }
 
-const addon: NativeAddon = tryLoad();
-export default addon;
+let addon: NativeAddon | undefined;
+
+function getAddon(): NativeAddon {
+    return (addon ??= tryLoad());
+}
+
+const native: NativeAddon = {
+    get Parser() {
+        return getAddon().Parser;
+    },
+    buildFrame(...args) {
+        return getAddon().buildFrame(...args);
+    },
+    computeAcceptKey(key) {
+        return getAddon().computeAcceptKey(key);
+    },
+};
+
+export default native;

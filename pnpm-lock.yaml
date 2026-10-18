@@ -143,9 +143,15 @@ importers:
       '@snowluma/websocket':
         specifier: workspace:*
         version: link:../websocket
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       otpauth:
         specifier: ^9.5.1
         version: 9.5.1
+      tar:
+        specifier: ^7.5.13
+        version: 7.5.22
     devDependencies:
       '@hono/node-server':
         specifier: ^1.19.15
@@ -2509,6 +2515,9 @@ packages:
       picomatch:
         optional: true
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   figlet@1.11.0:
     resolution: {integrity: sha512-EEx3OS/l2bFqcUNN2NM9FPJp8vAMrgbCxsbl2hbcJNNxOEwVe3mEzrhan7TbJQViZa8mMqhihlbCaqD+LyYKTQ==}
     engines: {node: '>= 17.0.0'}
@@ -3848,7 +3857,6 @@ snapshots:
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.3
-    optional: true
 
   '@istanbuljs/schema@0.1.6': {}
 
@@ -5102,8 +5110,7 @@ snapshots:
     dependencies:
       readdirp: 4.1.2
 
-  chownr@3.0.0:
-    optional: true
+  chownr@3.0.0: {}
 
   class-variance-authority@0.7.1:
     dependencies:
@@ -5397,6 +5404,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
       picomatch: 4.0.4
+
+  fflate@0.8.3: {}
 
   figlet@1.11.0:
     dependencies:
@@ -5714,13 +5723,11 @@ snapshots:
     dependencies:
       brace-expansion: 5.0.9
 
-  minipass@7.1.3:
-    optional: true
+  minipass@7.1.3: {}
 
   minizlib@3.1.0:
     dependencies:
       minipass: 7.1.3
-    optional: true
 
   mlly@1.8.2:
     dependencies:
@@ -6129,7 +6136,6 @@ snapshots:
       minipass: 7.1.3
       minizlib: 3.1.0
       yallist: 5.0.0
-    optional: true
 
   thenify-all@1.6.0:
     dependencies:
@@ -6357,8 +6363,7 @@ snapshots:
 
   yallist@3.1.1: {}
 
-  yallist@5.0.0:
-    optional: true
+  yallist@5.0.0: {}
 
   yocto-queue@0.1.0: {}
 

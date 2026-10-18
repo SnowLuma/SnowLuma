@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@snowluma/common/version';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import {
@@ -621,7 +622,7 @@ export class OneBotInstance {
 
     private async replyStatus(isGroup: boolean, sessionId: number): Promise<void> {
         const text = buildStatusText({
-            version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+            version: APP_VERSION,
             platform: process.platform,
             arch: process.arch,
             uptimeMs: this.ctx.getUptimeMs(),

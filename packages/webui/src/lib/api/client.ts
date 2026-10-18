@@ -23,6 +23,7 @@ import type {
     UiAppearance,
     UiConfig,
     UpdateInfo,
+    UpdateStatus,
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-form';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
@@ -219,6 +220,9 @@ class HttpApiClient implements ApiClient {
         this.update = {
             check: (force) =>
                 this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
+            status: () => this.getJson<UpdateStatus>('/api/update/status'),
+            download: (version) => this.postJson<UpdateStatus>('/api/update/download', { version }),
+            restart: () => this.postJson<UpdateStatus>('/api/update/restart'),
         };
 
         this.systemSettings = {

@@ -6,17 +6,14 @@ import { fileURLToPath } from 'url';
 import { defineConfig, PluginOption, UserConfig } from 'vite';
 import cp from 'vite-plugin-cp';
 import { sqliteBuildPlugin } from '@snowluma/sqlite/vite';
+import { APP_VERSION } from '@snowluma/common/version';
+import runtimePackage from '../runtime/package.json' with { type: 'json' };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
 const distDir = path.resolve(repoRoot, 'dist');
 const runtimeDir = path.resolve(repoRoot, 'packages', 'runtime');
 const nativeDir = path.resolve(runtimeDir, 'native');
-
-// Single source of truth for the user-facing app version: monorepo root package.json.
-const rootPkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'package.json'), 'utf-8')) as {
-    version: string;
-};
 
 // vite-plugin-cp consumes globs through globby; on Windows we must use POSIX-style separators.
 const toPosix = (p: string) => p.replace(/\\/g, '/');
@@ -38,10 +35,10 @@ const [targetPlatform, targetArch] = targetTriple.split('-');
 // Runtime scaffolding files copied into dist/. Windows and Linux use different
 // launchers, while both targets ship their matching QQ integration binaries.
 const runtimeDistFiles = [
-    'package.json',
     'check-node-version.cjs',
     targetPlatform === 'win32' ? 'launcher.bat' : 'launcher.sh',
 ];
+const agreementFiles = ['EULA.md', 'PRIVACY.md'];
 
 // Native binaries shipped for the selected target:
 //   * `snowluma-*.{dll,node,so}`           – NTQQ hook (Windows + Linux).
@@ -82,9 +79,7 @@ if (missingNatives.length > 0) {
 // Legal docs are served by the WebUI consent gate; a missing one would silently
 // disable consent in the shipped build, so fail the build instead (mirrors the
 // native-binary guard above).
-const missingAgreements = ['EULA.md', 'PRIVACY.md'].filter(
-    (f) => !fs.existsSync(path.resolve(repoRoot, f)),
-);
+const missingAgreements = agreementFiles.filter((f) => !fs.existsSync(path.resolve(repoRoot, f)));
 
 if (missingAgreements.length > 0) {
     throw new Error(
@@ -94,6 +89,46 @@ if (missingAgreements.length > 0) {
 }
 
 const BaseConfigPlugin: PluginOption[] = [
+    {
+        name: 'release-metadata',
+        generateBundle(_options, bundle) {
+            const entry = bundle['index.mjs'];
+
+            if (entry?.type !== 'chunk' || entry.imports.some((id) => !nodeModules.includes(id))) {
+                this.error('The update entry must only import Node builtins.');
+            }
+
+            this.emitFile({
+                type: 'asset',
+                fileName: 'package.json',
+                source: JSON.stringify({ ...runtimePackage, version: APP_VERSION }, null, 2) + '\n',
+            });
+
+            if (process.env.BUILD_WEBUI === 'true') {
+                const entries = [
+                    ...new Set([
+                        ...Object.keys(bundle).map((file) => file.split('/')[0]),
+                        ...runtimeDistFiles,
+                        ...agreementFiles,
+                        'native',
+                        'client',
+                        'package.json',
+                        'release.json',
+                    ]),
+                ].sort();
+                this.emitFile({
+                    type: 'asset',
+                    fileName: 'release.json',
+                    source:
+                        JSON.stringify(
+                            { version: APP_VERSION, target: targetTriple, entries },
+                            null,
+                            2,
+                        ) + '\n',
+                });
+            }
+        },
+    },
     // Proton substitutes every `protobuf_encode<T>` / `protobuf_decode<T>`
     // call site with a monomorphized codec at build time. WITHOUT this
     // plugin in the plugins array the runtime fallback in
@@ -122,7 +157,7 @@ const BaseConfigPlugin: PluginOption[] = [
             },
             // Legal docs served verbatim by the WebUI consent gate. Copied next to
             // the bundle so consent.ts's path probe finds them in a packaged deploy.
-            ...['EULA.md', 'PRIVACY.md'].map((file) => ({
+            ...agreementFiles.map((file) => ({
                 src: toPosix(path.resolve(repoRoot, file)),
                 dest: distDir,
                 flatten: true,
@@ -153,6 +188,8 @@ const BaseConfig = (source_map: boolean = false) =>
             rollupOptions: {
                 external: nodeModules,
                 output: {
+                    // Keep recovery runnable while an interrupted update is being restored.
+                    codeSplitting: false,
                     // Bundled CommonJS dependencies still need Node's native require.
                     banner: [
                         "import { createRequire as __snowlumaCreateRequire } from 'node:module';",
@@ -167,7 +204,7 @@ const BaseConfig = (source_map: boolean = false) =>
         },
         define: {
             __BUILD_WEBUI__: process.env.BUILD_WEBUI === 'true',
-            __APP_VERSION__: JSON.stringify(rootPkg.version),
+            __PACKAGED__: true,
         },
     });
 

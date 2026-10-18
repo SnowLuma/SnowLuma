@@ -1,8 +1,6 @@
+import { APP_VERSION } from '@snowluma/common/version';
 import { defineAction } from '../action-kit';
 import { okResponse } from '../types';
-
-// 后续考虑移动到一个统一的地方构建，避免版本信息分散在各个模块中。
-const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
 export const actions = [
     defineAction({
@@ -72,7 +70,7 @@ export const actions = [
         run: () => {
             return okResponse({
                 app_name: 'SnowLuma',
-                app_version: `${appVersion}-node`,
+                app_version: `${APP_VERSION}-node`,
                 protocol_version: 'v11',
             });
         },

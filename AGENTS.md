@@ -33,6 +33,10 @@ This is a pnpm workspace. Package ownership matters more than directory names:
 
 `packages/bridge` owns process connectivity; the account-level Bridge lives in `packages/core/src/bridge`. Start at [the application entry](packages/core/src/index.ts) to follow their composition.
 
+[The entry point](packages/core/src/index.ts) applies pending updates before starting runtime services. [The updater](packages/core/src/update) owns staging and replacement; [Core's build configuration](packages/core/vite.config.ts) emits the release manifest from its build outputs and runtime assets. Keep Core in one bundle and native libraries lazy-loaded so startup can recover an interrupted update before opening native files.
+
+Application versions come from the root `package.json` through `@snowluma/common/version`. Use `pnpm bump <version>` to update workspace manifests, or `pnpm bump` to sync them after editing the root version.
+
 Read the relevant owner before changing a path:
 
 | Change | Start here |
