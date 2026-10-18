@@ -1766,7 +1766,7 @@ export class IdentityService {
                 this.recordPersistenceFailure('retry', error),
             );
         }, delay);
-        this.retryTimer_.unref?.();
+        this.retryTimer_.unref();
     }
 
     private flushPendingWrites(scheduleRetry = true): Promise<void> {

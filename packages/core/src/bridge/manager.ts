@@ -4,31 +4,28 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { isRealUin } from '@snowluma/common/uin';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
-
-export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
-export type SessionClosedCallback = (uin: string, bridge: Bridge, pid: number) => void;
-
-interface QQSession {
-    bridge: Bridge;
-}
+import type { BridgeSessionListener, BridgeSessionSource } from './bridge-interface';
 
 const log = createLogger('Bridge');
 const packetLog = createLogger('Bridge.Packet');
 const runtimeLog = createLogger('Bridge.Runtime');
 
-export class BridgeManager {
-    private sessions_ = new Map<string, QQSession>();
-    private pidToUin_ = new Map<number, string>();
+export class BridgeManager implements BridgeSessionSource {
+    private readonly bridges = new Map<string, Bridge>();
+    private readonly pidToUin_ = new Map<number, string>();
     private readonly closingSessions_ = new Map<string, Promise<void>>();
     private readonly closeErrors_: unknown[] = [];
+    private readonly sessionSubscriptions = new Set<{ listener: BridgeSessionListener }>();
 
     /** Hook callbacks remain synchronous; shutdown awaits every detached account. */
     async dispose(): Promise<void> {
-        for (const [uin, session] of this.sessions_) {
-            this.closeSession(uin, session.bridge);
+        this.sessionSubscriptions.clear();
+
+        for (const [uin, session] of this.bridges) {
+            this.closeSession(uin, session);
         }
 
-        this.sessions_.clear();
+        this.bridges.clear();
         this.pidToUin_.clear();
         await Promise.allSettled(this.closingSessions_.values());
 
@@ -58,33 +55,21 @@ export class BridgeManager {
         );
     }
 
-    private readonly sessionStartedListeners_ = new Set<SessionStartedCallback>();
-    private readonly sessionClosedListeners_ = new Set<SessionClosedCallback>();
-
-    /** Each subscription has an independent, idempotent unsubscribe handle. */
-    addSessionStartedListener(cb: SessionStartedCallback): () => void {
-        const listener: SessionStartedCallback = (...args) => cb(...args);
-        this.sessionStartedListeners_.add(listener);
+    /** Listener changes take effect on the next event. Close observers run before
+     *  Bridge disposal, so the final process and account identity remain readable. */
+    subscribeSessions(listener: BridgeSessionListener): () => void {
+        const subscription = { listener };
+        this.sessionSubscriptions.add(subscription);
 
         return () => {
-            this.sessionStartedListeners_.delete(listener);
-        };
-    }
-
-    /** The close edge includes the final PID and bridge before disposal. */
-    addSessionClosedListener(cb: SessionClosedCallback): () => void {
-        const listener: SessionClosedCallback = (...args) => cb(...args);
-        this.sessionClosedListeners_.add(listener);
-
-        return () => {
-            this.sessionClosedListeners_.delete(listener);
+            this.sessionSubscriptions.delete(subscription);
         };
     }
 
     private fireSessionStarted(uin: string, bridge: Bridge): void {
-        for (const cb of [...this.sessionStartedListeners_]) {
+        for (const { listener } of [...this.sessionSubscriptions]) {
             try {
-                cb(uin, bridge);
+                listener.started?.(uin, bridge);
             } catch (err) {
                 log.warn(
                     'session-started listener threw: %s',
@@ -95,9 +80,9 @@ export class BridgeManager {
     }
 
     private fireSessionClosed(uin: string, bridge: Bridge, pid: number): void {
-        for (const cb of [...this.sessionClosedListeners_]) {
+        for (const { listener } of [...this.sessionSubscriptions]) {
             try {
-                cb(uin, bridge, pid);
+                listener.closed?.(uin, bridge, pid);
             } catch (err) {
                 log.warn(
                     'session-closed listener threw: %s',
@@ -120,7 +105,7 @@ export class BridgeManager {
 
             try {
                 const closed = this.detachPidFromSession(pid, uin);
-                const activePid = this.sessions_.get(uin)?.bridge.activePid ?? null;
+                const activePid = this.bridges.get(uin)?.activePid ?? null;
 
                 if (closed) {
                     runtimeLog.trace(
@@ -160,15 +145,15 @@ export class BridgeManager {
             throw new Error(message);
         }
 
-        const session = this.sessions_.get(uin);
+        const session = this.bridges.get(uin);
 
-        if (!session || !session.bridge.hasPid(pid)) {
+        if (!session || !session.hasPid(pid)) {
             const message = `BridgeManager invariant violated: receive health PID=${pid} is not owned by UIN=${uin}`;
             log.error(message);
             throw new Error(message);
         }
 
-        session.bridge.setPidReceiveHealthy(pid, healthy);
+        session.setPidReceiveHealthy(pid, healthy);
     }
 
     onHookLogin(pid: number, uin: string, packetClient: PacketSender): void {
@@ -196,14 +181,14 @@ export class BridgeManager {
                         uin,
                         previousUin,
                     );
-                    const previousSession = this.sessions_.get(previousUin);
+                    const previousSession = this.bridges.get(previousUin);
                     runtimeLog.trace(
                         'bridge_binding_branch pid=%d uin=%j branch=%s previousUin=%j activePid=%j',
                         pid,
                         uin,
                         previousSession ? 'previous_session_retained' : 'previous_session_closed',
                         previousUin,
-                        previousSession?.bridge.activePid ?? null,
+                        previousSession?.activePid ?? null,
                     );
                 }
 
@@ -214,7 +199,7 @@ export class BridgeManager {
                         uin,
                     );
                     log.debug('session started: UIN=%s', uin);
-                    this.fireSessionStarted(uin, session.bridge);
+                    this.fireSessionStarted(uin, session);
                 }
 
                 runtimeLog.trace(
@@ -223,7 +208,7 @@ export class BridgeManager {
                     uin,
                     previousUin && previousUin !== uin ? 'rebound' : 'bound',
                     created,
-                    session.bridge.activePid,
+                    session.activePid,
                     Date.now() - startedAt,
                 );
             } catch (error) {
@@ -284,13 +269,13 @@ export class BridgeManager {
             // Notify session started on first real packet
             if (created) {
                 log.debug('session started: UIN=%s', uin);
-                this.fireSessionStarted(uin, session.bridge);
+                this.fireSessionStarted(uin, session);
             }
 
             // Dispatch packet to bridge. The pipeline preserves synchronous parsing and
             // dispatch; its promise only marks completion of any async enrichment.
             handedToPipeline = true;
-            completion = session.bridge.onPacket(pkt);
+            completion = session.onPacket(pkt);
         } catch (error) {
             this.tracePacketFailure(
                 pkt,
@@ -336,7 +321,7 @@ export class BridgeManager {
         uin: string,
         packetClient: PacketSender,
         source: 'login' | 'packet',
-    ): { session: QQSession; created: boolean } {
+    ): { session: Bridge; created: boolean } {
         const previousUin = this.pidToUin_.get(pid);
 
         if (previousUin && previousUin !== uin) {
@@ -351,7 +336,7 @@ export class BridgeManager {
         }
 
         const result = this.ensureSession(uin);
-        result.session.bridge.bindPid(pid, packetClient);
+        result.session.bindPid(pid, packetClient);
         this.pidToUin_.set(pid, uin);
         return result;
     }
@@ -363,7 +348,7 @@ export class BridgeManager {
             return null;
         }
 
-        const session = this.sessions_.get(uin);
+        const session = this.bridges.get(uin);
 
         if (!session) {
             const message = `BridgeManager invariant violated: PID=${pid} references missing UIN=${uin} session`;
@@ -371,7 +356,7 @@ export class BridgeManager {
             throw new Error(message);
         }
 
-        const packetClient = session.bridge.packetClientForPid(pid);
+        const packetClient = session.packetClientForPid(pid);
 
         if (packetClient) {
             return packetClient;
@@ -391,7 +376,7 @@ export class BridgeManager {
             throw new Error(message);
         }
 
-        const session = this.sessions_.get(uin);
+        const session = this.bridges.get(uin);
 
         if (!session) {
             const message = `BridgeManager invariant violated: PID=${pid} references missing UIN=${uin} session`;
@@ -399,7 +384,7 @@ export class BridgeManager {
             throw new Error(message);
         }
 
-        if (!session.bridge.hasPid(pid)) {
+        if (!session.hasPid(pid)) {
             const message = `BridgeManager invariant violated: PID=${pid} is mapped to UIN=${uin}, but Bridge does not own the PID`;
             log.error(message);
             throw new Error(message);
@@ -408,22 +393,22 @@ export class BridgeManager {
         // Validation is complete. Mutate both sides only after the ownership
         // invariant is known to hold, so a fail-fast error preserves the evidence.
         this.pidToUin_.delete(pid);
-        session.bridge.detachPid(pid);
+        session.detachPid(pid);
 
-        if (!session.bridge.empty) {
+        if (!session.empty) {
             return false;
         }
 
-        this.sessions_.delete(uin);
+        this.bridges.delete(uin);
         log.debug('session closed: UIN=%s', uin);
         // Fire before dispose() so listeners can still read bridge.identity.
-        this.fireSessionClosed(uin, session.bridge, pid);
-        this.closeSession(uin, session.bridge);
+        this.fireSessionClosed(uin, session, pid);
+        this.closeSession(uin, session);
         return true;
     }
 
-    private ensureSession(uin: string): { session: QQSession; created: boolean } {
-        let session = this.sessions_.get(uin);
+    private ensureSession(uin: string): { session: Bridge; created: boolean } {
+        const session = this.bridges.get(uin);
 
         if (session) {
             return { session, created: false };
@@ -432,20 +417,12 @@ export class BridgeManager {
         const bridge = new Bridge(
             IdentityService.openForUin(uin, 'data', this.closingSessions_.get(uin)),
         );
-        session = { bridge };
-        this.sessions_.set(uin, session);
+        this.bridges.set(uin, bridge);
 
-        // Each downstream consumer (e.g. OneBotInstance) subscribes to
-        // `bridge.events` directly via the per-kind bus — there is no longer a
-        // generic firehose to wire here.
-        return { session, created: true };
+        return { session: bridge, created: true };
     }
 
-    getSession(uin: string): QQSession | null {
-        return this.sessions_.get(uin) ?? null;
-    }
-
-    get sessions(): Map<string, { bridge: Bridge }> {
-        return this.sessions_;
+    getBridge(uin: string): Bridge | null {
+        return this.bridges.get(uin) ?? null;
     }
 }

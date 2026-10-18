@@ -46,11 +46,7 @@ export function rawDataToString(
         return Buffer.from(new Uint8Array(raw)).toString('utf8');
     }
 
-    if (ArrayBuffer.isView(raw)) {
-        return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
-    }
-
-    return '';
+    return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
 }
 
 export function safeSend(socket: WebSocket, payload: string, onError?: (err: Error) => void): void {
@@ -156,7 +152,7 @@ export function startHeartbeat(
             onDead();
         }
     }, opts.intervalMs);
-    timer.unref?.();
+    timer.unref();
 
     function stop(): void {
         if (stopped) {
@@ -165,8 +161,8 @@ export function startHeartbeat(
 
         stopped = true;
         clearInterval(timer);
-        socket.off?.('pong', onActivity);
-        socket.off?.('message', onActivity);
+        socket.off('pong', onActivity);
+        socket.off('message', onActivity);
     }
 
     return stop;

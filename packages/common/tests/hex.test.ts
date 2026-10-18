@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { fromHex, hexPreview, toHex, toHexUpper } from '../src/hex';
 
 describe('hex', () => {
+    it('encodes only the selected byte view', () => {
+        const bytes = Uint8Array.of(0xff, 0x01, 0xab, 0xff);
+        expect(toHex(bytes.subarray(1, 3))).toBe('01ab');
+        expect(toHexUpper(Buffer.from(bytes).subarray(1, 3))).toBe('01AB');
+    });
+
     it('toHex / toHexUpper render bytes as zero-padded hex', () => {
         const b = Uint8Array.from([0x00, 0x0f, 0xa0, 0xff]);
         expect(toHex(b)).toBe('000fa0ff');

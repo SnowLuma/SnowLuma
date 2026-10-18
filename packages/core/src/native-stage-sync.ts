@@ -337,7 +337,7 @@ export function startNativeStageSync(options: StageSyncOptions): { stop: () => v
 
     tick();
     const timer = setInterval(tick, options.intervalMs ?? 500);
-    timer.unref?.();
+    timer.unref();
     return {
         stop() {
             stopped = true;

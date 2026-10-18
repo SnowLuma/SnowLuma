@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger } from '@snowluma/common/logger';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -432,10 +433,6 @@ function removeTransaction(options: RestoreBackupOptions, transactionDir: string
 
 function invoke(options: RestoreBackupOptions, operation: RestoreOperation): void {
     options.beforeOperation?.(operation);
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function isMissingPathError(error: unknown): boolean {

@@ -26,8 +26,6 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     private reconnectTimer: NodeJS.Timeout | null = null;
     private options: EventReportOptions;
     private role: WsRole;
-    private explicitlyClosed = false;
-    private acceptingActions = false;
     private readonly inFlightActions = new Set<Promise<void>>();
     // Stop fn for the CURRENT socket's keepalive, so close()/reload can halt it
     // immediately instead of waiting for the deferred 'close' event. The per-socket
@@ -42,37 +40,23 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
 
     open(): void {
-        if (this.isEnabled) {
+        if (this.isEnabled || !this.willEnable(this.config)) {
             return;
         }
 
-        if (this.config.enabled === false) {
-            return;
-        }
-
-        if (!this.config.url) {
-            return;
-        }
-
-        this.explicitlyClosed = false;
         this.isEnabled = true;
 
         try {
             this.connect();
-            this.acceptingActions = true;
             this.clearApplyFailure();
         } catch (error) {
             this.isEnabled = false;
-            this.explicitlyClosed = true;
-            this.acceptingActions = false;
             this.recordTransportFailure(error);
             throw error;
         }
     }
 
     override forceClose(): void {
-        this.explicitlyClosed = true;
-        this.acceptingActions = false;
         this.isEnabled = false;
         this.connected = false;
         this.cancelReconnect();
@@ -91,8 +75,6 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
 
     async close(): Promise<void> {
-        this.explicitlyClosed = true;
-        this.acceptingActions = false;
         this.isEnabled = false;
         this.connected = false;
         this.cancelReconnect();
@@ -156,7 +138,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
 
     private connect(): void {
-        if (this.explicitlyClosed) {
+        if (!this.isEnabled) {
             return;
         }
 
@@ -200,7 +182,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
                 socket,
                 { intervalMs: HEARTBEAT_INTERVAL_MS, maxMissed: HEARTBEAT_MAX_MISSED },
                 () => {
-                    if (this.explicitlyClosed || !this.isEnabled) {
+                    if (!this.isEnabled) {
                         return;
                     }
 
@@ -265,7 +247,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
             this.socket = null;
             this.connected = false;
 
-            if (this.explicitlyClosed || !this.isEnabled) {
+            if (!this.isEnabled) {
                 return;
             }
 
@@ -287,7 +269,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
             return;
         }
 
-        if (this.explicitlyClosed) {
+        if (!this.isEnabled) {
             return;
         }
 
@@ -298,13 +280,13 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
         const timer = setTimeout(() => {
             this.reconnectTimer = null;
 
-            if (this.explicitlyClosed || !this.isEnabled) {
+            if (!this.isEnabled) {
                 return;
             }
 
             this.connect();
         }, interval);
-        timer.unref?.();
+        timer.unref();
         this.reconnectTimer = timer;
     }
 
@@ -338,7 +320,7 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
 
     private trackInboundAction(start: () => Promise<void>): void {
-        if (!this.acceptingActions || this.ctx.api.isAcceptingActions === false) {
+        if (!this.isEnabled || this.ctx.api.isAcceptingActions === false) {
             this.log.warn('[%s] rejected inbound action while adapter is closing', this.name);
             return;
         }

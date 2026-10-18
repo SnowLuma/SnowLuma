@@ -240,7 +240,7 @@ describe('OneBotNetworkManager', () => {
         expect(mgr.hasActiveAdapters()).toBe(true);
     });
 
-    it('closeAll clears every adapter', async () => {
+    it('shutdown clears every adapter', async () => {
         const mgr = new OneBotNetworkManager();
         const a = makeAdapter('a');
         const b = makeAdapter('b');
@@ -248,7 +248,7 @@ describe('OneBotNetworkManager', () => {
         mgr.register(b);
         await mgr.openAll();
 
-        await mgr.closeAll();
+        await mgr.shutdown();
         expect(mgr.list()).toHaveLength(0);
         expect(a.closes).toBe(1);
         expect(b.closes).toBe(1);
@@ -262,11 +262,11 @@ describe('OneBotNetworkManager', () => {
         expect(mgr.hasActiveAdapters()).toBe(false);
         await mgr.openAll();
         expect(mgr.hasActiveAdapters()).toBe(true);
-        await mgr.closeAll();
+        await mgr.shutdown();
         expect(mgr.hasActiveAdapters()).toBe(false);
     });
 
-    it('rejects compatibility registration after shutdown', async () => {
+    it('rejects new registration after shutdown', async () => {
         const mgr = new OneBotNetworkManager();
         await mgr.shutdown();
 
@@ -288,6 +288,7 @@ describe('OneBotNetworkManager', () => {
 
         const emitting = mgr.emitEvent(SAMPLE_EVENT);
         const closing = mgr.shutdown();
+        expect(mgr.shutdown()).toBe(closing);
         await expect(mgr.emitEvent(SAMPLE_EVENT)).rejects.toThrow(/shutting down/);
         await Promise.resolve();
         await Promise.resolve();
@@ -296,6 +297,7 @@ describe('OneBotNetworkManager', () => {
         release();
         await emitting;
         await closing;
+        expect(mgr.shutdown()).toBe(closing);
         expect(adapter.closes).toBe(1);
     });
 });

@@ -1,13 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
-/**
- * Auth-level state surfaced into the router subtree. `AuthBoundary` mints
- * this and `AppLayout` consumes it — used to drive the status badge and to
- * complete logout after page-local state has been cleared.
- */
+/** Session state shared by the authentication boundary and routed pages. */
 export interface SessionValue {
     status: string;
-    /** Invoked by AppLayout's logout handler after it has scrubbed its own state. */
+    /** Ends the session and unmounts its page state. */
     onLogoutComplete: () => void;
     /** Replays the first-run wizard without changing persisted account state. */
     restartOnboarding: () => void;

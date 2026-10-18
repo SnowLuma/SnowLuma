@@ -43,7 +43,7 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
         const clients: FakeClient[] = [];
 
         const pipeWatcher = new PipeWatcher({
-            listProcesses: () => [{ pid: PID, name: 'qq', path: '' }],
+            listProcesses: async () => [{ pid: PID, name: 'qq', path: '' }],
             listLivePipes: async () => new Set(liveSet),
             intervalMs: 60_000, // manual ticks only
         });
@@ -70,7 +70,7 @@ describe('HookManager — Docker reconnect-without-login leak guard', () => {
                 return c as unknown as QqHookClient;
             },
             autoLoadOnDiscovery: true,
-            listProcesses: () => [{ pid: PID, name: 'qq', path: '' }],
+            listProcesses: async () => [{ pid: PID, name: 'qq', path: '' }],
             detectAccounts: async () => [],
         });
 

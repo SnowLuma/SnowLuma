@@ -37,7 +37,7 @@ export function waitPttTransText(key: string, timeoutMs: number): Promise<string
 
             reject(new Error('语音转文字超时（未收到结果推送）'));
         }, timeoutMs);
-        timer.unref?.();
+        timer.unref();
         pending.set(key, { resolve, reject, timer });
     });
 }

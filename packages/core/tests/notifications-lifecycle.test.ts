@@ -63,6 +63,28 @@ describe('notification lifecycle PID', () => {
         vi.useRealTimers();
     });
 
+    it('detaches from session events when disposed and cannot be rebound afterward', () => {
+        const online = vi.spyOn(notifications, 'handleOnline');
+        const offline = vi.spyOn(notifications, 'handleOffline');
+        notifications.dispose();
+        notifications.bind(bridges);
+
+        bridges.onHookLogin(1001, '12345', sender);
+        bridges.onPidDisconnected(1001);
+
+        expect(online).not.toHaveBeenCalled();
+        expect(offline).not.toHaveBeenCalled();
+    });
+
+    it('replaces its existing binding instead of delivering each event twice', () => {
+        const online = vi.spyOn(notifications, 'handleOnline');
+        notifications.bind(bridges);
+
+        bridges.onHookLogin(1001, '12345', sender);
+
+        expect(online).toHaveBeenCalledOnce();
+    });
+
     it('retains the final detached PID through debounce and uses the new PID on recovery', async () => {
         bridges.onHookLogin(1001, '12345', sender);
         bridges.onHookLogin(2002, '12345', sender);
@@ -71,7 +93,7 @@ describe('notification lifecycle PID', () => {
         expect(posts).toEqual([]);
 
         bridges.onPidDisconnected(2002);
-        expect(bridges.getSession('12345')).toBeNull();
+        expect(bridges.getBridge('12345')).toBeNull();
         await vi.advanceTimersByTimeAsync(30_000);
         expect(resolveProcess).toHaveBeenNthCalledWith(1, '12345', 2002);
 

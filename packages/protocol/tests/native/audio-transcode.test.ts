@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { convertAudioBytes } from '@snowluma/protocol/highway/ffmpeg-addon';
+import { convertAudioBytes, encodeSilk } from '@snowluma/protocol/highway/ffmpeg-addon';
 
 interface NativeAudioAddon {
     convertToNTSilkTct(inputFile: string, outputFile: string): Promise<void>;
@@ -111,7 +111,18 @@ describeBundledAddon('bundled native ffmpeg addon', () => {
             );
 
             await expect(addon.getDuration(recordPath)).rejects.toThrow(/Invalid data/);
+            await expect(encodeSilk(recordPath, tmpDir)).rejects.toThrow(/Invalid data/);
         });
+    });
+
+    it('encodes a WAV with the runtime addon when started from the protocol package', async () => {
+        const wavPath = path.join(tmpDir, 'runtime-input.wav');
+        writeFileSync(wavPath, makeMonoWav());
+        const result = await encodeSilk(wavPath, tmpDir);
+        expect(result.converted).toBe(true);
+        expect(result.duration).toBe(1);
+        expect(readFileSync(result.path).subarray(1, 10).toString('ascii')).toBe('#!SILK_V3');
+        expect(await loadBundledAddon().getDuration(result.path)).toBeCloseTo(1, 6);
     });
 
     it('converts a mono QQ-style SILK record to a decodable MP3 through the public transcode seam', async () => {

@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { ApiHandler } from '../api-handler';
 import {
@@ -219,8 +220,4 @@ export abstract class IOneBotNetworkAdapter<C extends NetworkBase> {
         this.config = structuredClone(next);
         this.onConfigReplaced(next);
     }
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

@@ -17,3 +17,12 @@ export interface BridgeInterface extends BridgeContext {
      *  QQ has not emitted its cache notification since SnowLuma attached. */
     getOnlineClients(): readonly Readonly<OnlineDeviceInfo>[] | null;
 }
+
+export interface BridgeSessionListener {
+    started?(uin: string, bridge: BridgeInterface): void;
+    closed?(uin: string, bridge: BridgeInterface, pid: number): void;
+}
+
+export interface BridgeSessionSource {
+    subscribeSessions(listener: BridgeSessionListener): () => void;
+}

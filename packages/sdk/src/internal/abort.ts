@@ -12,12 +12,19 @@ export function createRequestAbortState(
     externalSignal?: AbortSignal,
 ): RequestAbortState {
     const controller = new AbortController();
-    let timedOut = false;
-    let externallyAborted = false;
+    let abortedBy: 'timeout' | 'external' | null = null;
+
+    const abort = (source: 'timeout' | 'external', reason?: unknown): void => {
+        if (abortedBy !== null) {
+            return;
+        }
+
+        abortedBy = source;
+        controller.abort(reason);
+    };
 
     const onExternalAbort = (): void => {
-        externallyAborted = true;
-        controller.abort(externalSignal?.reason);
+        abort('external', externalSignal?.reason);
     };
 
     if (externalSignal?.aborted) {
@@ -29,8 +36,7 @@ export function createRequestAbortState(
     const timer =
         timeoutMs > 0
             ? setTimeout(() => {
-                  timedOut = true;
-                  controller.abort();
+                  abort('timeout');
               }, timeoutMs)
             : null;
 
@@ -44,10 +50,10 @@ export function createRequestAbortState(
             externalSignal?.removeEventListener('abort', onExternalAbort);
         },
         isTimedOut() {
-            return timedOut;
+            return abortedBy === 'timeout';
         },
         isExternallyAborted() {
-            return externallyAborted || externalSignal?.aborted === true;
+            return abortedBy === 'external';
         },
     };
 }
@@ -63,7 +69,7 @@ export function isAbortError(error: unknown): boolean {
         typeof error === 'object' &&
         error !== null &&
         'name' in error &&
-        (error as { name?: unknown }).name === 'AbortError'
+        error.name === 'AbortError'
     );
 }
 

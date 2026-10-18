@@ -6,7 +6,7 @@ import {
     type SysFaceCatalogStorage,
 } from '@snowluma/protocol/sys-face-store';
 import { JsonSysFaceCatalogStorage } from '@snowluma/protocol/sys-face-storage';
-import type { BridgeManager } from './bridge/manager';
+import type { BridgeSessionSource } from './bridge/bridge-interface';
 
 const log = createLogger('SysFace');
 
@@ -19,7 +19,7 @@ export interface SystemFaceCatalogBindingOptions {
 /** Attach the shared system-face catalog to Bridge login edges. The first
  * account restores + refreshes it; later accounts reuse the same result. */
 export function bindSystemFaceCatalog(
-    manager: BridgeManager,
+    manager: BridgeSessionSource,
     options: SystemFaceCatalogBindingOptions = {},
 ): void {
     const store = options.store ?? sysFaceStore;
@@ -30,13 +30,15 @@ export function bindSystemFaceCatalog(
         );
     store.configureStorage(storage);
 
-    manager.addSessionStartedListener((uin, bridge) => {
-        void store.prewarm(bridge).catch((error) => {
-            log.error(
-                'system face catalog login prewarm failed: uin=%s error=%s',
-                uin,
-                error instanceof Error ? (error.stack ?? error.message) : String(error),
-            );
-        });
+    manager.subscribeSessions({
+        started: (uin, bridge) => {
+            void store.prewarm(bridge).catch((error) => {
+                log.error(
+                    'system face catalog login prewarm failed: uin=%s error=%s',
+                    uin,
+                    error instanceof Error ? (error.stack ?? error.message) : String(error),
+                );
+            });
+        },
     });
 }

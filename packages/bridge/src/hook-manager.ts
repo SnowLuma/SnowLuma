@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger, runWithTraceRequest, type Logger } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { PacketSender } from '@snowluma/common/packet-sender';
@@ -7,12 +8,11 @@ import { HookSession, type HookSessionDeps } from './hook-session';
 import {
     injectHookProcess,
     listHookProcesses,
-    resolveHookNativePath,
     unloadHookProcess,
     type HookProcessBaseInfo,
 } from './injector';
 import { PipeWatcher } from './pipe-watcher';
-import { createNativeProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
+import { createProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
 import { detectAccountLoginsForPids, type AccountLoginState } from './qq-account';
 import type { HookProcessAccount, HookProcessInfo } from './types';
@@ -55,7 +55,7 @@ export type HookManagerDeps = {
     /** Polling interval for the default watcher. Ignored if `pipeWatcher` is provided. */
     watcherIntervalMs?: number;
     /** Native process lister used by `listProcesses()`. Defaults to the native addon. */
-    listProcesses?: () => HookProcessBaseInfo[];
+    listProcesses?: () => Promise<HookProcessBaseInfo[]>;
     /** Local account detection used to label each process with the account QQ is
      *  signed in as. Receives the pids to label so each one is resolved against
      *  the HOME it actually runs under (a container can give every QQ instance
@@ -104,13 +104,7 @@ export class HookManager {
     private readonly makeClient: HookSessionDeps['makeClient'];
     private readonly pipeWatcher: PipeWatcher;
     private readonly ownsPipeWatcher: boolean;
-    /** Watcher/API process enumeration — isolated + timeout-bounded by default
-     *  so a blocked native /proc walk can't freeze the loop (issue #158).
-     *  Resolves to `null` (UNKNOWN) on timeout/failure. */
-    private readonly enumerate: () => Promise<HookProcessBaseInfo[] | null>;
-    /** The owned enumerator (worker lifecycle), or null when a custom lister was
-     *  injected (tests) — nothing to tear down in that case. */
-    private readonly enumerator: ProcessEnumerator | null;
+    private readonly enumerator: ProcessEnumerator;
     private readonly detectAccounts: (pids: readonly number[]) => Promise<AccountLoginState[]>;
     private readonly accountReprobeIntervalMs: number;
     private readonly autoLoadOnDiscovery: boolean;
@@ -149,37 +143,17 @@ export class HookManager {
             deps.accountReprobeIntervalMs ?? DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS;
         this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
 
-        // A custom lister (tests) is used directly — no worker, no isolation, just
-        // an async wrap that maps a throw to the UNKNOWN sentinel. The default path
-        // wraps the native enumerator in a worker with a timeout.
-        if (deps.listProcesses) {
-            const lister = deps.listProcesses;
-            this.enumerator = null;
-
-            this.enumerate = async () => {
-                try {
-                    return await lister();
-                } catch (error) {
-                    this.log.warn('listProcesses failed: %s', errMsg(error));
-                    return null;
-                }
-            };
-        } else {
-            this.enumerator = createNativeProcessEnumerator({
-                addonPath: resolveHookNativePath('node'),
-                fallbackSync: listHookProcesses,
-                processName: defaultProcessName(),
-                log: this.log,
-            });
-            this.enumerate = () => this.enumerator!.enumerate();
-        }
+        this.enumerator = createProcessEnumerator({
+            listProcesses: deps.listProcesses ?? listHookProcesses,
+            log: this.log,
+        });
 
         if (deps.pipeWatcher) {
             this.pipeWatcher = deps.pipeWatcher;
             this.ownsPipeWatcher = false;
         } else {
             this.pipeWatcher = new PipeWatcher({
-                listProcesses: this.enumerate,
+                listProcesses: this.enumerator.enumerate,
                 listLivePipes: (processes) =>
                     QqHookClient.listLivePipes(processes.map(({ pid }) => pid)),
                 intervalMs: deps.watcherIntervalMs,
@@ -196,7 +170,7 @@ export class HookManager {
 
     async listProcesses(): Promise<HookProcessInfo[]> {
         await this.startPromise;
-        const processes = await this.enumerate();
+        const processes = await this.enumerator.enumerate();
         // A failed enumeration preserves the last known process set.
         const sessions =
             processes === null
@@ -257,7 +231,7 @@ export class HookManager {
         this.sessions.clear();
         this.accounts.clear();
         this.autoLoadAttempts.clear();
-        this.enumerator?.dispose();
+        this.enumerator.dispose();
 
         if (this.ownsPipeWatcher) {
             this.pipeWatcher.dispose();
@@ -315,7 +289,7 @@ export class HookManager {
 
             this.lastAccountProbeFailure = '';
         } catch (error) {
-            const message = errMsg(error);
+            const message = errorMessage(error);
 
             if (this.lastAccountProbeFailure !== message) {
                 this.lastAccountProbeFailure = message;
@@ -573,10 +547,10 @@ export class HookManager {
                     'hook_autoload_terminal pid=%d attempt=%d outcome=failed reason=unexpected_failure error=%j elapsedMs=%d',
                     session.pid,
                     attempt,
-                    errMsg(err),
+                    errorMessage(err),
                     Date.now() - startedAt,
                 );
-                this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errMsg(err));
+                this.log.warn('auto-load failed: PID=%d err=%s', session.pid, errorMessage(err));
             }
         });
     }
@@ -644,7 +618,7 @@ export class HookManager {
         try {
             this.onSessionsChangedRaw();
         } catch (err) {
-            this.log.warn('onSessionsChanged threw: %s', errMsg(err));
+            this.log.warn('onSessionsChanged threw: %s', errorMessage(err));
         }
     }
 
@@ -657,10 +631,6 @@ export class HookManager {
 
 function defaultProcessName(): string {
     return process.platform === 'win32' ? 'QQ.exe' : 'qq';
-}
-
-function errMsg(value: unknown): string {
-    return value instanceof Error ? value.message : String(value);
 }
 
 function isTransientLibcMappingError(error: string): boolean {

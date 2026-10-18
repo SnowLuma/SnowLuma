@@ -76,6 +76,70 @@ describe('database migration estimates', () => {
 });
 
 describe('OneBotManager database preparation', () => {
+    it('releases its session subscription before shutdown and cannot bind after disposal', async () => {
+        const first = vi.fn();
+        const second = vi.fn();
+        const source = {
+            subscribeSessions: vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second),
+        };
+        const manager = new OneBotManager();
+        manager.bind(source);
+        manager.bind(source);
+        expect(first).toHaveBeenCalledOnce();
+        expect(second).not.toHaveBeenCalled();
+
+        const disposed = manager.dispose();
+        expect(second).toHaveBeenCalledOnce();
+        await disposed;
+        await manager.dispose();
+        manager.bind(source);
+
+        expect(second).toHaveBeenCalledOnce();
+        expect(source.subscribeSessions).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['logout', 'dispose'] as const)(
+        'invalidates migration callbacks before cancelling the task on %s',
+        async (reason) => {
+            vi.useFakeTimers();
+            let callbacks!: DatabaseMigrationCallbacks;
+            const cancel = vi.fn(() => {
+                callbacks.onFailed(new Error('cancelled task'));
+                callbacks.onProgress({ phase: 'complete', processed: 1, total: 1 }, 100);
+            });
+            const createTask = vi.fn(() => ({
+                start: (next: DatabaseMigrationCallbacks) => {
+                    callbacks = next;
+                },
+                beginMigration: vi.fn(),
+                cancel,
+            }));
+            const manager = new OneBotManager({ createDatabaseMigrationTask: createTask });
+            const lifecycle = manager as unknown as {
+                onSessionStarted(uin: string, bridge: never): void;
+                onSessionClosed(uin: string): void;
+            };
+
+            try {
+                lifecycle.onSessionStarted('10001', fakeBridge() as never);
+
+                if (reason === 'logout') {
+                    lifecycle.onSessionClosed('10001');
+                } else {
+                    await manager.dispose();
+                }
+
+                expect(manager.getConnectionStatuses()).toEqual([]);
+                expect(cancel).toHaveBeenCalledOnce();
+                vi.advanceTimersByTime(10_000);
+                expect(createTask).toHaveBeenCalledOnce();
+            } finally {
+                await manager.dispose();
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it('detaches migration and network startup from the login operation', () => {
         let callbacks!: DatabaseMigrationCallbacks;
         const observedRequestIds: Array<number | undefined> = [];
@@ -104,11 +168,11 @@ describe('OneBotManager database preparation', () => {
         });
         let startListener!: (uin: string, bridge: never) => void;
         manager.bind({
-            addSessionStartedListener: (listener) => {
-                startListener = listener;
+            subscribeSessions: (listener) => {
+                startListener = listener.started!;
+                return vi.fn();
             },
-            addSessionClosedListener: vi.fn(),
-        } as never);
+        });
         const bridge = fakeBridge(new Promise(() => undefined));
 
         runWithRequestId(5201, () => startListener('10001', bridge as never));
@@ -449,10 +513,20 @@ describe('OneBotManager database preparation', () => {
                 usable: false,
                 error: '数据库迁移失败：private detail；将自动重试',
             });
+            const failed = manager.getConnectionStatuses()[0].databaseMigration;
+            callbacks[0].onProgress({ phase: 'complete', processed: 10, total: 10 }, 100);
+            callbacks[0].onFailed(new Error('duplicate failure'));
+            expect(manager.getConnectionStatuses()[0].databaseMigration).toBe(failed);
+            expect(tasks[0].cancel).toHaveBeenCalledOnce();
 
             vi.advanceTimersByTime(5_000);
             expect(tasks).toHaveLength(2);
             expect(tasks[1].start).toHaveBeenCalledOnce();
+            const preparing = manager.getConnectionStatuses()[0].databaseMigration;
+            callbacks[0].onProgress({ phase: 'complete', processed: 10, total: 10 }, 100);
+            callbacks[0].onFailed(new Error('obsolete task failure'));
+            expect(manager.getConnectionStatuses()[0].databaseMigration).toBe(preparing);
+            expect(tasks[1].cancel).not.toHaveBeenCalled();
 
             internals.onSessionClosed('10001');
             callbacks[1].onFailed(new Error('late failure'));

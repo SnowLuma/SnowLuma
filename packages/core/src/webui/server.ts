@@ -853,7 +853,7 @@ export async function initWebUI(
     // Periodic janitor — keeps sessionTokens / loginAttempts from growing
     // unbounded and replaces the per-request O(n) sweep we used to do.
     const tokenJanitor = setInterval(purgeExpiredTokens, 60_000);
-    tokenJanitor.unref?.();
+    tokenJanitor.unref();
 
     // ─── Login ───────────────────────────────────────────────────────────────
     app.post('/api/login', async (c) => {

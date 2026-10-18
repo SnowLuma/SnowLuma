@@ -1,4 +1,5 @@
 import { createLogger } from '@snowluma/common/logger';
+import { errorMessage } from '@snowluma/common/errors';
 import { assertValidOneBotConfig } from '../config';
 import { buildDispatchPayload } from '../event-filter';
 import type {
@@ -67,11 +68,9 @@ export class OneBotNetworkManager {
     private readonly adapters = new Map<string, ManagedAdapter>();
     private readonly factory: NetworkAdapterFactory | null;
     private operationTail: Promise<void> = Promise.resolve();
-    private acceptingReconciles = true;
-    private acceptingEvents = true;
+    private accepting = true;
     private readonly inFlightEmits = new Set<Promise<void>>();
     private shutdownPromise: Promise<NetworkShutdownResult> | null = null;
-    private shutdownResult: NetworkShutdownResult | null = null;
 
     /** Debug-stream taps — notified for every emitted event regardless of adapter
      *  state. Attached on-demand (ref-counted) by the WebUI debug stream. */
@@ -92,7 +91,7 @@ export class OneBotNetworkManager {
     /** Test/embedding seam for pre-built adapters. Production topology changes
      *  go through reconcile(), which refuses duplicate names. */
     register<C extends NetworkBase>(adapter: IOneBotNetworkAdapter<C>): void {
-        if (!this.acceptingReconciles) {
+        if (!this.accepting) {
             throw new Error('network manager is shutting down');
         }
 
@@ -163,17 +162,16 @@ export class OneBotNetworkManager {
     reconcile(config: OneBotConfig): Promise<NetworkReconcileResult> {
         const desired = this.compileDesiredPlan(config);
 
-        if (!this.acceptingReconciles) {
+        if (!this.accepting) {
             return Promise.reject(new Error('network manager is shutting down'));
         }
 
         return this.enqueue(() => this.reconcileNow(desired));
     }
 
-    /** Compatibility seam for tests/pre-built adapters. Opens sequentially and
-     *  reports each failure instead of hiding it in a detached Promise. */
+    /** Open registered adapters in order and report each failure. */
     openAll(): Promise<NetworkReconcileResult> {
-        if (!this.acceptingReconciles) {
+        if (!this.accepting) {
             return Promise.reject(new Error('network manager is shutting down'));
         }
 
@@ -195,7 +193,7 @@ export class OneBotNetworkManager {
     }
 
     closeOne(name: string): Promise<void> {
-        if (!this.acceptingReconciles) {
+        if (!this.accepting) {
             return Promise.reject(new Error('network manager is shutting down'));
         }
 
@@ -214,16 +212,11 @@ export class OneBotNetworkManager {
     /** Ordered, idempotent shutdown. Reconcile calls made before shutdown finish
      *  first; calls made after shutdown is requested fail immediately. */
     shutdown(): Promise<NetworkShutdownResult> {
-        if (this.shutdownResult?.closed) {
-            return Promise.resolve(this.shutdownResult);
-        }
-
         if (this.shutdownPromise) {
             return this.shutdownPromise;
         }
 
-        this.acceptingReconciles = false;
-        this.acceptingEvents = false;
+        this.accepting = false;
         const attempt = this.enqueue(async () => {
             const errors: NetworkApplyError[] = [];
             const dispatches = await Promise.allSettled([...this.inFlightEmits]);
@@ -232,7 +225,7 @@ export class OneBotNetworkManager {
                 if (dispatch.status === 'rejected') {
                     log.error(
                         'in-flight event dispatch failed during shutdown: %s',
-                        errMessage(dispatch.reason),
+                        errorMessage(dispatch.reason),
                     );
                 }
             }
@@ -255,8 +248,9 @@ export class OneBotNetworkManager {
         this.shutdownPromise = attempt;
         void attempt.then(
             (result) => {
-                this.shutdownResult = result.closed ? result : null;
-                this.shutdownPromise = null;
+                if (!result.closed) {
+                    this.shutdownPromise = null;
+                }
             },
             () => {
                 this.shutdownPromise = null;
@@ -265,27 +259,22 @@ export class OneBotNetworkManager {
         return attempt;
     }
 
-    closeAll(): Promise<NetworkShutdownResult> {
-        return this.shutdown();
-    }
-
     /** Best-effort immediate release. Does not wait for the operation queue,
      *  in-flight dispatches, or peer close handshakes. */
     forceRelease(): void {
-        this.acceptingReconciles = false;
-        this.acceptingEvents = false;
+        this.accepting = false;
 
         for (const { adapter } of this.adapters.values()) {
             try {
                 adapter.forceClose();
             } catch (error) {
-                log.error('forced adapter release failed: %s', errMessage(error));
+                log.error('forced adapter release failed: %s', errorMessage(error));
             }
         }
     }
 
     emitEvent(event: JsonObject): Promise<void> {
-        if (!this.acceptingEvents) {
+        if (!this.accepting) {
             return Promise.reject(
                 new Error('network manager is shutting down; event dispatch rejected'),
             );
@@ -313,7 +302,7 @@ export class OneBotNetworkManager {
                 try {
                     cb(event);
                 } catch (error) {
-                    log.warn('debug subscriber error: %s', errMessage(error));
+                    log.warn('debug subscriber error: %s', errorMessage(error));
                 }
             }
         }
@@ -337,7 +326,7 @@ export class OneBotNetworkManager {
             Promise.resolve()
                 .then(() => adapter.onEvent(event, payload))
                 .catch((error) => {
-                    log.warn('adapter [%s] onEvent error: %s', adapter.name, errMessage(error));
+                    log.warn('adapter [%s] onEvent error: %s', adapter.name, errorMessage(error));
                     log.trace(() => [
                         'report_target_failed target=%s error=%s',
                         adapter.name,
@@ -549,7 +538,7 @@ export class OneBotNetworkManager {
             name,
             kind,
             phase,
-            message: errMessage(error),
+            message: errorMessage(error),
             at: Date.now(),
             ...(restored === undefined ? {} : { restored }),
         };
@@ -574,8 +563,4 @@ export class OneBotNetworkManager {
         );
         return result;
     }
-}
-
-function errMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

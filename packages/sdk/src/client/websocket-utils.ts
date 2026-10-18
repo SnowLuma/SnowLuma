@@ -64,11 +64,7 @@ export function rawToString(value: unknown): string {
         return value;
     }
 
-    if (value instanceof ArrayBuffer) {
-        return new TextDecoder().decode(value);
-    }
-
-    if (ArrayBuffer.isView(value)) {
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
         return new TextDecoder().decode(value);
     }
 

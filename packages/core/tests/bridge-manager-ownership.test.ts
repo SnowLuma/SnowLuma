@@ -138,7 +138,7 @@ describe('BridgeManager PID ownership', () => {
 
         try {
             manager.onHookLogin(101, '10001', makeSender().client);
-            manager.getSession('10001')!.bridge.detachPid(101);
+            manager.getBridge('10001')!.detachPid(101);
             expect(() => manager.onPidDisconnected(101)).toThrowError(
                 'BridgeManager invariant violated: PID=101 is mapped to UIN=10001, but Bridge does not own the PID',
             );
@@ -239,7 +239,7 @@ describe('BridgeManager PID ownership', () => {
                     }),
                 ]),
             );
-            expect(manager.getSession('0')).toBeNull();
+            expect(manager.getBridge('0')).toBeNull();
         } finally {
             unsubscribe();
         }
@@ -295,20 +295,20 @@ describe('BridgeManager PID ownership', () => {
         const first = makeSender();
         const second = makeSender();
         const lifecycle: string[] = [];
-        manager.addSessionStartedListener((uin) => lifecycle.push(`started:${uin}`));
-        manager.addSessionClosedListener((uin) => lifecycle.push(`closed:${uin}`));
+        manager.subscribeSessions({ started: (uin) => lifecycle.push(`started:${uin}`) });
+        manager.subscribeSessions({ closed: (uin) => lifecycle.push(`closed:${uin}`) });
 
         manager.onHookLogin(101, '10001', first.client);
-        const oldBridge = manager.getSession('10001')!.bridge;
+        const oldBridge = manager.getBridge('10001')!;
         const dispose = vi.spyOn(oldBridge, 'dispose');
 
         manager.onHookLogin(101, '20002', second.client);
 
         expect(lifecycle).toEqual(['started:10001', 'closed:10001', 'started:20002']);
-        expect(manager.getSession('10001')).toBeNull();
+        expect(manager.getBridge('10001')).toBeNull();
         expect(oldBridge.hasPid(101)).toBe(false);
         expect(dispose).toHaveBeenCalledOnce();
-        expect(manager.getSession('20002')!.bridge.hasPid(101)).toBe(true);
+        expect(manager.getBridge('20002')!.hasPid(101)).toBe(true);
     });
 
     it('keeps a multi-PID UIN alive and falls back to the remaining sender', async () => {
@@ -316,11 +316,11 @@ describe('BridgeManager PID ownership', () => {
         const first = makeSender();
         const second = makeSender();
         const closed = vi.fn();
-        manager.addSessionClosedListener(closed);
+        manager.subscribeSessions({ closed: closed });
 
         manager.onHookLogin(101, '10001', first.client);
         manager.onHookLogin(202, '10001', second.client);
-        const bridge = manager.getSession('10001')!.bridge;
+        const bridge = manager.getBridge('10001')!;
 
         expect(bridge.activePid).toBe(202);
         await bridge.sendRawPacket('Test.BeforeDisconnect', new Uint8Array([1]));
@@ -329,7 +329,7 @@ describe('BridgeManager PID ownership', () => {
 
         manager.onPidDisconnected(202);
 
-        expect(manager.getSession('10001')!.bridge).toBe(bridge);
+        expect(manager.getBridge('10001')!).toBe(bridge);
         expect(bridge.activePid).toBe(101);
         expect(closed).not.toHaveBeenCalled();
         await bridge.sendRawPacket('Test.AfterDisconnect', new Uint8Array([2]));
@@ -337,7 +337,7 @@ describe('BridgeManager PID ownership', () => {
         expect(testSends(second.sendPacket)).toHaveLength(1);
 
         manager.onPidDisconnected(101);
-        expect(manager.getSession('10001')).toBeNull();
+        expect(manager.getBridge('10001')).toBeNull();
         expect(closed).toHaveBeenCalledOnce();
         expect(closed).toHaveBeenCalledWith('10001', bridge, 101);
         await expect(
@@ -363,7 +363,7 @@ describe('BridgeManager PID ownership', () => {
             manager.onHookLogin(202, '10001', second.client);
             manager.onPacket(packet(202, '10001'));
             manager.onPidDisconnected(202);
-            const bridge = manager.getSession('10001')!.bridge;
+            const bridge = manager.getBridge('10001')!;
             manager.onPidDisconnected(101);
             await bridge.sendRawPacket('Test.NoSender', new Uint8Array([0x00, 0xff]));
 
@@ -393,7 +393,7 @@ describe('BridgeManager PID ownership', () => {
         const manager = new BridgeManager();
         manager.onHookLogin(101, '10001', makeSender().client);
         manager.onHookLogin(202, '10001', makeSender().client);
-        const bridge = manager.getSession('10001')!.bridge;
+        const bridge = manager.getBridge('10001')!;
 
         expect(bridge.receiveHealthy).toBe(true);
 
@@ -414,13 +414,13 @@ describe('BridgeManager PID ownership', () => {
         const third = makeSender();
         const reboundFirst = makeSender();
         const started = vi.fn();
-        manager.addSessionStartedListener(started);
+        manager.subscribeSessions({ started: started });
 
         manager.onHookLogin(101, '10001', first.client);
         manager.onHookLogin(202, '10001', second.client);
         manager.onHookLogin(303, '10001', third.client);
         manager.onHookLogin(101, '10001', reboundFirst.client);
-        const bridge = manager.getSession('10001')!.bridge;
+        const bridge = manager.getBridge('10001')!;
 
         expect(started).toHaveBeenCalledOnce();
         expect(bridge.activePid).toBe(101);
@@ -442,15 +442,15 @@ describe('BridgeManager PID ownership', () => {
         const manager = new BridgeManager();
         const sender = makeSender();
         const lifecycle: string[] = [];
-        manager.addSessionStartedListener((uin) => lifecycle.push(`started:${uin}`));
-        manager.addSessionClosedListener((uin) => lifecycle.push(`closed:${uin}`));
+        manager.subscribeSessions({ started: (uin) => lifecycle.push(`started:${uin}`) });
+        manager.subscribeSessions({ closed: (uin) => lifecycle.push(`closed:${uin}`) });
 
         manager.onHookLogin(101, '10001', sender.client);
         manager.onPacket(packet(101, '20002'));
 
         expect(lifecycle).toEqual(['started:10001', 'closed:10001', 'started:20002']);
-        expect(manager.getSession('10001')).toBeNull();
-        const replacement = manager.getSession('20002')!.bridge;
+        expect(manager.getBridge('10001')).toBeNull();
+        const replacement = manager.getBridge('20002')!;
         expect(replacement.hasPid(101)).toBe(true);
         await replacement.sendRawPacket('Test.AfterPacketRebind', new Uint8Array([1]));
         expect(testSends(sender.sendPacket)).toHaveLength(1);
@@ -462,24 +462,24 @@ describe('BridgeManager PID ownership', () => {
         const moving = makeSender();
         const rebound = makeSender();
         const lifecycle: string[] = [];
-        manager.addSessionStartedListener((uin) => lifecycle.push(`started:${uin}`));
-        manager.addSessionClosedListener((uin) => lifecycle.push(`closed:${uin}`));
+        manager.subscribeSessions({ started: (uin) => lifecycle.push(`started:${uin}`) });
+        manager.subscribeSessions({ closed: (uin) => lifecycle.push(`closed:${uin}`) });
 
         manager.onHookLogin(101, '10001', fallback.client);
         manager.onHookLogin(202, '10001', moving.client);
-        const oldBridge = manager.getSession('10001')!.bridge;
+        const oldBridge = manager.getBridge('10001')!;
         expect(oldBridge.activePid).toBe(202);
 
         manager.onHookLogin(202, '20002', rebound.client);
 
         expect(lifecycle).toEqual(['started:10001', 'started:20002']);
-        expect(manager.getSession('10001')!.bridge).toBe(oldBridge);
+        expect(manager.getBridge('10001')!).toBe(oldBridge);
         expect(oldBridge.hasPid(202)).toBe(false);
         expect(oldBridge.activePid).toBe(101);
         await oldBridge.sendRawPacket('Test.OldUinFallback', new Uint8Array([1]));
         expect(testSends(fallback.sendPacket)).toHaveLength(1);
 
-        const newBridge = manager.getSession('20002')!.bridge;
+        const newBridge = manager.getBridge('20002')!;
         expect(newBridge.activePid).toBe(202);
         await newBridge.sendRawPacket('Test.NewUinSender', new Uint8Array([2]));
         expect(testSends(rebound.sendPacket)).toHaveLength(1);
@@ -502,20 +502,20 @@ describe('BridgeManager PID ownership', () => {
         const reboundFirst = makeSender();
         const started = vi.fn();
         const closed = vi.fn();
-        manager.addSessionStartedListener(started);
-        manager.addSessionClosedListener(closed);
+        manager.subscribeSessions({ started: started });
+        manager.subscribeSessions({ closed: closed });
 
         manager.onHookLogin(101, '10001', first.client);
         manager.onHookLogin(202, '20002', second.client);
-        const targetBridge = manager.getSession('20002')!.bridge;
+        const targetBridge = manager.getBridge('20002')!;
 
         manager.onHookLogin(101, '20002', reboundFirst.client);
 
         expect(started).toHaveBeenCalledTimes(2);
         expect(closed).toHaveBeenCalledOnce();
         expect(closed).toHaveBeenCalledWith('10001', expect.anything(), 101);
-        expect(manager.getSession('10001')).toBeNull();
-        expect(manager.getSession('20002')!.bridge).toBe(targetBridge);
+        expect(manager.getBridge('10001')).toBeNull();
+        expect(manager.getBridge('20002')!).toBe(targetBridge);
         expect(targetBridge.activePid).toBe(101);
 
         manager.onPidDisconnected(101);
@@ -533,8 +533,8 @@ describe('BridgeManager PID ownership', () => {
         const sender = makeSender();
         const started = vi.fn();
         const closed = vi.fn();
-        manager.addSessionStartedListener(started);
-        manager.addSessionClosedListener(closed);
+        manager.subscribeSessions({ started: started });
+        manager.subscribeSessions({ closed: closed });
 
         manager.onHookLogin(101, '10001', sender.client);
         manager.onHookLogin(101, '10001', sender.client);
@@ -563,7 +563,7 @@ describe('BridgeManager PID ownership', () => {
             manager.onHookLogin(101, '10001', sender.client);
 
             // Remove the connection without updating the manager's ownership index.
-            manager.getSession('10001')!.bridge.detachPid(101);
+            manager.getBridge('10001')!.detachPid(101);
 
             expect(() => manager.onPacket(packet(101, '10001'))).toThrowError(
                 'BridgeManager invariant violated: PID=101 has no sender in UIN=10001 session',

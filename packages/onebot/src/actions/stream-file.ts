@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 // Stream API file actions (#163) — NapCat-compatible chunked file transfer.
 //
 // upload_file_stream: a client (possibly on another machine) pushes a file to
@@ -531,7 +532,3 @@ export const __test = {
     MAX_CONCURRENT_STREAMS,
     MAX_CHUNKS,
 };
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}

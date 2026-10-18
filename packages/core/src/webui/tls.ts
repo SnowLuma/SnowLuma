@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 // WebUI TLS helpers. Cert/key live as config/cert.pem + config/key.pem
 // (NapCat-aligned, self-contained, travels in A2 backups). Two pure-ish
 // helpers: validate a pasted pair (save path) and resolve the on-disk pair
@@ -25,10 +26,6 @@ export interface RequiredTlsContext {
     key: Buffer;
 }
 
-function errMsg(e: unknown): string {
-    return e instanceof Error ? e.message : String(e);
-}
-
 /** Parse-validate a cert/key pair (used by the save endpoint before writing). */
 export function validateTlsPair(cert: string | Buffer, key: string | Buffer): TlsValidation {
     if (!cert || !cert.toString().trim()) {
@@ -43,7 +40,7 @@ export function validateTlsPair(cert: string | Buffer, key: string | Buffer): Tl
         tls.createSecureContext({ cert, key });
         return { ok: true };
     } catch (e) {
-        return { ok: false, reason: `invalid cert/key: ${errMsg(e)}` };
+        return { ok: false, reason: `invalid cert/key: ${errorMessage(e)}` };
     }
 }
 
@@ -63,7 +60,7 @@ export function resolveTlsContext(configDir: string): TlsResolution {
         cert = fs.readFileSync(certPath);
         key = fs.readFileSync(keyPath);
     } catch (e) {
-        return { ok: false, reason: `failed to read cert/key: ${errMsg(e)}` };
+        return { ok: false, reason: `failed to read cert/key: ${errorMessage(e)}` };
     }
 
     const valid = validateTlsPair(cert, key);

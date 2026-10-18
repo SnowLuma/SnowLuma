@@ -287,7 +287,7 @@ export class GroupRequestPoller {
                     this.timer = null;
                     this.scheduledTask = this.runScheduledPoll();
                 }, this.intervalMs);
-                this.timer.unref?.();
+                this.timer.unref();
             }
         }
     }

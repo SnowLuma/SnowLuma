@@ -228,7 +228,6 @@ export const DEFAULT_APPEARANCE: UiAppearance = {
 export const FONT_CUSTOM_ID = 'custom';
 
 const LS_CACHE = 'snowluma_ui_appearance';
-const LS_MIGRATED = 'snowluma_ui_migrated';
 const TOKEN_KEY = 'snowluma_token';
 
 // ─── Colour helpers (custom hex accent → readable foreground) ──────────────
@@ -1012,61 +1011,6 @@ async function persistAppearance(appearance: UiAppearance): Promise<void> {
     }
 }
 
-// ─── Migration of the pre-server-config localStorage theme ─────────────────
-
-function readLegacyOverlay(): Partial<UiAppearance> | null {
-    try {
-        const out: Partial<UiAppearance> = {};
-        const mode = localStorage.getItem('snowluma_theme');
-
-        if (mode === 'light' || mode === 'dark' || mode === 'system') {
-            out.mode = mode;
-        }
-
-        const accent = localStorage.getItem('snowluma_accent');
-
-        if (accent && ACCENTS.some((a) => a.id === accent)) {
-            out.accentMode = 'preset';
-            out.accentPreset = accent;
-        }
-
-        const radius = Number(localStorage.getItem('snowluma_radius'));
-
-        if (Number.isFinite(radius) && radius > 0 && radius <= 2) {
-            out.radius = radius;
-        }
-
-        const density = localStorage.getItem('snowluma_density');
-
-        if (density === 'cozy' || density === 'compact') {
-            out.density = density;
-        }
-
-        const poll = Number(localStorage.getItem('snowluma_poll_interval'));
-
-        if (Number.isFinite(poll) && poll >= 0 && poll <= 60_000) {
-            out.pollInterval = poll;
-        }
-
-        return Object.keys(out).length > 0 ? out : null;
-    } catch {
-        return null;
-    }
-}
-
-function isPristine(a: UiAppearance): boolean {
-    const d = DEFAULT_APPEARANCE;
-    return (
-        a.mode === d.mode &&
-        a.accentMode === d.accentMode &&
-        a.accentPreset === d.accentPreset &&
-        a.radius === d.radius &&
-        a.density === d.density &&
-        a.pollInterval === d.pollInterval &&
-        a.background.type === 'none'
-    );
-}
-
 // ─── Light/dark reveal (View Transitions API) ──────────────────────────────
 // Where the user last clicked, so the theme reveal emanates from there.
 let lastPointer: { x: number; y: number } | null = null;
@@ -1149,7 +1093,7 @@ interface ThemeContextValue {
     /** Re-fetch appearance from the server (e.g. after login, so the authed
      *  `customCss` loads). */
     reloadAppearance: () => Promise<void>;
-    // ── back-compat conveniences ──
+    // Common appearance controls.
     mode: ThemeMode;
     setMode: (m: ThemeMode) => void;
     pollInterval: number;
@@ -1190,7 +1134,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         return () => mq.removeEventListener('change', handler);
     }, []);
 
-    // Initial server load (+ one-time legacy migration). Runs once.
+    // Load the server appearance, retaining the cache if it is unavailable.
     useEffect(() => {
         let cancelled = false;
 
@@ -1201,34 +1145,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                 return;
             }
 
-            let next = server ?? readCache();
-
-            let migrated = true;
-
-            try {
-                migrated = Boolean(localStorage.getItem(LS_MIGRATED));
-            } catch {
-                /* storage unavailable: skip migration */
-            }
-
-            if (!migrated) {
-                try {
-                    localStorage.setItem(LS_MIGRATED, '1');
-                } catch {
-                    /* ignore */
-                }
-
-                const legacy = readLegacyOverlay();
-
-                // Only migrate when the server has never been customized, so we don't
-                // clobber a look already set from another device.
-                if (legacy && server && isPristine(server)) {
-                    next = { ...server, ...legacy, background: server.background };
-                    void persistAppearance(next).catch((error) => {
-                        console.error('appearance migration save failed', error);
-                    });
-                }
-            }
+            const next = server ?? readCache();
 
             setAppearanceState(next);
             writeCache(next);
@@ -1256,8 +1173,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         applyBackgroundLayer(appearance);
     }, [appearance]);
 
-    // Flush a pending debounced save on unmount (defensive — the provider lives
-    // at the app root and normally never unmounts).
+    // Cancel a pending save when the provider unmounts.
     useEffect(
         () => () => {
             if (saveTimer.current) {

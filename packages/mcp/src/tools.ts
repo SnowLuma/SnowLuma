@@ -53,8 +53,7 @@ function lite(a: CatalogAction) {
 const DOCS_TOOLS: Tool[] = [
     {
         name: 'list_actions',
-        description:
-            '列出所有 OneBot action（可按 category 过滤）。返回轻量索引（名称/分类/摘要/别名/是否只读/是否为 Stream Action）。',
+        description: '列出 OneBot action，支持按分类过滤。返回名称、摘要、别名及执行类型。',
         inputSchema: {
             type: 'object',
             properties: {
@@ -66,8 +65,7 @@ const DOCS_TOOLS: Tool[] = [
     },
     {
         name: 'get_action',
-        description:
-            '获取某个 OneBot action 的完整文档：摘要、参数表、跨字段约束、返回、是否只读，以及可直接用于构造调用的参数 JSON Schema（inputSchema）。',
+        description: '获取 action 文档、参数 JSON Schema、约束和返回类型。',
         inputSchema: {
             type: 'object',
             properties: { name: { type: 'string', description: 'action 名（接受别名）' } },
@@ -78,7 +76,7 @@ const DOCS_TOOLS: Tool[] = [
     },
     {
         name: 'search_actions',
-        description: '按关键字模糊搜索 action（匹配名称 / 摘要 / 别名）。返回轻量索引。',
+        description: '按名称、摘要或别名搜索 action。',
         inputSchema: {
             type: 'object',
             properties: { query: { type: 'string', description: '关键字' } },
@@ -289,10 +287,6 @@ async function execute(
 
     if (inputFile && cat.name !== 'upload_file_stream') {
         return asError('execution.input_file 仅可用于 upload_file_stream。');
-    }
-
-    if (inputFile && !cat.stream) {
-        return asError(`${action} 不是 Stream Action，不能使用 execution.input_file。`);
     }
 
     try {

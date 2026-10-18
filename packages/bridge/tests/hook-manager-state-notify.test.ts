@@ -37,7 +37,7 @@ function makeManager(
     let pids = opts.processes ?? [];
     let live = new Set<number>(opts.livePipes ?? []);
     const pipeWatcher = new PipeWatcher({
-        listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         listLivePipes: async () => new Set(live),
         intervalMs: 60_000,
     });
@@ -72,7 +72,7 @@ function makeManager(
             unload: vi.fn(),
         },
         makeClient: clientFactory,
-        listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         detectAccounts: opts.detectAccounts ?? (async () => []),
         accountReprobeIntervalMs: opts.accountReprobeIntervalMs,
         onSessionsChanged,
@@ -162,7 +162,7 @@ describe('HookManager.onSessionsChanged', () => {
     it('is OPTIONAL — omitting it leaves the manager fully functional', async () => {
         const pids = [4242];
         const pipeWatcher = new PipeWatcher({
-            listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+            listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
             listLivePipes: async () => new Set(),
             intervalMs: 60_000,
         });
@@ -193,7 +193,7 @@ describe('HookManager.onSessionsChanged', () => {
 
                 return c;
             }),
-            listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+            listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
             detectAccounts: async () => [],
             // onSessionsChanged deliberately omitted
         });

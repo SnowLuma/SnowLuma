@@ -40,8 +40,7 @@ export interface ConnectionDiffLoopHandle {
 
 export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): ConnectionDiffLoopHandle {
     const intervalMs = opts.intervalMs ?? 500;
-    let lastSerialized = '';
-    let haveBaseline = false;
+    let lastSerialized: string | undefined | null = null;
     let disposed = false;
     // One-shot diagnostic latch: a projector that starts throwing only after
     // a shape regression would otherwise wedge the baseline silently — no
@@ -112,13 +111,12 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
 
         const serialized = JSON.stringify(comparable);
 
-        if (!haveBaseline) {
+        if (lastSerialized === null) {
             // First successful observation. The SSE handler's sendAllInitial
             // already shipped a `connections` frame to every connected client
             // on connect, so the baseline is what they already have — emitting
             // it again would be a duplicate. Just store it.
             lastSerialized = serialized;
-            haveBaseline = true;
             return;
         }
 
@@ -144,7 +142,7 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
     // lifetime by design, but tests / a future hot-reload scenario must be
     // able to exit cleanly without an outstanding interval ref. Mirrors the
     // tokenJanitor pattern in server.ts.
-    timer.unref?.();
+    timer.unref();
 
     return {
         dispose(): void {

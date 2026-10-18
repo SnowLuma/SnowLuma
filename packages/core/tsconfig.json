@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "allowImportingTsExtensions": true,
     // Tests live outside src/ so we don't pin rootDir; tsc --noEmit doesn't write output anyway.
     "types": ["node", "vitest/globals"],
     "paths": {

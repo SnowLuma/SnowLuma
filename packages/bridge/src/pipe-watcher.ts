@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import { EventEmitter } from 'events';
 import type { HookProcessBaseInfo } from './injector';
@@ -163,7 +164,7 @@ export class PipeWatcher extends EventEmitter {
             try {
                 processes = await this.listProcesses();
             } catch (error) {
-                this.log.warn('listProcesses failed: %s', errMsg(error));
+                this.log.warn('listProcesses failed: %s', errorMessage(error));
                 processes = null;
             }
 
@@ -183,7 +184,7 @@ export class PipeWatcher extends EventEmitter {
             try {
                 livePipes = await this.listLivePipes(processes);
             } catch (error) {
-                this.log.warn('listLivePipes failed: %s', errMsg(error));
+                this.log.warn('listLivePipes failed: %s', errorMessage(error));
                 livePipes = null;
             }
 
@@ -256,8 +257,4 @@ export class PipeWatcher extends EventEmitter {
             }
         }
     }
-}
-
-function errMsg(value: unknown): string {
-    return value instanceof Error ? value.message : String(value);
 }

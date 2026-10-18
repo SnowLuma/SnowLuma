@@ -8,9 +8,6 @@ const log = createLogger('OneBot');
 
 interface CachedRKey {
     value: string;
-    type: number;
-    createTime: number;
-    ttlSeconds: number;
     expiresAt: number;
 }
 
@@ -61,72 +58,50 @@ export class RKeyCache {
         );
     }
 
-    async resolveImageUrl(
+    resolveImageUrl(
         bridge: BridgeInterface,
         element: MessageElement,
         isGroup: boolean,
     ): Promise<string> {
         const url = element.imageUrl ?? '';
-
-        if (!urlNeedsRKey(url)) {
-            return url;
-        }
-
-        // The rkey scene must follow the IMAGE's own upload context, not the
-        // message currently carrying it. A c2c image forwarded into a group
-        // keeps its original c2c fileid/appid (1406); signing it with the
-        // group rkey just because the forward node looks like a group message
-        // yields `invalid rkey` on download. So derive the scene from the
-        // appid baked into the URL, and only fall back to `isGroup` when the
-        // URL carries no recognised appid (legacy gchat / unknown shapes).
-        // Mirrors NapCat's getImageUrlFromParsedUrl (appid 1406 → private,
-        // 1407 → group).
-        const primaryType =
+        // Forwarded images retain their upload scene, encoded by appid in the URL.
+        const type =
             imageRKeyTypeFromUrl(url) ??
             (isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE);
-        const rkey = await this.findRKeyForType(bridge, primaryType);
-
-        if (!rkey) {
-            return url;
-        }
-
-        const cleanRKey = stripRKeyPrefix(rkey);
-        const separator = url.includes('?') ? '&rkey=' : '?rkey=';
-        return url + separator + encodeURIComponent(cleanRKey);
+        return this.resolveUrl(bridge, url, type);
     }
 
-    async resolveMediaUrl(
+    resolveMediaUrl(
         bridge: BridgeInterface,
         element: MessageElement,
         isGroup: boolean,
     ): Promise<string> {
-        const url = element.url ?? '';
+        let type: number;
 
-        if (!url || !urlNeedsRKey(url)) {
+        if (element.type === 'video') {
+            type = isGroup ? GROUP_VIDEO_RKEY_TYPE : PRIVATE_VIDEO_RKEY_TYPE;
+        } else if (element.type === 'record') {
+            type = isGroup ? GROUP_PTT_RKEY_TYPE : PRIVATE_PTT_RKEY_TYPE;
+        } else {
+            type = isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
+        }
+
+        return this.resolveUrl(bridge, element.url ?? '', type);
+    }
+
+    private async resolveUrl(bridge: BridgeInterface, url: string, type: number): Promise<string> {
+        if (!urlNeedsRKey(url)) {
             return url;
         }
 
-        const mediaType = element.type;
-        let primaryType: number;
-
-        if (mediaType === 'video') {
-            primaryType = isGroup ? GROUP_VIDEO_RKEY_TYPE : PRIVATE_VIDEO_RKEY_TYPE;
-        } else if (mediaType === 'record') {
-            primaryType = isGroup ? GROUP_PTT_RKEY_TYPE : PRIVATE_PTT_RKEY_TYPE;
-        } else {
-            // For file types, try image rkeys as a fallback (file URLs typically use image rkeys)
-            primaryType = isGroup ? GROUP_IMAGE_RKEY_TYPE : PRIVATE_IMAGE_RKEY_TYPE;
-        }
-
-        const rkey = await this.findRKeyForType(bridge, primaryType);
+        const rkey = await this.findRKeyForType(bridge, type);
 
         if (!rkey) {
             return url;
         }
 
-        const cleanRKey = stripRKeyPrefix(rkey);
         const separator = url.includes('?') ? '&rkey=' : '?rkey=';
-        return url + separator + encodeURIComponent(cleanRKey);
+        return url + separator + encodeURIComponent(stripRKeyPrefix(rkey));
     }
 
     private updateCache(rkeys: DownloadRKeyInfo[]): void {
@@ -141,9 +116,6 @@ export class RKeyCache {
             const ttl = rk.ttlSeconds || 3600;
             this.cache.set(rk.type, {
                 value: rk.rkey,
-                type: rk.type,
-                createTime: rk.createTime,
-                ttlSeconds: rk.ttlSeconds,
                 expiresAt: baseTime + ttl,
             });
         }
@@ -224,10 +196,6 @@ export class RKeyCache {
 
         const inflight = this.refreshInflight;
 
-        if (!inflight) {
-            return;
-        }
-
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<void>((resolve) => {
             timer = setTimeout(resolve, RKEY_REFRESH_TIMEOUT_MS);
@@ -236,9 +204,7 @@ export class RKeyCache {
         try {
             await Promise.race([inflight, timeout]);
         } finally {
-            if (timer) {
-                clearTimeout(timer);
-            }
+            clearTimeout(timer);
         }
     }
 
@@ -295,7 +261,7 @@ export class RKeyCache {
     }
 
     private setFallbackRkey(type: number, value: string, expiresAt: number): void {
-        this.cache.set(type, { value, type, createTime: 0, ttlSeconds: 0, expiresAt });
+        this.cache.set(type, { value, expiresAt });
     }
 }
 

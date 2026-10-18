@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type FlashKind = 'ok' | 'err';
 export interface FlashMessage {
@@ -6,45 +6,38 @@ export interface FlashMessage {
     text: string;
 }
 
-/**
- * Transient status-banner state for a settings panel.
- *
- * - `flash(kind, text)` shows a message that auto-clears after `durationMs`,
- *   cancelling any prior auto-clear timer first.
- * - `setMsg` sets/clears the message directly (a persistent one that stays
- *   until the next action — e.g. a load-failure banner).
- * - The pending timer is cleared on unmount.
- *
- * Replaces the per-panel hand-rolled `msg` state + `msgTimer` ref + `flash` +
- * unmount cleanup, which had drifted (one panel omitted the ref, the
- * prior-timer cancel, and the unmount cleanup entirely — leaking a timer that
- * could fire a stale `setMsg` after unmount).
- */
+/** `flash` expires automatically; `setMsg` replaces it with a persistent message. */
 export function useFlashMessage(durationMs = 2400): {
     msg: FlashMessage | null;
     flash: (kind: FlashKind, text: string) => void;
     setMsg: (msg: FlashMessage | null) => void;
 } {
-    const [msg, setMsg] = useState<FlashMessage | null>(null);
+    const [msg, setMessage] = useState<FlashMessage | null>(null);
     const timer = useRef<number | null>(null);
-    useEffect(
-        () => () => {
-            if (timer.current) {
-                clearTimeout(timer.current);
-            }
-        },
-        [],
-    );
-
-    const flash = (kind: FlashKind, text: string) => {
-        setMsg({ kind, text });
-
-        if (timer.current) {
+    const cancelTimer = useCallback(() => {
+        if (timer.current !== null) {
             clearTimeout(timer.current);
         }
 
-        timer.current = window.setTimeout(() => setMsg(null), durationMs);
-    };
-
+        timer.current = null;
+    }, []);
+    useEffect(() => cancelTimer, [cancelTimer]);
+    const setMsg = useCallback(
+        (next: FlashMessage | null) => {
+            cancelTimer();
+            setMessage(next);
+        },
+        [cancelTimer],
+    );
+    const flash = useCallback(
+        (kind: FlashKind, text: string) => {
+            setMsg({ kind, text });
+            timer.current = window.setTimeout(() => {
+                timer.current = null;
+                setMessage(null);
+            }, durationMs);
+        },
+        [durationMs, setMsg],
+    );
     return { msg, flash, setMsg };
 }

@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { readFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -55,10 +56,6 @@ function parseRealUid(status: string): number | null {
 function isProcessGoneError(error: unknown): boolean {
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
     return code === 'ENOENT' || code === 'ESRCH';
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function ownRuntimeDir(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, ownUid: number): string {

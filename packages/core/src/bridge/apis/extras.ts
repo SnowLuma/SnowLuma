@@ -318,7 +318,7 @@ export class ExtrasApi {
                                 ),
                             );
                         }, receiptTimeoutMs);
-                        timeout.unref?.();
+                        timeout.unref();
                     }),
                 ]));
 

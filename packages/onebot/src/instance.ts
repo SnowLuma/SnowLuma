@@ -855,7 +855,7 @@ export class OneBotInstance {
         this.heartbeatTimer = setInterval(() => {
             this.dispatchEvent(this.makeHeartbeatEvent());
         }, OneBotInstance.HEARTBEAT_INTERVAL);
-        this.heartbeatTimer.unref?.();
+        this.heartbeatTimer.unref();
     }
 
     private makeHeartbeatEvent(): JsonObject {

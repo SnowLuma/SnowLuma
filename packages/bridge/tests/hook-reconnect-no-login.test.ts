@@ -15,7 +15,7 @@
 //   - at most one client is alive at any point
 //   - every prior client's EventEmitter listener count drops to 0 after teardown
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, onTestFinished, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
@@ -57,6 +57,7 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
         let pipeLive = true;
         const clients: FakeClient[] = [];
         const session = new HookSession(61, {
+            detectLoginUin: async () => null,
             injector: {
                 inject: vi.fn(() => ({
                     method: 'loadModuleManual' as const,
@@ -71,6 +72,7 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
             },
             pipeWatcher: { isPipeLive: () => pipeLive },
         });
+        onTestFinished(() => session.dispose());
 
         await session.load();
         session.onPipeUp();
@@ -99,6 +101,7 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
         let pipeLive = true;
         const clients: FakeClient[] = [];
         const session = new HookSession(61, {
+            detectLoginUin: async () => null,
             injector: {
                 inject: vi.fn(() => ({
                     method: 'loadModuleManual' as const,
@@ -113,6 +116,7 @@ describe('HookSession — pipe reconnect with QQ never logging in', () => {
             },
             pipeWatcher: { isPipeLive: () => pipeLive },
         });
+        onTestFinished(() => session.dispose());
 
         await session.load();
         session.onPipeUp();

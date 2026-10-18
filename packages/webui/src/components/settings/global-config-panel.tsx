@@ -1,10 +1,3 @@
-// Settings → 全局配置 tab. Deployment-wide SnowLuma knobs (config/snowluma.json):
-// rkey fallback servers + the music-card signing URL. Same UX as the other
-// settings panels — debounced auto-save, no explicit save button. Unlike the
-// channel editor these are typed inline, so the server's normalized result is
-// NOT written back onto the inputs while editing (that would erase a half-typed
-// URL); the store reconciles on the next load. Invalid entries are flagged
-// client-side and simply dropped by the server on save.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, KeyRound, Music, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
@@ -33,20 +26,17 @@ export function GlobalConfigPanel() {
     const { runAction } = useActionFeedback();
     const [config, setConfig] = useState<GlobalSettings | null>(null);
     const [loading, setLoading] = useState(true);
-    const [loadFailed, setLoadFailed] = useState(false);
     const { msg, flash } = useFlashMessage();
     const saveTimer = useRef<number | null>(null);
     const saveGen = useRef(0);
 
     const load = useCallback(async () => {
         setLoading(true);
-        setLoadFailed(false);
 
         try {
             setConfig(await api.globalConfig.get());
         } catch (error) {
             console.error('load global config failed', error);
-            setLoadFailed(true);
         } finally {
             setLoading(false);
         }
@@ -65,9 +55,7 @@ export function GlobalConfigPanel() {
         [],
     );
 
-    /** Apply locally + debounced auto-save. Deliberately does NOT reconcile the
-     *  inputs from the server's normalized response (it would wipe a half-typed
-     *  URL); a generation guard just confirms the latest save. */
+    // Keep partially typed URLs in the draft until the next load.
     const commit = (
         next: GlobalSettings,
         feedback: false | { title: string; successTitle: string } = {
@@ -83,6 +71,7 @@ export function GlobalConfigPanel() {
         }
 
         saveTimer.current = window.setTimeout(() => {
+            saveTimer.current = null;
             const dropped =
                 next.rkey.fallbackServers.some((s) => s.trim() && !isHttpUrl(s.trim())) ||
                 (next.musicSignUrl.trim().length > 0 && !isHttpUrl(next.musicSignUrl.trim()));
@@ -92,7 +81,6 @@ export function GlobalConfigPanel() {
                     : runAction(
                           {
                               title: feedback.title,
-                              detail: '正在同步 config/snowluma.json',
                               successTitle: feedback.successTitle,
                               successDetail: dropped ? '已保存，无效项已忽略' : '配置已同步',
                               errorTitle: '全局配置更新失败',
@@ -105,8 +93,6 @@ export function GlobalConfigPanel() {
                         return;
                     }
 
-                    // The server drops invalid (non-http) entries; say so rather than a
-                    // bare "已保存" next to a still-visible rejected value.
                     flash('ok', dropped ? '已保存（无效项已忽略）' : '已保存');
                 })
                 .catch((error) => {
@@ -130,7 +116,7 @@ export function GlobalConfigPanel() {
                 label="全局配置"
                 className={!loading ? 'skeleton-swap-fluid min-h-[156px]' : ''}
             >
-                {!loading && (loadFailed || !config) ? (
+                {!loading ? (
                     <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-16 text-muted-foreground">
                         <AlertTriangle className="size-8 opacity-40" strokeWidth={1.5} />
                         <p className="text-sm">加载全局配置失败</p>
@@ -162,13 +148,8 @@ export function GlobalConfigPanel() {
                     <div className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
                         <KeyRound className="mt-0.5 size-3.5 shrink-0" />
                         <p>
-                            图片 / 文件下载链接需要服务器签发的{' '}
-                            <code className="font-mono">rkey</code>。SnowLuma 默认走内核获取；
-                            当内核在你的环境下持续取不到时，会按顺序向这里配置的 HTTP 端点回退。
-                            <strong className="font-medium text-foreground/80">
-                                默认留空＝关闭
-                            </strong>
-                            ，不配置就不会联系任何第三方。 建议填你自建的端点。
+                            内核无法获取 <code className="font-mono">rkey</code>{' '}
+                            时，依次请求下列服务器。留空关闭，建议使用自建服务。
                         </p>
                     </div>
 
@@ -186,7 +167,7 @@ export function GlobalConfigPanel() {
 
                         {servers.length === 0 ? (
                             <p className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
-                                未配置回退服务器（rkey 回退已关闭）
+                                回退服务器未启用
                             </p>
                         ) : (
                             <div className="flex flex-col gap-2">
@@ -235,7 +216,7 @@ export function GlobalConfigPanel() {
                                     <code className="font-mono">
                                         {'{ group_rkey, private_rkey, expired_time }'}
                                     </code>
-                                    （兼容 NapCat rkey 服务格式）。非 http(s) 链接会被忽略。
+                                    ，仅支持 HTTP(S)。
                                 </p>
                             </div>
                         )}
@@ -268,9 +249,6 @@ export function GlobalConfigPanel() {
                             )}
                             onChange={(e) => commit({ ...config, musicSignUrl: e.target.value })}
                         />
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                            内置默认：<code className="font-mono">{MUSIC_SIGN_DEFAULT}</code>
-                        </p>
                     </div>
                 </div>
 

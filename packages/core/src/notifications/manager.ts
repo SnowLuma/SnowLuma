@@ -9,10 +9,11 @@
 // SMTP send, the clock) are injected so the class is fully unit-testable; the
 // real wiring lives in `createNotificationManager()` at the bottom.
 import { positiveIntEnv } from '@snowluma/common/env';
+import { errorMessage } from '@snowluma/common/errors';
 import type { HookProcessInfo } from '@snowluma/bridge/types';
 import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from '@snowluma/onebot/config';
-import type { BridgeManager } from '../bridge/manager';
+import type { BridgeSessionSource } from '../bridge/bridge-interface';
 import {
     isEmailChannel,
     loadNotificationsConfig,
@@ -93,10 +94,6 @@ interface AccountNotificationContext {
     pid: number | null;
 }
 
-function errMsg(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-}
-
 /**
  * Pure: the channels a UIN should be notified through — globally enabled AND
  * opted into by the UIN — preserving config order. Exported for unit tests.
@@ -118,6 +115,7 @@ export class NotificationManager {
     private readonly deliveries = new Map<string, Promise<void>>();
     private readonly historyLimit: number;
     private disposed = false;
+    private unsubscribeSessions: (() => void) | null = null;
 
     constructor(deps: NotificationManagerDeps) {
         this.deps = deps;
@@ -126,13 +124,17 @@ export class NotificationManager {
 
     /** Subscribe to the global session online/offline edges. Register AFTER
      *  OneBotManager so the nickname fallback is already populated. */
-    bind(bridgeManager: BridgeManager): void {
-        bridgeManager.addSessionStartedListener((uin, bridge) =>
-            this.handleOnline(uin, bridge.identity.nickname, bridge.activePid),
-        );
-        bridgeManager.addSessionClosedListener((uin, bridge, pid) =>
-            this.handleOffline(uin, bridge.identity.nickname, pid),
-        );
+    bind(bridgeManager: BridgeSessionSource): void {
+        if (this.disposed) {
+            return;
+        }
+
+        this.unsubscribeSessions?.();
+        this.unsubscribeSessions = bridgeManager.subscribeSessions({
+            started: (uin, bridge) =>
+                this.handleOnline(uin, bridge.identity.nickname, bridge.activePid),
+            closed: (uin, bridge, pid) => this.handleOffline(uin, bridge.identity.nickname, pid),
+        });
     }
 
     handleOnline(uin: string, nickname?: string, pid: number | null = null): void {
@@ -158,7 +160,7 @@ export class NotificationManager {
         try {
             debounceSeconds = this.deps.loadConfig().debounceSeconds;
         } catch (err) {
-            log.warn('offline(%s) skipped — config load failed: %s', uin, errMsg(err));
+            log.warn('offline(%s) skipped — config load failed: %s', uin, errorMessage(err));
             return;
         }
 
@@ -234,7 +236,12 @@ export class NotificationManager {
             const cfg = this.deps.loadConfig();
             channels = selectChannels(cfg.channels, this.deps.loadChannelIds(uin));
         } catch (err) {
-            log.warn('notify(%s, %s) skipped — config load failed: %s', uin, event, errMsg(err));
+            log.warn(
+                'notify(%s, %s) skipped — config load failed: %s',
+                uin,
+                event,
+                errorMessage(err),
+            );
             return;
         }
 
@@ -247,7 +254,7 @@ export class NotificationManager {
         try {
             facts = await this.deps.resolveProcess?.(uin, account.pid);
         } catch (err) {
-            log.warn('resolveProcess(%s, %s) failed: %s', uin, account.pid, errMsg(err));
+            log.warn('resolveProcess(%s, %s) failed: %s', uin, account.pid, errorMessage(err));
         }
 
         const vars: Record<string, string> = {
@@ -318,7 +325,7 @@ export class NotificationManager {
 
             return await this.deps.post(ch.url, renderTemplate(ch.bodyTemplate, vars), ch.headers);
         } catch (err) {
-            return { ok: false, error: errMsg(err) };
+            return { ok: false, error: errorMessage(err) };
         }
     }
 
@@ -332,7 +339,7 @@ export class NotificationManager {
         try {
             channel = this.deps.loadConfig().channels.find((c) => c.id === channelId);
         } catch (err) {
-            return { ok: false, found: false, error: errMsg(err) };
+            return { ok: false, found: false, error: errorMessage(err) };
         }
 
         if (!channel) {
@@ -371,6 +378,8 @@ export class NotificationManager {
         }
 
         this.disposed = true;
+        this.unsubscribeSessions?.();
+        this.unsubscribeSessions = null;
 
         for (const timer of this.timers.values()) {
             clearTimeout(timer);
@@ -399,7 +408,7 @@ export function createDefaultPost(
                 error: res.ok ? undefined : `HTTP ${res.status}`,
             };
         } catch (err) {
-            return { ok: false, error: errMsg(err) };
+            return { ok: false, error: errorMessage(err) };
         }
     };
 }

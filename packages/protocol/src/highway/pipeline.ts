@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger, renderTraceBytes, runWithTraceRequest } from '@snowluma/common/logger';
 import type {
     EncodableMediaMsgInfo,
@@ -136,10 +137,6 @@ function uploadDescriptors(uploads: MediaSubFileUpload[]): string {
         .join(';')}]`;
 }
 
-function mediaErrorText(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
-
 // ─────────────── main entrypoint ───────────────
 
 /**
@@ -191,7 +188,7 @@ export function runNtv2Upload(params: NtV2UploadParams): Promise<NTV2UploadRespB
                 label,
                 failureReason,
                 params.uploads.length,
-                mediaErrorText(error),
+                errorMessage(error),
                 Date.now() - startedAt,
             ]);
             throw error;

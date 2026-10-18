@@ -1,3 +1,4 @@
+import { errorMessage } from './errors';
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeLogLine } from './log-sanitize';
@@ -1236,8 +1237,4 @@ export async function _resetFileTransportForTesting(): Promise<void> {
 
 function isMissing(error: unknown): boolean {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

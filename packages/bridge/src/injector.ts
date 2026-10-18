@@ -1,10 +1,7 @@
-import { existsSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { errorMessage } from '@snowluma/common/errors';
+import { resolveRuntimeNativePath } from '@snowluma/common/native-path';
 
 import { listSnowlumaPipePidsSync } from './qq-hook-client';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ManualMapHandle {
     base: bigint;
@@ -15,7 +12,7 @@ export interface ManualMapHandle {
 
 interface NativeHookAddon {
     getRuntimeIntegrity?(): unknown;
-    getAllMainProcess(): number[];
+    getAllMainProcessAsync(): Promise<number[]>;
     probeDbLock?(dbPath: string): { pid: number; name: string }[];
     loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
     unloadModuleManual(pid: number, handle: ManualMapHandle): void;
@@ -43,14 +40,6 @@ function loadNativeAddon(addonPath: string): NativeHookAddon {
 
 type HookBinaryExt = 'node' | 'dll' | 'so';
 
-function platformBinaryName(ext: HookBinaryExt): string {
-    if (process.platform === 'win32' && process.arch === 'x64') {
-        return `snowluma-win32-x64.${ext}`;
-    }
-
-    return `snowluma-${process.platform}-${process.arch}.${ext}`;
-}
-
 function platformInjectableExt(): 'dll' | 'so' {
     return process.platform === 'win32' ? 'dll' : 'so';
 }
@@ -59,33 +48,8 @@ function defaultProcessName(): string {
     return process.platform === 'win32' ? 'QQ.exe' : 'qq';
 }
 
-function nativeSearchDirs(): string[] {
-    // Several layouts must be supported:
-    //   1. Released zip (flattened dist/): __dirname=<extracted>/, native at <extracted>/native
-    //   2. Dev via tsx (packages/bridge/src/injector.ts): __dirname=<root>/packages/bridge/src
-    //      → walk up to <root>/packages and append runtime/native
-    //      Same offset works for `packages/bridge/dist/index.mjs` after build.
-    //   3. cwd-based fallback when neither __dirname-relative path resolves.
-    return [
-        path.resolve(__dirname, 'native'),
-        path.resolve(__dirname, '..', '..', 'runtime', 'native'),
-        path.resolve(process.cwd(), 'dist', 'native'),
-        path.resolve(process.cwd(), 'packages', 'runtime', 'native'),
-    ];
-}
-
 export function resolveHookNativePath(ext: HookBinaryExt): string | null {
-    const fileName = platformBinaryName(ext);
-
-    for (const dir of nativeSearchDirs()) {
-        const fullPath = path.join(dir, fileName);
-
-        if (existsSync(fullPath)) {
-            return fullPath;
-        }
-    }
-
-    return null;
+    return resolveRuntimeNativePath(`snowluma-${process.platform}-${process.arch}.${ext}`);
 }
 
 export function getNativeHookAddon(): NativeHookAddon | null {
@@ -105,7 +69,7 @@ export function getNativeHookAddon(): NativeHookAddon | null {
         nativeLoadError = null;
         return nativeAddon;
     } catch (error) {
-        nativeLoadError = error instanceof Error ? error.message : String(error);
+        nativeLoadError = errorMessage(error);
         return null;
     }
 }
@@ -114,7 +78,7 @@ export function getNativeHookLoadError(): string | null {
     return nativeLoadError;
 }
 
-export function listHookProcesses(): HookProcessBaseInfo[] {
+export async function listHookProcesses(): Promise<HookProcessBaseInfo[]> {
     // macOS: no native enumerate-QQ addon. The DYLD_INSERT injection model
     // means QQ ran with our dylib already mapped, so the dylib's listener
     // socket IS the discovery signal. Treat every `mojo.<pid>.control.sock`
@@ -130,10 +94,16 @@ export function listHookProcesses(): HookProcessBaseInfo[] {
     const addon = getNativeHookAddon();
 
     if (!addon) {
-        return [];
+        throw new Error(getNativeHookLoadError() ?? 'hook native addon is not available');
     }
 
-    return [...new Set(addon.getAllMainProcess())]
+    if (typeof addon.getAllMainProcessAsync !== 'function') {
+        throw new Error(
+            'Hook native addon lacks getAllMainProcessAsync; update the native artifacts',
+        );
+    }
+
+    return [...new Set(await addon.getAllMainProcessAsync())]
         .filter((pid) => Number.isInteger(pid) && pid > 0)
         .sort((a, b) => a - b)
         .map((pid) => ({ pid, name: defaultProcessName(), path: '' }));

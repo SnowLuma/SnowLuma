@@ -7,6 +7,20 @@ import { comparableConnectionSnapshot } from '../src/webui/connection-snapshot';
 const previousLogLevel = getLogLevel();
 
 describe('startConnectionDiffLoop', () => {
+    it('treats an undefined snapshot as an established baseline', () => {
+        vi.useFakeTimers();
+        const bus = new StateBus();
+        const publish = vi.spyOn(bus, 'publish');
+        let snapshot: unknown = undefined;
+        const handle = startConnectionDiffLoop({ bus, getSnapshot: () => snapshot });
+        vi.advanceTimersByTime(1000);
+        expect(publish).not.toHaveBeenCalled();
+        snapshot = null;
+        vi.advanceTimersByTime(500);
+        expect(publish).toHaveBeenCalledOnce();
+        handle.dispose();
+    });
+
     beforeEach(() => {
         vi.useFakeTimers();
     });

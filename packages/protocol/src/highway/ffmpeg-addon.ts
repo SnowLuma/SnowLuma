@@ -1,12 +1,12 @@
+import { errorMessage } from '@snowluma/common/errors';
+import { resolveRuntimeNativePath } from '@snowluma/common/native-path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 import { createLogger } from '@snowluma/common/logger';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const log = createLogger('Highway.Audio');
 
 export interface FFmpegVideoInfo {
@@ -42,44 +42,8 @@ interface FFmpegNativeAddon {
 let cachedAddon: FFmpegNativeAddon | null = null;
 let cachedLoadError: string | null = null;
 
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
-
 function addonFileName(): string {
     return `ffmpegAddon.${process.platform}.${process.arch}.node`;
-}
-
-function addonSearchDirs(): string[] {
-    // Mirrors the hook injector's resolution strategy so the addon is found
-    // regardless of whether we're running from:
-    //   1. A released zip (dist/native/ffmpeg/<file>.node), where __dirname is
-    //      the dist root.
-    //   2. The bundled build (repoRoot/dist/native/ffmpeg/<file>.node).
-    //   3. `tsx` dev mode (packages/runtime/native/ffmpeg/<file>.node), where
-    //      __dirname is `packages/core/src/bridge/highway` — four levels deep
-    //      under `packages/`. Note: the hook injector lives at
-    //      `packages/core/src/hook` so it only needs 3 `..`; we need 4.
-    return [
-        path.resolve(__dirname, 'native', 'ffmpeg'),
-        path.resolve(__dirname, '..', '..', '..', '..', 'runtime', 'native', 'ffmpeg'),
-        path.resolve(process.cwd(), 'dist', 'native', 'ffmpeg'),
-        path.resolve(process.cwd(), 'packages', 'runtime', 'native', 'ffmpeg'),
-    ];
-}
-
-function resolveAddonPath(): string | null {
-    const fileName = addonFileName();
-
-    for (const dir of addonSearchDirs()) {
-        const full = path.join(dir, fileName);
-
-        if (fs.existsSync(full)) {
-            return full;
-        }
-    }
-
-    return null;
 }
 
 /**
@@ -96,7 +60,7 @@ export function getFFmpegAddon(): FFmpegNativeAddon {
         throw new Error(cachedLoadError);
     }
 
-    const addonPath = resolveAddonPath();
+    const addonPath = resolveRuntimeNativePath(path.join('ffmpeg', addonFileName()));
 
     if (!addonPath) {
         cachedLoadError = `ffmpegAddon not found for ${process.platform}-${process.arch} (looked for ${addonFileName()})`;
@@ -121,19 +85,14 @@ export function getFFmpegAddon(): FFmpegNativeAddon {
  * a ready-to-upload silk file.
  */
 export function isSilkFile(filePath: string): boolean {
-    try {
-        const fd = fs.openSync(filePath, 'r');
+    const fd = fs.openSync(filePath, 'r');
 
-        try {
-            const buf = Buffer.alloc(10);
-            fs.readSync(fd, buf, 0, 10, 0);
-            const header = buf.toString();
-            return header.includes('#!SILK') || header.includes('\x02#!SILK');
-        } finally {
-            fs.closeSync(fd);
-        }
-    } catch {
-        return false;
+    try {
+        const buf = Buffer.alloc(10);
+        fs.readSync(fd, buf, 0, 10, 0);
+        return buf.toString().includes('#!SILK');
+    } finally {
+        fs.closeSync(fd);
     }
 }
 
@@ -153,33 +112,34 @@ export interface EncodeSilkResult {
  */
 export async function encodeSilk(inputFile: string, tempDir: string): Promise<EncodeSilkResult> {
     const addon = getFFmpegAddon();
+    const duration = Math.max(1, Math.round(await addon.getDuration(inputFile)));
 
-    // Already silk — trust the file, just measure duration via the addon.
     if (isSilkFile(inputFile)) {
-        let duration = 1;
-
-        try {
-            duration = Math.max(1, Math.round(await addon.getDuration(inputFile)));
-        } catch {
-            // getDuration on a silk file occasionally fails on certain encodings;
-            // the upload path only needs a rough, non-zero value, so fall back
-            // to the size-based heuristic used by NapCat's audio.ts.
-            const stat = fs.statSync(inputFile);
-            duration = Math.max(1, Math.floor(stat.size / 1024 / 3));
-        }
-
         return { path: inputFile, duration, converted: false };
     }
 
     fs.mkdirSync(tempDir, { recursive: true });
     const outPath = path.join(tempDir, crypto.randomUUID());
-    await addon.convertToNTSilkTct(inputFile, outPath);
 
-    if (!fs.existsSync(outPath)) {
-        throw new Error('convertToNTSilkTct produced no output file');
+    try {
+        await addon.convertToNTSilkTct(inputFile, outPath);
+
+        if (!fs.existsSync(outPath)) {
+            throw new Error('convertToNTSilkTct produced no output file');
+        }
+    } catch (error) {
+        try {
+            await fs.promises.rm(outPath, { force: true });
+        } catch (cleanupError) {
+            throw new AggregateError(
+                [error, cleanupError],
+                `SILK conversion failed: ${errorMessage(error)}; temporary file cleanup failed: ${errorMessage(cleanupError)}`,
+            );
+        }
+
+        throw error;
     }
 
-    const duration = Math.max(1, Math.round(await addon.getDuration(inputFile)));
     return { path: outPath, duration, converted: true };
 }
 

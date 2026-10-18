@@ -43,7 +43,7 @@ function makeManager(opts: {
     );
     const unload = vi.fn();
     const pipeWatcher = new PipeWatcher({
-        listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         listLivePipes: async () => new Set(live),
         intervalMs: 60_000, // disable internal timer; tests drive ticks manually
     });
@@ -77,7 +77,7 @@ function makeManager(opts: {
         makeClient,
         autoLoadOnDiscovery: opts.autoLoadOnDiscovery,
         onSessionsChanged: opts.onSessionsChanged,
-        listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         // Detection reads QQ's own data directories; tests stay off the host.
         detectAccounts: opts.detectAccounts ?? (async () => []),
     });

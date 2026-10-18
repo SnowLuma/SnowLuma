@@ -3,12 +3,7 @@ import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import type { OneBotConfig, QQInfo } from '@/types';
 import { useApi } from '@/lib/api';
 
-/**
- * Per-UIN OneBotInstance configuration editor. Owns the full lifecycle:
- * selection, load, in-memory edit (with dirty tracking), save (with refetch),
- * and a "switch UIN while dirty" guard that surfaces a pending switch the
- * view can confirm or cancel.
- */
+/** Account-scoped editing, persistence, and unsaved-change confirmation. */
 export interface UseOneBotInstanceConfig {
     selectedUin: string | null;
     /** Loaded config for the current UIN. Null while loading or before a selection. */
@@ -19,11 +14,7 @@ export interface UseOneBotInstanceConfig {
     setConfig: (next: OneBotConfig) => void;
     /** True if the in-memory config diverges from the last server-confirmed snapshot. */
     dirty: boolean;
-    /**
-     * Request a UIN switch. If currently dirty, the switch is parked as
-     * `pendingSwitchUin` and must be confirmed or cancelled. Otherwise it
-     * applies immediately.
-     */
+    /** Dirty edits require confirmation before switching accounts. */
     requestSwitchUin: (uin: string) => void;
     /** Non-null while a switch is parked waiting for confirmation. */
     pendingSwitchUin: string | null;
@@ -40,6 +31,14 @@ export interface UseOneBotInstanceConfig {
     saveStatusTone: 'idle' | 'saving' | 'success' | 'warning' | 'error';
 }
 
+type ConfigState =
+    | { status: 'idle'; uin: null }
+    | { status: 'loading'; uin: string }
+    | { status: 'error'; uin: string; error: string }
+    | { status: 'ready'; uin: string; config: OneBotConfig; savedSnapshot: string };
+
+type SaveFeedback = { text: string; tone: UseOneBotInstanceConfig['saveStatusTone'] };
+const IDLE_FEEDBACK: SaveFeedback = { text: '', tone: 'idle' };
 const CLEAR_SAVE_STATUS_MS = 3000;
 
 export interface UseOneBotInstanceConfigOptions {
@@ -56,19 +55,11 @@ export function useOneBotInstanceConfig(
     const api = useApi();
     const { runAction } = useActionFeedback();
     const { onSelectedUinChange } = options;
-    // Start the first config request in the same render that receives the account
-    // list; publishing the selection upward remains an effect, but no longer adds
-    // an otherwise unnecessary render before the network request can begin.
+    // Load the first account without waiting for selection to propagate upward.
     const selectedUin = options.selectedUin ?? accounts[0]?.uin ?? null;
-    const [config, setConfigState] = useState<OneBotConfig | null>(null);
-    const [loadedUin, setLoadedUin] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [loadError, setLoadError] = useState<string | null>(null);
+    const [state, setState] = useState<ConfigState>({ status: 'idle', uin: null });
     const [reloadGeneration, setReloadGeneration] = useState(0);
-    const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
-    const [saveStatus, setSaveStatus] = useState('');
-    const [saveStatusTone, setSaveStatusTone] =
-        useState<UseOneBotInstanceConfig['saveStatusTone']>('idle');
+    const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(IDLE_FEEDBACK);
     const [pendingSwitchUin, setPendingSwitchUin] = useState<string | null>(null);
     const clearTimerRef = useRef<number | null>(null);
     const editRevisionRef = useRef(0);
@@ -93,23 +84,15 @@ export function useOneBotInstanceConfig(
             clearTimerRef.current = null;
         }
 
-        setSaveStatus('');
-        setSaveStatusTone('idle');
+        setSaveFeedback(IDLE_FEEDBACK);
+        setPendingSwitchUin(null);
 
         if (!selectedUin) {
-            setLoading(false);
-            setLoadError(null);
-            setConfigState(null);
-            setLoadedUin(null);
-            setSavedSnapshot(null);
+            setState({ status: 'idle', uin: null });
             return;
         }
 
-        setLoading(true);
-        setLoadError(null);
-        setConfigState(null);
-        setLoadedUin(null);
-        setSavedSnapshot(null);
+        setState({ status: 'loading', uin: selectedUin });
         let cancelled = false;
 
         (async () => {
@@ -121,24 +104,28 @@ export function useOneBotInstanceConfig(
                 }
 
                 editRevisionRef.current += 1;
-                setConfigState(loaded);
-                setLoadedUin(selectedUin);
-                setSavedSnapshot(JSON.stringify(loaded));
+                setState({
+                    status: 'ready',
+                    uin: selectedUin,
+                    config: loaded,
+                    savedSnapshot: JSON.stringify(loaded),
+                });
             } catch (e) {
                 console.error('load-config', e);
 
                 if (!cancelled) {
-                    setLoadError(e instanceof Error ? e.message : '加载账号配置失败');
-                }
-            } finally {
-                if (!cancelled) {
-                    setLoading(false);
+                    setState({
+                        status: 'error',
+                        uin: selectedUin,
+                        error: e instanceof Error ? e.message : '加载账号配置失败',
+                    });
                 }
             }
         })();
 
         return () => {
             cancelled = true;
+            saveGenerationRef.current += 1;
         };
     }, [selectedUin, api, reloadGeneration]);
 
@@ -151,9 +138,11 @@ export function useOneBotInstanceConfig(
         [],
     );
 
-    const currentConfig = loadedUin === selectedUin ? config : null;
-    const currentLoading =
-        selectedUin !== null && (loading || (loadError === null && currentConfig === null));
+    const current = state.uin === selectedUin ? state : null;
+    const currentConfig = current?.status === 'ready' ? current.config : null;
+    const savedSnapshot = current?.status === 'ready' ? current.savedSnapshot : null;
+    const loading = selectedUin !== null && (!current || current.status === 'loading');
+    const loadError = current?.status === 'error' ? current.error : null;
 
     const dirty = useMemo(() => {
         if (currentConfig == null || savedSnapshot == null) {
@@ -163,10 +152,17 @@ export function useOneBotInstanceConfig(
         return JSON.stringify(currentConfig) !== savedSnapshot;
     }, [currentConfig, savedSnapshot]);
 
-    const setConfig = useCallback((next: OneBotConfig) => {
-        editRevisionRef.current += 1;
-        setConfigState(next);
-    }, []);
+    const setConfig = useCallback(
+        (next: OneBotConfig) => {
+            editRevisionRef.current += 1;
+            setState((previous) =>
+                previous.status === 'ready' && previous.uin === selectedUin
+                    ? { ...previous, config: next }
+                    : previous,
+            );
+        },
+        [selectedUin],
+    );
     const reload = useCallback(() => setReloadGeneration((generation) => generation + 1), []);
 
     const requestSwitchUin = useCallback(
@@ -207,8 +203,7 @@ export function useOneBotInstanceConfig(
                 return;
             }
 
-            setSaveStatus('');
-            setSaveStatusTone('idle');
+            setSaveFeedback(IDLE_FEEDBACK);
         }, CLEAR_SAVE_STATUS_MS);
     }, []);
 
@@ -223,8 +218,7 @@ export function useOneBotInstanceConfig(
             const uin = selectedUin;
             const editRevision = editRevisionRef.current;
             const generation = ++saveGenerationRef.current;
-            setSaveStatus('保存中...');
-            setSaveStatusTone('saving');
+            setSaveFeedback({ text: '保存中…', tone: 'saving' });
 
             try {
                 const result = await runAction(
@@ -259,39 +253,49 @@ export function useOneBotInstanceConfig(
                 }
 
                 if (!result.saved) {
-                    setSaveStatus(`保存失败：${result.message || '服务器未确认配置已保存'}`);
-                    setSaveStatusTone('error');
+                    setSaveFeedback({
+                        text: `保存失败：${result.message || '服务器未确认配置已保存'}`,
+                        tone: 'error',
+                    });
                     return;
                 }
 
-                setSavedSnapshot(JSON.stringify(result.config));
+                const unchanged = editRevisionRef.current === editRevision;
+                setState((previous) =>
+                    previous.status === 'ready' && previous.uin === uin
+                        ? {
+                              ...previous,
+                              config: unchanged ? result.config : previous.config,
+                              savedSnapshot: JSON.stringify(result.config),
+                          }
+                        : previous,
+                );
 
-                if (editRevisionRef.current === editRevision) {
-                    setConfigState(result.config);
-                } else {
-                    setSaveStatus('上一版本已保存，当前修改仍待保存');
-                    setSaveStatusTone('warning');
+                if (!unchanged) {
+                    setSaveFeedback({ text: '上一版本已保存，当前修改待保存', tone: 'warning' });
                     return;
                 }
 
                 if (!result.online) {
-                    setSaveStatus('保存成功；当前离线，将在下次连接时应用');
-                    setSaveStatusTone('warning');
+                    setSaveFeedback({ text: '已保存，下次连接时应用', tone: 'warning' });
                 } else if (result.applied) {
-                    setSaveStatus('保存成功，热重载完成');
-                    setSaveStatusTone('success');
+                    setSaveFeedback({ text: '已保存并应用', tone: 'success' });
                 } else {
                     const first = result.errors[0]?.message;
-                    setSaveStatus(`保存成功，但热重载失败${first ? `：${first}` : ''}`);
-                    setSaveStatusTone('warning');
+                    setSaveFeedback({
+                        text: `已保存，但热重载失败${first ? `：${first}` : ''}`,
+                        tone: 'warning',
+                    });
                 }
             } catch (e) {
                 if (selectedUinRef.current !== uin || saveGenerationRef.current !== generation) {
                     return;
                 }
 
-                setSaveStatus(`保存失败：${e instanceof Error ? e.message : '未知错误'}`);
-                setSaveStatusTone('error');
+                setSaveFeedback({
+                    text: `保存失败：${e instanceof Error ? e.message : '未知错误'}`,
+                    tone: 'error',
+                });
             } finally {
                 if (selectedUinRef.current === uin && saveGenerationRef.current === generation) {
                     scheduleStatusClear(uin, generation);
@@ -304,7 +308,7 @@ export function useOneBotInstanceConfig(
     return {
         selectedUin,
         config: currentConfig,
-        loading: currentLoading,
+        loading,
         loadError,
         reload,
         setConfig,
@@ -314,7 +318,7 @@ export function useOneBotInstanceConfig(
         confirmSwitch,
         cancelSwitch,
         save,
-        saveStatus,
-        saveStatusTone,
+        saveStatus: saveFeedback.text,
+        saveStatusTone: saveFeedback.tone,
     };
 }

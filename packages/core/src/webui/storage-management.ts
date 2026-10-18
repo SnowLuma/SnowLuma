@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LogCleanupResult, LogStorageStatus } from '@snowluma/common/log-file-transport';
@@ -375,10 +376,6 @@ function validateAccountStorageCategory(value: string): AccountStorageCategory {
     }
 
     throw new StorageManagementInputError(`unsupported account storage category: ${value}`);
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function redactFilesystemPath(message: string, filePath: string, label: string): string {

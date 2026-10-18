@@ -12,6 +12,14 @@
       "types": "./src/version.ts",
       "default": "./src/version.ts"
     },
+    "./native-path": {
+      "types": "./src/native-path.ts",
+      "default": "./src/native-path.ts"
+    },
+    "./errors": {
+      "types": "./src/errors.ts",
+      "default": "./src/errors.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"

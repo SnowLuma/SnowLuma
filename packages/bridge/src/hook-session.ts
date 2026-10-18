@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import {
     createLogger,
     runWithoutRequestContext,
@@ -205,7 +206,9 @@ export class HookSession extends EventEmitter {
             }
 
             await this.reconcilePipeUp();
-        }).catch((err) => this.log.warn('onPipeUp failed: PID=%d err=%s', this.pid, errMsg(err)));
+        }).catch((err) =>
+            this.log.warn('onPipeUp failed: PID=%d err=%s', this.pid, errorMessage(err)),
+        );
     }
 
     onPipeDown(): void {
@@ -219,7 +222,9 @@ export class HookSession extends EventEmitter {
             }
 
             this.reconcilePipeDown();
-        }).catch((err) => this.log.warn('onPipeDown failed: PID=%d err=%s', this.pid, errMsg(err)));
+        }).catch((err) =>
+            this.log.warn('onPipeDown failed: PID=%d err=%s', this.pid, errorMessage(err)),
+        );
     }
 
     /** Called by the manager when the watcher reports the QQ.exe process is
@@ -267,7 +272,7 @@ export class HookSession extends EventEmitter {
                     this.log.trace(() => [
                         'hook_session_process_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
                         this.pid,
-                        errMsg(error),
+                        errorMessage(error),
                         renderParamsVerbose(this.toInfo()),
                         Date.now() - startedAt,
                     ]);
@@ -275,7 +280,7 @@ export class HookSession extends EventEmitter {
                 }
             });
         }).catch((err) =>
-            this.log.warn('notifyProcessGone failed: PID=%d err=%s', this.pid, errMsg(err)),
+            this.log.warn('notifyProcessGone failed: PID=%d err=%s', this.pid, errorMessage(err)),
         );
     }
 
@@ -347,7 +352,7 @@ export class HookSession extends EventEmitter {
                     this.pid,
                     operation,
                     `${operation}_threw`,
-                    errMsg(error),
+                    errorMessage(error),
                     renderParamsVerbose(this.toInfo()),
                     Date.now() - startedAt,
                 ]);
@@ -357,20 +362,12 @@ export class HookSession extends EventEmitter {
     }
 
     private serialize<T>(op: () => Promise<T>): Promise<T> {
-        const previous = this.opChain;
-        let release!: () => void;
-        const completion = new Promise<void>((resolve) => {
-            release = resolve;
-        });
-        this.opChain = previous.then(() => completion);
-        return (async () => {
-            try {
-                await previous.catch(() => undefined);
-                return await op();
-            } finally {
-                release();
-            }
-        })();
+        const result = this.opChain.then(op);
+        this.opChain = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
     }
 
     // ─────────────── internal transitions ───────────────
@@ -411,7 +408,7 @@ export class HookSession extends EventEmitter {
 
             this.applyStatus();
         } catch (error) {
-            this._error = errMsg(error);
+            this._error = errorMessage(error);
             this.setStatus('error', this._error);
             this.log.error('load failed: PID=%d err=%s', this.pid, this._error);
             // The module can already be listening even when this call returns
@@ -467,7 +464,7 @@ export class HookSession extends EventEmitter {
                 this.setStatus('available', '');
             }
         } catch (error) {
-            this._error = errMsg(error);
+            this._error = errorMessage(error);
             this.setStatus('error', this._error);
             this.log.error('unload failed: PID=%d err=%s', this.pid, this._error);
         }
@@ -489,7 +486,7 @@ export class HookSession extends EventEmitter {
                 this.reconcilePipeDown();
             }
         } catch (error) {
-            this._error = errMsg(error);
+            this._error = errorMessage(error);
             this.setStatus(this.injected ? 'disconnected' : 'error', this._error);
             this.log.warn('refresh failed: PID=%d err=%s', this.pid, this._error);
         }
@@ -581,7 +578,7 @@ export class HookSession extends EventEmitter {
                 this.log.trace(() => [
                     'hook_session_disconnect_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
                     this.pid,
-                    errMsg(error),
+                    errorMessage(error),
                     renderParamsVerbose(this.toInfo()),
                     Date.now() - startedAt,
                 ]);
@@ -650,7 +647,7 @@ export class HookSession extends EventEmitter {
                     Date.now() - startedAt,
                 ]);
             } catch (error) {
-                this._error = errMsg(error);
+                this._error = errorMessage(error);
                 // Drop the client so the next attempt builds a fresh socket pair.
                 // A failed connect was never logged in → 'connecting' (or 'available').
                 this.tearDownClient();
@@ -670,7 +667,7 @@ export class HookSession extends EventEmitter {
         client.on('packet', (packet) => this.handlePacket(packet));
         client.on('loginState', (state) => this.handleLoginState(state));
         client.on('error', (error) => {
-            const msg = errMsg(error);
+            const msg = errorMessage(error);
             this._error = msg;
             this.log.warn('pipe error: PID=%d err=%s', this.pid, msg);
         });
@@ -696,7 +693,7 @@ export class HookSession extends EventEmitter {
 
                 this.reconcilePipeDown();
             }).catch((err) =>
-                this.log.warn('close reconcile failed: PID=%d err=%s', this.pid, errMsg(err)),
+                this.log.warn('close reconcile failed: PID=%d err=%s', this.pid, errorMessage(err)),
             );
         });
     }
@@ -788,7 +785,7 @@ export class HookSession extends EventEmitter {
                 this.log.trace(() => [
                     'hook_session_login_terminal pid=%d outcome=failed reason=listener_failed error=%j state=%s elapsedMs=%d',
                     this.pid,
-                    errMsg(error),
+                    errorMessage(error),
                     renderParamsVerbose(this.toInfo()),
                     Date.now() - startedAt,
                 ]);
@@ -813,7 +810,7 @@ export class HookSession extends EventEmitter {
             () => void this.detectLoginOnce(),
             LOGIN_RECONCILE_INTERVAL_MS,
         );
-        this.loginReconcileTimer.unref?.();
+        this.loginReconcileTimer.unref();
     }
 
     private stopLoginReconcile(): void {
@@ -849,7 +846,7 @@ export class HookSession extends EventEmitter {
             try {
                 uin = await this.detectLoginUin(this.pid);
             } catch (error) {
-                const message = errMsg(error);
+                const message = errorMessage(error);
 
                 if (this.lastDetectFailure !== message) {
                     this.lastDetectFailure = message;
@@ -924,7 +921,7 @@ export class HookSession extends EventEmitter {
                             this.pid,
                             uin,
                             attempt,
-                            errMsg(error),
+                            errorMessage(error),
                         );
                         this.nextLoginIdentityObservationAt =
                             Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
@@ -936,7 +933,7 @@ export class HookSession extends EventEmitter {
                             this.pid,
                             uin,
                             attempt,
-                            errMsg(error),
+                            errorMessage(error),
                         );
                     }
                 }
@@ -1077,9 +1074,9 @@ export class HookSession extends EventEmitter {
                     silentForMs,
                 );
             }, RECEIVE_STALE_CONFIRM_MS);
-            this.receiveWatchTimer.unref?.();
+            this.receiveWatchTimer.unref();
         }, RECEIVE_STALE_AFTER_MS);
-        this.receiveWatchTimer.unref?.();
+        this.receiveWatchTimer.unref();
     }
 
     private shouldWatchReceive(): boolean {
@@ -1133,8 +1130,4 @@ export class HookSession extends EventEmitter {
         this.lastReceiveAt = 0;
         this._receiveHealthy = true;
     }
-}
-
-function errMsg(value: unknown): string {
-    return value instanceof Error ? value.message : String(value);
 }

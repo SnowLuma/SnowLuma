@@ -1,3 +1,4 @@
+import { fromHex, toHex } from '@snowluma/common/hex';
 import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { positiveIntEnv } from '@snowluma/common/env';
 import { readFile } from 'node:fs/promises';
@@ -3275,7 +3276,7 @@ export const actions = [
                 );
             }
 
-            const body = hexToBytes(p.data);
+            const body = fromHex(p.data);
             const result = await ctx.bridge.sendRawPacket(p.cmd, body);
 
             if (!result.success) {
@@ -3286,7 +3287,7 @@ export const actions = [
                 return okResponse(null);
             }
 
-            const respHex = result.responseData ? bytesToHex(result.responseData) : '';
+            const respHex = result.responseData ? toHex(result.responseData) : '';
             return okResponse(respHex);
         },
     }),
@@ -3575,21 +3576,6 @@ export const actions = [
 // 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
 async function fetchFilteredGroupRequests(ctx: ApiActionContext) {
     return ctx.bridge.apis.contacts.fetchGroupRequests(true);
-}
-
-function hexToBytes(hex: string): Uint8Array {
-    const out = new Uint8Array(hex.length / 2);
-
-    for (let i = 0; i < out.length; i++) {
-        out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    }
-
-    return out;
-}
-
-function bytesToHex(buf: Buffer | Uint8Array): string {
-    const arr = buf instanceof Buffer ? buf : Buffer.from(buf);
-    return arr.toString('hex');
 }
 
 function parseDownloadHeaders(headers: unknown): Record<string, string> {

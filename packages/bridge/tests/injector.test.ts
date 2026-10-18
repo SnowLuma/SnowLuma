@@ -20,7 +20,9 @@ vi.mock('../src/qq-hook-client', () => ({
     listSnowlumaPipePidsSync: listPidsMock,
 }));
 
-const INJECTOR_DIR = path.dirname(fileURLToPath(new URL('../src/injector.ts', import.meta.url)));
+const NATIVE_PATH_DIR = path.dirname(
+    fileURLToPath(new URL('../../common/src/native-path.ts', import.meta.url)),
+);
 const ORIGINAL_PLATFORM = process.platform;
 const ORIGINAL_ARCH = process.arch;
 
@@ -41,17 +43,15 @@ function restorePlatform(): void {
     Object.defineProperty(process, 'arch', { value: ORIGINAL_ARCH, configurable: true });
 }
 
-function nativeSearchDirs(cwd = process.cwd()): string[] {
+function nativeSearchDirs(): string[] {
     return [
-        path.resolve(INJECTOR_DIR, 'native'),
-        path.resolve(INJECTOR_DIR, '..', '..', 'runtime', 'native'),
-        path.resolve(cwd, 'dist', 'native'),
-        path.resolve(cwd, 'packages', 'runtime', 'native'),
+        path.resolve(NATIVE_PATH_DIR, 'native'),
+        path.resolve(NATIVE_PATH_DIR, '..', '..', 'runtime', 'native'),
     ];
 }
 
-function nativeCandidate(fileName: string, dirIndex: number, cwd = process.cwd()): string {
-    return path.join(nativeSearchDirs(cwd)[dirIndex]!, fileName);
+function nativeCandidate(fileName: string, dirIndex: number): string {
+    return path.join(nativeSearchDirs()[dirIndex]!, fileName);
 }
 
 function allowExisting(paths: readonly string[]): void {
@@ -61,13 +61,13 @@ function allowExisting(paths: readonly string[]): void {
 
 function fakeAddon(
     overrides: {
-        getAllMainProcess?: number[];
+        getAllMainProcessAsync?: number[];
         loadModuleManual?: (pid: number, dylibPath: string) => unknown;
         unloadModuleManual?: (pid: number, handle: typeof HANDLE) => void;
     } = {},
 ) {
     return {
-        getAllMainProcess: vi.fn(() => overrides.getAllMainProcess ?? []),
+        getAllMainProcessAsync: vi.fn(async () => overrides.getAllMainProcessAsync ?? []),
         loadModuleManual: vi.fn(overrides.loadModuleManual ?? (() => HANDLE)),
         unloadModuleManual: vi.fn(overrides.unloadModuleManual ?? (() => undefined)),
     };
@@ -110,8 +110,6 @@ describe('resolveHookNativePath', () => {
         expect(probed).toEqual([
             nativeCandidate('snowluma-linux-x64.node', 0),
             nativeCandidate('snowluma-linux-x64.node', 1),
-            nativeCandidate('snowluma-linux-x64.node', 2),
-            nativeCandidate('snowluma-linux-x64.node', 3),
         ]);
     });
 
@@ -132,7 +130,7 @@ describe('resolveHookNativePath', () => {
 
     it('skips missing earlier directories for the injectable .so', async () => {
         setPlatform('linux', 'arm64');
-        const winner = nativeCandidate('snowluma-linux-arm64.so', 2);
+        const winner = nativeCandidate('snowluma-linux-arm64.so', 1);
         allowExisting([winner]);
 
         const { resolveHookNativePath } = await loadInjector();
@@ -141,7 +139,7 @@ describe('resolveHookNativePath', () => {
 
     it('resolves snowluma-win32-x64.dll on win32 x64', async () => {
         setPlatform('win32', 'x64');
-        const winner = nativeCandidate('snowluma-win32-x64.dll', 3);
+        const winner = nativeCandidate('snowluma-win32-x64.dll', 1);
         allowExisting([winner]);
 
         const { resolveHookNativePath } = await loadInjector();
@@ -157,7 +155,7 @@ describe('resolveHookNativePath', () => {
         expect(resolveHookNativePath('node')).toBe(winner);
     });
 
-    it('re-reads process.cwd() for the dist/native fallback', async () => {
+    it('does not load an unrelated native addon from the working directory', async () => {
         setPlatform('darwin', 'arm64');
         vi.spyOn(process, 'cwd').mockReturnValue('/tmp/sl-injector-cwd');
         const winner = path.join(
@@ -169,7 +167,7 @@ describe('resolveHookNativePath', () => {
         allowExisting([winner]);
 
         const { resolveHookNativePath } = await loadInjector();
-        expect(resolveHookNativePath('node')).toBe(winner);
+        expect(resolveHookNativePath('node')).toBeNull();
     });
 });
 
@@ -248,14 +246,25 @@ describe('getNativeHookAddon / getNativeHookLoadError', () => {
 });
 
 describe('listHookProcesses', () => {
+    it('rejects an obsolete addon without calling its synchronous enumerator', async () => {
+        setPlatform('win32', 'x64');
+        allowExisting([nativeCandidate('snowluma-win32-x64.node', 0)]);
+        const getAllMainProcess = vi.fn(() => [9]);
+        installDlopen({ getAllMainProcess });
+
+        const { listHookProcesses } = await loadInjector();
+        await expect(listHookProcesses()).rejects.toThrow('getAllMainProcessAsync');
+        expect(getAllMainProcess).not.toHaveBeenCalled();
+    });
+
     it('on darwin maps sorted pipe pids without opening the native addon', async () => {
         setPlatform('darwin', 'arm64');
         listPidsMock.mockReturnValue(new Set([42, 7, 15]));
         allowExisting([nativeCandidate('snowluma-darwin-arm64.node', 0)]);
-        const dlopen = installDlopen(fakeAddon({ getAllMainProcess: [99] }));
+        const dlopen = installDlopen(fakeAddon({ getAllMainProcessAsync: [99] }));
 
         const { listHookProcesses } = await loadInjector();
-        expect(listHookProcesses()).toEqual([
+        expect(await listHookProcesses()).toEqual([
             { pid: 7, name: 'qq', path: '' },
             { pid: 15, name: 'qq', path: '' },
             { pid: 42, name: 'qq', path: '' },
@@ -269,14 +278,16 @@ describe('listHookProcesses', () => {
         listPidsMock.mockReturnValue(new Set());
 
         const { listHookProcesses } = await loadInjector();
-        expect(listHookProcesses()).toEqual([]);
+        expect(await listHookProcesses()).toEqual([]);
     });
 
-    it('on non-darwin returns [] when the addon cannot be loaded', async () => {
+    it('reports a missing addon instead of an empty process set', async () => {
         setPlatform('linux', 'x64');
 
         const { listHookProcesses } = await loadInjector();
-        expect(listHookProcesses()).toEqual([]);
+        await expect(listHookProcesses()).rejects.toThrow(
+            'No hook native addon found for linux-x64',
+        );
     });
 
     it('on linux dedupes, drops non-positive/non-integer pids, and sorts', async () => {
@@ -285,12 +296,12 @@ describe('listHookProcesses', () => {
         allowExisting([nodePath]);
         installDlopen(
             fakeAddon({
-                getAllMainProcess: [8, 0, 8, -1, 3.5, 2, Number.NaN, 2],
+                getAllMainProcessAsync: [8, 0, 8, -1, 3.5, 2, Number.NaN, 2],
             }),
         );
 
         const { listHookProcesses } = await loadInjector();
-        expect(listHookProcesses()).toEqual([
+        expect(await listHookProcesses()).toEqual([
             { pid: 2, name: 'qq', path: '' },
             { pid: 8, name: 'qq', path: '' },
         ]);
@@ -299,10 +310,10 @@ describe('listHookProcesses', () => {
     it('on win32 names processes QQ.exe', async () => {
         setPlatform('win32', 'x64');
         allowExisting([nativeCandidate('snowluma-win32-x64.node', 0)]);
-        installDlopen(fakeAddon({ getAllMainProcess: [9] }));
+        installDlopen(fakeAddon({ getAllMainProcessAsync: [9] }));
 
         const { listHookProcesses } = await loadInjector();
-        expect(listHookProcesses()).toEqual([{ pid: 9, name: 'QQ.exe', path: '' }]);
+        expect(await listHookProcesses()).toEqual([{ pid: 9, name: 'QQ.exe', path: '' }]);
     });
 });
 
@@ -345,8 +356,8 @@ describe('injectHookProcess', () => {
 
     it('accepts a synchronous loadModuleManual return value', async () => {
         setPlatform('darwin', 'arm64');
-        const nodePath = nativeCandidate('snowluma-darwin-arm64.node', 2);
-        const soPath = nativeCandidate('snowluma-darwin-arm64.so', 3);
+        const nodePath = nativeCandidate('snowluma-darwin-arm64.node', 1);
+        const soPath = nativeCandidate('snowluma-darwin-arm64.so', 1);
         allowExisting([nodePath, soPath]);
         const addon = fakeAddon({ loadModuleManual: () => HANDLE });
         installDlopen(addon);

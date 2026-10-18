@@ -199,6 +199,44 @@ describe('RKeyCache.resolveImageUrl', () => {
     });
 });
 
+describe('RKeyCache.resolveMediaUrl', () => {
+    it.each([
+        ['video', false, 12],
+        ['video', true, 22],
+        ['record', false, 14],
+        ['record', true, 24],
+        ['file', false, 10],
+        ['file', true, 20],
+    ] as const)('signs %s media (group=%s) with rkey type %s', async (type, isGroup, expected) => {
+        const { bridge } = makeBridge(async () =>
+            [10, 20, 12, 22, 14, 24].map((type) => ({
+                rkey: `?rkey=key/${type}`,
+                type,
+                ttlSeconds: 3600,
+                createTime: nowSec(),
+            })),
+        );
+        const cache = new RKeyCache();
+        const url = 'https://multimedia.nt.qq.com.cn/download?fileid=MEDIA';
+        expect(await cache.resolveMediaUrl(bridge as never, { type, url }, isGroup)).toBe(
+            `${url}&rkey=key%2F${expected}`,
+        );
+    });
+
+    it('preserves signed, unrelated, and absent URLs without fetching', async () => {
+        const { bridge, fetchDownloadRKeys } = makeBridge(async () => freshGroupRkey());
+        const cache = new RKeyCache();
+
+        for (const url of ['', 'https://example.com/video', `${NT_IMAGE_URL}&rkey=existing`]) {
+            expect(await cache.resolveMediaUrl(bridge as never, { type: 'video', url }, true)).toBe(
+                url,
+            );
+        }
+
+        expect(fetchDownloadRKeys).not.toHaveBeenCalled();
+    });
+});
+
 describe('RKeyCache remote fallback (#156)', () => {
     const SERVER = 'https://rkey.example/r';
 

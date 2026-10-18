@@ -19,6 +19,50 @@ describe('bindStateStream', () => {
         vi.useRealTimers();
     });
 
+    it('joins concurrent initial snapshots for the same resource', async () => {
+        const bus = new StateBus();
+        const sent: CapturedFrame[] = [];
+        let resolve!: (data: unknown) => void;
+        const slow = new Promise((done) => {
+            resolve = done;
+        });
+        const snapshot = vi.fn((resource: StateResource) =>
+            resource === 'processes' ? slow : resource,
+        );
+        const handle = bindStateStream({ bus, snapshot, send: (frame) => sent.push(frame) });
+        const first = handle.sendAllInitial();
+        const second = handle.sendAllInitial();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(snapshot).toHaveBeenCalledTimes(3);
+        resolve('processes');
+        await Promise.all([first, second]);
+        expect(sent).toHaveLength(3);
+        handle.dispose();
+    });
+
+    it('absorbs a scheduled publish into an initial snapshot without starting another request', async () => {
+        const bus = new StateBus();
+        const sent: CapturedFrame[] = [];
+        let resolve!: (data: unknown) => void;
+        const slow = new Promise((done) => {
+            resolve = done;
+        });
+        const snapshot = vi.fn((resource: StateResource) =>
+            resource === 'processes' ? slow : resource,
+        );
+        const handle = bindStateStream({ bus, snapshot, send: (frame) => sent.push(frame) });
+        bus.publish('processes');
+        const initial = handle.sendAllInitial();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(snapshot).toHaveBeenCalledTimes(3);
+        resolve('fresh');
+        await initial;
+        expect(sent.filter((frame) => frame.resource === 'processes')).toEqual([
+            { resource: 'processes', data: 'fresh' },
+        ]);
+        handle.dispose();
+    });
+
     it('sendAllInitial emits one frame per resource with the snapshot data', async () => {
         const bus = new StateBus();
         const sent: CapturedFrame[] = [];

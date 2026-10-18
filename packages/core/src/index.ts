@@ -77,12 +77,13 @@ async function main() {
     const bridgeManager = new BridgeManager();
     bindSystemFaceCatalog(bridgeManager);
     const oneBotManager = new OneBotManager();
+    oneBotManager.bind(bridgeManager);
     const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
 
     // WebUI state-push wiring: HookManager + BridgeManager edges publish
     // `processes` / `qq-list` / `connections` invalidations into a bus the
     // /api/state/stream SSE handler subscribes to (no REST polling required).
-    const stateWiring = createStateWiring();
+    const stateWiring = createStateWiring(bridgeManager);
     const hookManager = new HookManager({
         bridgeManager,
         autoLoadOnDiscovery,
@@ -92,9 +93,6 @@ async function main() {
     if (autoLoadOnDiscovery) {
         log.info('hook auto-load enabled: every discovered QQ process will be injected');
     }
-
-    oneBotManager.bind(bridgeManager);
-    stateWiring.bindBridgeManager(bridgeManager);
 
     // Global notification subsystem (account up/down → webhook). Bound AFTER
     // OneBotManager so the nickname fallback is already populated when it observes.

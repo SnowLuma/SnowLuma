@@ -1,7 +1,3 @@
-// Settings → 通知 tab. Mirrors the node-config UX: the first screen is
-// info-only cards (name / url / template + an inline enable toggle); creating
-// and editing always go through a dialog. All changes auto-save (debounced),
-// like the per-account config page — no explicit save button.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { DEFAULT_WEBHOOK_BODY } from '@snowluma/common/notification-templates';
@@ -61,6 +57,7 @@ export function NotificationsPanel() {
 
     const load = useCallback(async () => {
         setLoading(true);
+        setMsg(null);
 
         try {
             setConfig(await api.notifications.getConfig());
@@ -102,6 +99,7 @@ export function NotificationsPanel() {
         }
 
         saveTimer.current = window.setTimeout(() => {
+            saveTimer.current = null;
             void runAction(
                 {
                     title: copy.title,
@@ -123,6 +121,10 @@ export function NotificationsPanel() {
                     flash('ok', '已保存');
                 })
                 .catch((error) => {
+                    if (saveGen.current !== gen) {
+                        return;
+                    }
+
                     console.error('save notifications config failed', error);
                     flash('err', '保存失败，请检查服务器日志');
                 });

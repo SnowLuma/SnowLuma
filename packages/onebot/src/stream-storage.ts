@@ -1,3 +1,4 @@
+import { errorMessage } from '@snowluma/common/errors';
 import { createLogger } from '@snowluma/common/logger';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -252,10 +253,6 @@ function isSameOrDescendant(root: string, candidate: string): boolean {
 
 function isMissing(error: unknown): boolean {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function assertManagedDirectory(directory: string, stat: fs.Stats): void {

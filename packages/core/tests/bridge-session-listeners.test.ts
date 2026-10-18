@@ -6,10 +6,10 @@ describe('BridgeManager session subscriptions', () => {
         const manager = new BridgeManager();
         const started = vi.fn();
         const closed = vi.fn();
-        const offStarted = manager.addSessionStartedListener(started);
-        manager.addSessionStartedListener(started);
-        const offClosed = manager.addSessionClosedListener(closed);
-        manager.addSessionClosedListener(closed);
+        const offStarted = manager.subscribeSessions({ started });
+        manager.subscribeSessions({ started });
+        const offClosed = manager.subscribeSessions({ closed });
+        manager.subscribeSessions({ closed });
         offStarted();
         offStarted();
         offClosed();
@@ -25,8 +25,8 @@ describe('BridgeManager session subscriptions', () => {
     it('keeps the current fan-out stable when a listener unsubscribes a peer', async () => {
         const manager = new BridgeManager();
         const peer = vi.fn();
-        manager.addSessionStartedListener(() => offPeer());
-        const offPeer = manager.addSessionStartedListener(peer);
+        manager.subscribeSessions({ started: () => offPeer() });
+        const offPeer = manager.subscribeSessions({ started: peer });
 
         manager.onHookLogin(4002, '12345', {} as never);
         manager.onHookLogin(4003, '23456', {} as never);

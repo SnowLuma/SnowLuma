@@ -4,15 +4,15 @@ import { createStateWiring } from '../src/webui/state-wiring';
 import { BridgeManager } from '../src/bridge/manager';
 
 describe('createStateWiring', () => {
-    it('replaces its bridge subscription without retaining the old manager', async () => {
-        const wiring = createStateWiring();
+    it('keeps a replacement wiring independent of its disposed predecessor', async () => {
         const old = new BridgeManager();
         const current = new BridgeManager();
         const listener = vi.fn();
+        const previousWiring = createStateWiring(old);
+        previousWiring.bus.subscribe(listener);
+        previousWiring.dispose();
+        const wiring = createStateWiring(current);
         wiring.bus.subscribe(listener);
-        wiring.bindBridgeManager(old);
-        wiring.bindBridgeManager(current);
-        wiring.bindBridgeManager(current);
 
         old.onHookLogin(4100, '12345', {} as never);
         expect(listener).not.toHaveBeenCalled();
@@ -24,15 +24,13 @@ describe('createStateWiring', () => {
         await current.dispose();
     });
 
-    it('unsubscribes on disposal and does not bind again', async () => {
-        const wiring = createStateWiring();
+    it('unsubscribes on disposal before another account starts', async () => {
         const bm = new BridgeManager();
-        const subscribe = vi.spyOn(bm, 'addSessionStartedListener');
+        const subscribe = vi.spyOn(bm, 'subscribeSessions');
+        const wiring = createStateWiring(bm);
         const publish = vi.spyOn(wiring.bus, 'publish');
-        wiring.bindBridgeManager(bm);
         wiring.dispose();
         wiring.dispose();
-        wiring.bindBridgeManager(bm);
 
         bm.onHookLogin(4300, '34567', {} as never);
         expect(publish).not.toHaveBeenCalled();
@@ -40,8 +38,19 @@ describe('createStateWiring', () => {
         await bm.dispose();
     });
 
+    it('releases its session subscription when disposed', () => {
+        const unsubscribe = vi.fn();
+        const source = { subscribeSessions: vi.fn(() => unsubscribe) };
+        const wiring = createStateWiring(source);
+
+        wiring.dispose();
+
+        expect(source.subscribeSessions).toHaveBeenCalledOnce();
+        expect(unsubscribe).toHaveBeenCalledOnce();
+    });
+
     it('provides a fresh StateBus and an onSessionsChanged that publishes "processes"', () => {
-        const wiring = createStateWiring();
+        const wiring = createStateWiring(new BridgeManager());
         expect(wiring.bus).toBeInstanceOf(StateBus);
         const sub = vi.fn();
         wiring.bus.subscribe(sub);
@@ -50,9 +59,8 @@ describe('createStateWiring', () => {
     });
 
     it('binds a BridgeManager so session-started publishes both "qq-list" and "connections"', () => {
-        const wiring = createStateWiring();
         const bm = new BridgeManager();
-        wiring.bindBridgeManager(bm);
+        const wiring = createStateWiring(bm);
         const seen: string[] = [];
         wiring.bus.subscribe((r) => seen.push(r));
 
@@ -63,9 +71,8 @@ describe('createStateWiring', () => {
     });
 
     it('publishes "qq-list" + "connections" on session-closed', () => {
-        const wiring = createStateWiring();
         const bm = new BridgeManager();
-        wiring.bindBridgeManager(bm);
+        const wiring = createStateWiring(bm);
         bm.onHookLogin(4242, '12345', {} as never);
         const sub = vi.fn();
         wiring.bus.subscribe(sub);
@@ -80,9 +87,8 @@ describe('createStateWiring', () => {
     });
 
     it('dispose() latches so later Hook/Bridge edges publish nothing', () => {
-        const wiring = createStateWiring();
         const bm = new BridgeManager();
-        wiring.bindBridgeManager(bm);
+        const wiring = createStateWiring(bm);
         const sub = vi.fn();
         wiring.bus.subscribe(sub);
 
@@ -98,15 +104,14 @@ describe('createStateWiring', () => {
     });
 
     it('survives a BridgeManager listener throw — the OTHER listeners on the same BridgeManager keep working', () => {
-        const wiring = createStateWiring();
         const bm = new BridgeManager();
-        wiring.bindBridgeManager(bm);
+        const wiring = createStateWiring(bm);
 
         // A peer subscriber (e.g. OneBotManager) added AFTER state-wiring throws.
         const peer = vi.fn(() => {
             throw new Error('peer down');
         });
-        bm.addSessionStartedListener(peer);
+        bm.subscribeSessions({ started: peer });
 
         const sub = vi.fn();
         wiring.bus.subscribe(sub);
