@@ -13,12 +13,11 @@ const context = new AsyncLocalStorage<{ database: SqliteDatabase; active: boolea
  */
 export class SqliteDatabase {
     readonly initialization: Promise<void>;
-    private database!: Database;
-    private opened = false;
+    private database: Database | null = null;
     private tail: Promise<unknown>;
     private readonly statements = new Map<string, Statement>();
     private pending = 0;
-    private closing: Promise<void> | null = null;
+    private shutdown: { task: Promise<void> | null } | null = null;
 
     constructor(filename: string, options: { readOnly?: boolean; busyTimeout?: number } = {}) {
         this.initialization = (async () => {
@@ -26,21 +25,21 @@ export class SqliteDatabase {
                 await mkdir(path.dirname(filename), { recursive: true });
             }
 
-            this.database = await openDatabase(filename, options.readOnly ?? false);
-            this.opened = true;
+            const database = await openDatabase(filename, options.readOnly ?? false);
+            this.database = database;
 
             try {
-                await this.database.exec(`PRAGMA busy_timeout = ${options.busyTimeout ?? 1000}`);
-                await this.database.exec('PRAGMA foreign_keys = ON');
+                await database.exec(`PRAGMA busy_timeout = ${options.busyTimeout ?? 1000}`);
+                await database.exec('PRAGMA foreign_keys = ON');
 
                 if (!options.readOnly) {
-                    await this.database.exec('PRAGMA journal_mode = WAL');
-                    await this.database.exec('PRAGMA synchronous = NORMAL');
+                    await database.exec('PRAGMA journal_mode = WAL');
+                    await database.exec('PRAGMA synchronous = NORMAL');
                 }
             } catch (error) {
                 try {
-                    await this.database.close();
-                    this.opened = false;
+                    await database.close();
+                    this.database = null;
                 } catch (closeError) {
                     throw new AggregateError(
                         [error, closeError],
@@ -62,7 +61,7 @@ export class SqliteDatabase {
             return Promise.resolve().then(operation);
         }
 
-        if (this.closing) {
+        if (this.shutdown) {
             return Promise.reject(new Error('SQLite database is closing'));
         }
 
@@ -97,7 +96,7 @@ export class SqliteDatabase {
     }
 
     exec(sql: string): Promise<void> {
-        return this.serial(() => this.database.exec(sql));
+        return this.serial(() => this.database!.exec(sql));
     }
 
     /** Preparation and statement execution both happen in the driver's native workers. */
@@ -106,7 +105,7 @@ export class SqliteDatabase {
             let statement = this.statements.get(sql);
 
             if (!statement) {
-                statement = await this.database.prepare(sql);
+                statement = await this.database!.prepare(sql);
                 this.statements.set(sql, statement);
             }
 
@@ -121,17 +120,24 @@ export class SqliteDatabase {
     }
 
     close(): Promise<void> {
-        if (this.closing) {
-            return this.closing;
+        const current = context.getStore();
+
+        if (current?.database === this && current.active) {
+            return Promise.reject(new Error('Cannot close SQLite from a serialized operation'));
         }
 
-        this.closing = (async () => {
-            await this.tail;
-            // The initialization promise reports startup failures. Cleanup must still
-            // release a partially initialized connection without repeating that error.
-            await this.initialization.catch(() => undefined);
+        // Shutdown remains terminal for callers even if native cleanup needs a retry.
+        const shutdown = (this.shutdown ??= { task: null });
 
-            if (!this.opened) {
+        if (shutdown.task) {
+            return shutdown.task;
+        }
+
+        shutdown.task = (async () => {
+            // The queue includes initialization and every accepted operation.
+            await this.tail;
+
+            if (!this.database) {
                 return;
             }
 
@@ -145,7 +151,7 @@ export class SqliteDatabase {
 
             try {
                 await this.database.close();
-                this.opened = false;
+                this.database = null;
             } catch (error) {
                 errors.push(error);
             }
@@ -154,10 +160,10 @@ export class SqliteDatabase {
                 throw new AggregateError(errors, 'SQLite close failed');
             }
         })();
-        void this.closing.catch(() => {
-            this.closing = null;
+        void shutdown.task.catch(() => {
+            shutdown.task = null;
         });
-        return this.closing;
+        return shutdown.task;
     }
 }
 

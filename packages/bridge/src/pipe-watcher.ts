@@ -1,56 +1,36 @@
 import { errorMessage } from '@snowluma/common/errors';
 import { createLogger, type Logger } from '@snowluma/common/logger';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import type { HookProcessBaseInfo } from './injector';
 
 const DEFAULT_INTERVAL_MS = 1500;
 const MIN_INTERVAL_MS = 250;
 
 export type PipeWatcherDeps = {
-    /** Native: list QQ.exe processes currently running. May be async and may
-     *  return `null` (UNKNOWN) when enumeration timed out / failed — in which
-     *  case this tick keeps the prior process+pipe state instead of treating the
-     *  missing data as "everything disappeared" (issue #158). */
-    listProcesses: () => HookProcessBaseInfo[] | null | Promise<HookProcessBaseInfo[] | null>;
-    /** Native: PIDs that currently have a live SnowLuma named pipe. The current
-     *  process snapshot lets Linux inspect each target user's runtime directory. */
+    /** Failed enumeration returns null and preserves the last known snapshot. */
+    listProcesses: () => Promise<HookProcessBaseInfo[] | null>;
+    /** Linux uses this snapshot to locate each target user's runtime directory. */
     listLivePipes: (processes: readonly HookProcessBaseInfo[]) => Promise<Set<number>>;
-    /** Polling interval in ms. Defaults to 1500, floored to 250. */
     intervalMs?: number;
     log?: Logger;
 };
 
-/**
- * PipeWatcher — the only module that polls the OS for QQ.exe processes
- * and live SnowLuma named pipes. Subscribers consume diffs as events.
- *
- * Lifecycle: start() runs one tick synchronously, then schedules a poll
- * every `intervalMs`. tickNow() drains a single tick on demand. wake()
- * pulls the next scheduled tick forward to the next event-loop turn.
- *
- * Emitted events:
- *   'process-discovered' (info: HookProcessBaseInfo) — a QQ.exe appeared
- *   'process-gone'       (pid: number)               — a QQ.exe disappeared
- *   'pipe-up'            (pid: number)               — named pipe came up
- *   'pipe-down'          (pid: number)               — named pipe dropped
- *   'tick'               ()                          — fired after every poll
- *
- * Within a single tick the order is: process-discovered, pipe-up,
- * pipe-down, process-gone, tick. That ordering lets HookManager create
- * a session before it gets a pipe event and run disconnect logic before
- * dispose logic when QQ.exe is killed with a live pipe.
- */
+type PipeEvent =
+    | ['process-discovered', HookProcessBaseInfo]
+    | ['pipe-up' | 'pipe-down' | 'process-gone', number];
+
+/** Publishes process and pipe snapshots, then emits their ordered differences. */
 export class PipeWatcher extends EventEmitter {
     private readonly listProcesses: PipeWatcherDeps['listProcesses'];
     private readonly listLivePipes: PipeWatcherDeps['listLivePipes'];
     private readonly intervalMs: number;
     private readonly log: Logger;
-
     private livePipes = new Set<number>();
     private knownPids = new Set<number>();
     private timer: NodeJS.Timeout | null = null;
-    private ticking = false;
-    private pendingWake = false;
+    private tickTask: Promise<void> | null = null;
+    private pendingTick = false;
     private startPromise: Promise<void> | null = null;
     private stopped = false;
 
@@ -62,51 +42,63 @@ export class PipeWatcher extends EventEmitter {
         this.log = deps.log ?? createLogger('PipeWatcher');
     }
 
-    /** Was this PID's pipe live as of the last completed tick? */
     isPipeLive(pid: number): boolean {
         return this.livePipes.has(pid);
     }
 
-    /** Was this PID alive as of the last completed tick? */
     isProcessAlive(pid: number): boolean {
         return this.knownPids.has(pid);
     }
 
-    /**
-     * Run an initial tick (so isPipeLive/isProcessAlive return real data)
-     * and begin the polling loop. Idempotent.
-     */
+    /** Read the initial snapshot and start polling. Repeated calls share startup. */
     start(): Promise<void> {
-        if (this.startPromise) {
-            return this.startPromise;
-        }
-
-        this.startPromise = (async () => {
-            try {
-                await this.tickOnce();
-            } finally {
-                this.scheduleNext(this.intervalMs);
-            }
-        })();
-        return this.startPromise;
+        return (this.startPromise ??= this.tickNow().finally(() => {
+            this.scheduleNext(this.intervalMs);
+        }));
     }
 
-    /** Pull the next scheduled tick forward to the next event-loop turn. */
+    /** Coalesce wake requests into one scan after the current read. */
     wake(): void {
         if (this.stopped) {
             return;
         }
 
-        this.scheduleNext(0);
+        if (this.tickTask) {
+            this.pendingTick = true;
+        } else {
+            this.scheduleNext(0);
+        }
     }
 
-    /** Force a single tick now. Resolves after diff events have been emitted. */
+    /** Wait for a fresh snapshot, including a scan queued behind an active read. */
     tickNow(): Promise<void> {
-        return this.tickOnce();
+        if (this.stopped) {
+            return Promise.resolve();
+        }
+
+        if (this.tickTask) {
+            this.pendingTick = true;
+            return this.tickTask;
+        }
+
+        this.tickTask = (async () => {
+            do {
+                this.pendingTick = false;
+                await this.readSnapshot();
+
+                if (this.pendingTick && !this.stopped) {
+                    await nextTurn();
+                }
+            } while (this.pendingTick && !this.stopped);
+        })().finally(() => {
+            this.tickTask = null;
+        });
+        return this.tickTask;
     }
 
     stop(): void {
         this.stopped = true;
+        this.pendingTick = false;
 
         if (this.timer) {
             clearTimeout(this.timer);
@@ -126,135 +118,100 @@ export class PipeWatcher extends EventEmitter {
 
         if (this.timer) {
             clearTimeout(this.timer);
-            this.timer = null;
         }
 
-        this.timer = setTimeout(
-            () => {
-                this.timer = null;
-                void this.tickAndReschedule();
-            },
-            Math.max(0, delayMs),
-        );
+        this.timer = setTimeout(() => {
+            this.timer = null;
+            void this.tickAndReschedule();
+        }, delayMs);
     }
 
     private async tickAndReschedule(): Promise<void> {
         try {
-            await this.tickOnce();
+            await this.tickNow();
+        } catch (error) {
+            this.log.warn('poll failed: %s', errorMessage(error));
         } finally {
             this.scheduleNext(this.intervalMs);
         }
     }
 
-    /**
-     * Read processes + live pipes, emit diff events. If another tick is
-     * already running, mark a follow-up tick so we don't lose a wake().
-     */
-    private async tickOnce(): Promise<void> {
-        if (this.ticking) {
-            this.pendingWake = true;
+    private async readSnapshot(): Promise<void> {
+        let processes: HookProcessBaseInfo[] | null;
+
+        try {
+            processes = await this.listProcesses();
+        } catch (error) {
+            this.log.warn('listProcesses failed: %s', errorMessage(error));
+            processes = null;
+        }
+
+        if (this.stopped) {
             return;
         }
 
-        this.ticking = true;
+        if (processes === null) {
+            // Missing data must not disconnect healthy sessions. Reconnect retries
+            // still run against the last known snapshot (issue #158).
+            this.emit('tick');
+            return;
+        }
+
+        let livePipes: Set<number>;
 
         try {
-            let processes: HookProcessBaseInfo[] | null;
+            livePipes = await this.listLivePipes(processes);
+        } catch (error) {
+            this.log.warn('listLivePipes failed: %s', errorMessage(error));
+            livePipes = this.livePipes;
+        }
 
-            try {
-                processes = await this.listProcesses();
-            } catch (error) {
-                this.log.warn('listProcesses failed: %s', errorMessage(error));
-                processes = null;
+        if (this.stopped) {
+            return;
+        }
+
+        const knownPids = new Set(processes.map(({ pid }) => pid));
+        const currentPipes = new Set([...livePipes].filter((pid) => knownPids.has(pid)));
+        const events: PipeEvent[] = [];
+
+        for (const process of processes) {
+            if (!this.knownPids.has(process.pid)) {
+                events.push(['process-discovered', process]);
             }
+        }
 
-            // UNKNOWN (timeout / failure): keep the prior process + pipe snapshot.
-            // Treating missing data as "everything disappeared" would fire
-            // process-gone for every live PID and dispose healthy sessions — the
-            // freeze-then-teardown footgun behind issue #158. Still emit 'tick' so
-            // the manager's per-tick reconnect retries keep running off last-known
-            // live pipes.
-            if (processes === null) {
-                this.emit('tick');
+        for (const pid of currentPipes) {
+            if (!this.livePipes.has(pid)) {
+                events.push(['pipe-up', pid]);
+            }
+        }
+
+        // Disconnect pipes before disposing their departed processes.
+        for (const pid of this.livePipes) {
+            if (!currentPipes.has(pid)) {
+                events.push(['pipe-down', pid]);
+            }
+        }
+
+        for (const pid of this.knownPids) {
+            if (!knownPids.has(pid)) {
+                events.push(['process-gone', pid]);
+            }
+        }
+
+        this.knownPids = knownPids;
+        this.livePipes = currentPipes;
+
+        for (const [event, payload] of events) {
+            if (this.stopped) {
                 return;
             }
 
-            let livePipes: Set<number> | null;
+            this.emit(event, payload);
+        }
 
-            try {
-                livePipes = await this.listLivePipes(processes);
-            } catch (error) {
-                this.log.warn('listLivePipes failed: %s', errorMessage(error));
-                livePipes = null;
-            }
-
-            const newKnownPids = new Set<number>();
-
-            for (const proc of processes) {
-                newKnownPids.add(proc.pid);
-            }
-
-            // 1. Newly discovered processes.
-            for (const proc of processes) {
-                if (!this.knownPids.has(proc.pid)) {
-                    this.emit('process-discovered', proc);
-                }
-            }
-
-            // 2. Pipes that came up. Ignore pipes for processes we don't know
-            //    about (would race against an out-of-order tick).
-            const newLivePipes = new Set<number>();
-
-            if (livePipes === null) {
-                // Keep the last known pipe state for processes that still exist, while
-                // allowing confirmed process exits to complete their normal teardown.
-                for (const pid of this.livePipes) {
-                    if (newKnownPids.has(pid)) {
-                        newLivePipes.add(pid);
-                    }
-                }
-            } else {
-                for (const pid of livePipes) {
-                    if (!newKnownPids.has(pid)) {
-                        continue;
-                    }
-
-                    newLivePipes.add(pid);
-
-                    if (!this.livePipes.has(pid)) {
-                        this.emit('pipe-up', pid);
-                    }
-                }
-            }
-
-            // 3. Pipes that dropped. Emit pipe-down BEFORE process-gone so
-            //    subscribers can run disconnect logic before dispose logic.
-            for (const pid of this.livePipes) {
-                if (!newLivePipes.has(pid)) {
-                    this.emit('pipe-down', pid);
-                }
-            }
-
-            // 4. Processes that disappeared.
-            for (const pid of this.knownPids) {
-                if (!newKnownPids.has(pid)) {
-                    this.emit('process-gone', pid);
-                }
-            }
-
-            this.knownPids = newKnownPids;
-            this.livePipes = newLivePipes;
+        if (!this.stopped) {
             this.emit('tick');
-        } finally {
-            this.ticking = false;
-
-            if (this.pendingWake) {
-                this.pendingWake = false;
-                // Defer to break sync recursion if a listener calls wake().
-                setImmediate(() => {
-                    void this.tickOnce();
-                });
-            }
         }
     }
 }

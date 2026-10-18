@@ -1,9 +1,10 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
-import { afterEach, expect, it } from 'vitest';
+import { setImmediate as nextTurn, setTimeout as delay } from 'node:timers/promises';
+import { afterEach, expect, it, vi } from 'vitest';
 import { SqliteDatabase } from '../src/index';
+import { Database, Statement } from '../src/driver';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -136,4 +137,67 @@ it('rejects failed opens and safely closes a partially initialized connection', 
     await expect(db.initialization).rejects.toMatchObject({ code: 'SQLITE_CANTOPEN' });
     await expect(db.prepare('SELECT 1').get()).rejects.toMatchObject({ code: 'SQLITE_CANTOPEN' });
     await db.close();
+});
+
+it('keeps writes rejected after a failed close while allowing cleanup to retry', async () => {
+    const db = new SqliteDatabase(':memory:');
+    await db.initialization;
+    const close = vi
+        .spyOn(Database.prototype, 'close')
+        .mockRejectedValueOnce(new Error('close failed'));
+
+    try {
+        await expect(db.close()).rejects.toThrow('SQLite close failed');
+        await expect(db.exec('CREATE TABLE late_write (value INTEGER)')).rejects.toThrow('closing');
+        const retry = db.close();
+        expect(db.close()).toBe(retry);
+        await retry;
+        expect(close).toHaveBeenCalledTimes(2);
+        await expect(db.serial(() => 1)).rejects.toThrow('closing');
+    } finally {
+        close.mockRestore();
+        await db.close();
+    }
+});
+
+it('does not accept work when connection close succeeds but statement cleanup reports an error', async () => {
+    const db = new SqliteDatabase(':memory:');
+    await db.prepare('SELECT 1').get();
+    const original = Statement.prototype.finalize;
+    const finalize = vi
+        .spyOn(Statement.prototype, 'finalize')
+        .mockImplementationOnce(async function (this: Statement) {
+            await original.call(this);
+            throw new Error('statement cleanup failed');
+        });
+
+    try {
+        await expect(db.close()).rejects.toThrow('SQLite close failed');
+        await expect(db.serial(() => 1)).rejects.toThrow('closing');
+        await db.close();
+    } finally {
+        finalize.mockRestore();
+        await db.close();
+    }
+});
+
+it('rejects close from inside its own serialized operation instead of waiting on itself', async () => {
+    const db = new SqliteDatabase(':memory:');
+
+    try {
+        await db.serial(async () => {
+            await expect(
+                Promise.race([
+                    db.close(),
+                    nextTurn().then(() => {
+                        throw new Error('close is waiting on its own operation');
+                    }),
+                ]),
+            ).rejects.toThrow('Cannot close SQLite from a serialized operation');
+            await db.exec('CREATE TABLE records (value INTEGER)');
+        });
+        await db.prepare('INSERT INTO records VALUES (?)').run(1);
+    } finally {
+        await db.close();
+    }
 });
