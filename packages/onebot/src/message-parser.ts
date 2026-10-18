@@ -69,10 +69,10 @@ export function parseCQParams(raw: string): Record<string, string> {
         if (eq > 0) {
             params[pair.substring(0, eq)] = pair
                 .substring(eq + 1)
-                .replace(/&#91;/g, '[')
-                .replace(/&#93;/g, ']')
-                .replace(/&#44;/g, ',')
-                .replace(/&amp;/g, '&');
+                .replaceAll('&#91;', '[')
+                .replaceAll('&#93;', ']')
+                .replaceAll('&#44;', ',')
+                .replaceAll('&amp;', '&');
         }
     }
 

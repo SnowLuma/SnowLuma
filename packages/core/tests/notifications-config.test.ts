@@ -60,6 +60,12 @@ describe('renderTemplate — mechanical {key} substitution', () => {
     it('does NOT escape when template is plain text', () => {
         expect(renderTemplate('{val}', { val: 'a"b\\c' })).toBe('a"b\\c');
     });
+
+    it('preserves control characters as JSON string escapes', () => {
+        const value = 'line\nnext\r\t\b\f\0"\\';
+        const rendered = renderTemplate('{"text":"{value}"}', { value });
+        expect(JSON.parse(rendered)).toEqual({ text: value });
+    });
 });
 
 describe('normalizeNotificationsConfig — total normalize', () => {

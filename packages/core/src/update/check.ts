@@ -1,4 +1,5 @@
 import { APP_VERSION } from '@snowluma/common/version';
+import { compareVersions, parseVersion } from '@snowluma/common/semver';
 import { createLogger } from '@snowluma/common/logger';
 import { createSingleFlightCache } from '@snowluma/common/single-flight-cache';
 
@@ -38,49 +39,6 @@ interface GithubRelease {
 function isEnabled(): boolean {
     const v = (process.env.SNOWLUMA_UPDATE_CHECK ?? '').trim().toLowerCase();
     return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
-}
-
-/**
- * Compare two dotted versions. Returns >0 if `a` is newer than `b`, <0 if
- * older, 0 if equal. The numeric core (major.minor.patch) compares
- * numerically; a prerelease (`-rc.1`) ranks below its release. Good enough
- * for "is the latest stable strictly newer than what we run" — and avoids
- * pulling in a `semver` runtime dependency (the dist bundle ships none).
- */
-export function compareVersions(a: string, b: string): number {
-    const parse = (v: string) => {
-        const [core = '', pre = ''] = v.replace(/^v/, '').split('-', 2);
-        const nums = core.split('.').map((n) => parseInt(n, 10) || 0);
-
-        while (nums.length < 3) {
-            nums.push(0);
-        }
-
-        return { nums, pre };
-    };
-
-    const pa = parse(a);
-    const pb = parse(b);
-
-    for (let i = 0; i < 3; i++) {
-        if (pa.nums[i] !== pb.nums[i]) {
-            return pa.nums[i] - pb.nums[i];
-        }
-    }
-
-    if (pa.pre === pb.pre) {
-        return 0;
-    }
-
-    if (!pa.pre) {
-        return 1;
-    } // release > prerelease
-
-    if (!pb.pre) {
-        return -1;
-    }
-
-    return pa.pre < pb.pre ? -1 : 1;
 }
 
 // TTL + single-flight: cache good results for CACHE_TTL_MS (well under GitHub's
@@ -130,13 +88,18 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
         }
 
         const rel = (await res.json()) as GithubRelease;
-        const tag = (rel.tag_name ?? '').trim();
+        const tag = typeof rel.tag_name === 'string' ? rel.tag_name.trim() : '';
 
         if (!tag) {
             return { ...base, error: 'no tag' };
         }
 
-        const latest = tag.replace(/^v/, '');
+        const latest = tag.startsWith('v') ? tag.slice(1) : tag;
+
+        if (!parseVersion(latest)) {
+            return { ...base, error: 'invalid release version' };
+        }
+
         return {
             current,
             latest,

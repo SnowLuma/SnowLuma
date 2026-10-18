@@ -32,6 +32,7 @@ import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseVersion } from '../packages/common/src/semver.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -51,7 +52,7 @@ if (!version) {
   console.error('Example: pnpm release 1.8.0');
   process.exit(1);
 }
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+if (!parseVersion(version)) {
   console.error(`Invalid semver: "${version}"`);
   process.exit(1);
 }

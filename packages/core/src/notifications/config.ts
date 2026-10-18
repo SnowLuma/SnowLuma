@@ -94,16 +94,7 @@ export function defaultNotificationsConfig(): NotificationsConfig {
 
 // ─── Template renderer ──────────────────────────────────────────────────────
 
-/**
- * Mechanical `{key}` substitution — no logic, no conditionals, no escaping.
- * A key present in `vars` is replaced by its value; an unknown `{key}` is left
- * untouched (原样) so a typo'd placeholder is visible rather than silently
- * blanked. Pure + total (a non-string template yields '').
- *
- * **JSON safety**: When the template is valid JSON (parseable by JSON.parse),
- * values are escaped to prevent breaking the JSON structure — backslashes
- * become `\\` and double-quotes become `\"`.
- */
+/** Preserve unknown placeholders; escape substituted strings in JSON templates. */
 export function renderTemplate(template: string, vars: Record<string, string>): string {
     if (typeof template !== 'string') {
         return '';
@@ -124,7 +115,7 @@ export function renderTemplate(template: string, vars: Record<string, string>): 
         }
 
         const val = vars[key];
-        return isJson ? val.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : val;
+        return isJson ? JSON.stringify(val).slice(1, -1) : val;
     });
 }
 

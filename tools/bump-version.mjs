@@ -5,12 +5,13 @@ import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseVersion } from '../packages/common/src/semver.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const nextVersion = process.argv[2] ?? JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8')).version;
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(nextVersion)) {
+if (!parseVersion(nextVersion)) {
   console.error(`Invalid semver: "${nextVersion}"`);
   process.exit(1);
 }

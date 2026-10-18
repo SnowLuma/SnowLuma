@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { constants, existsSync } from 'node:fs';
 import os from 'node:os';
+import { parseVersion } from '@snowluma/common/semver';
 
 export const MANIFEST_FILE = 'release.json';
 
@@ -86,7 +87,7 @@ export async function readManifest(root: string): Promise<ReleaseManifest> {
         typeof value !== 'object' ||
         !('version' in value) ||
         typeof value.version !== 'string' ||
-        !/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(value.version) ||
+        !parseVersion(value.version) ||
         !('target' in value) ||
         typeof value.target !== 'string' ||
         !/^(win32-x64|linux-(x64|arm64))$/.test(value.target) ||

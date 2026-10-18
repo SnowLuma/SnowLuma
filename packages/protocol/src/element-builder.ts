@@ -300,14 +300,14 @@ function makeMarketFaceElem(element: MessageElement): ProtoElem {
 
 function escapeXml(value: string): string {
     return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;')
-        .replace(/\t/g, '&#x9;')
-        .replace(/\n/g, '&#xA;')
-        .replace(/\r/g, '&#xD;');
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;')
+        .replaceAll('\t', '&#x9;')
+        .replaceAll('\n', '&#xA;')
+        .replaceAll('\r', '&#xD;');
 }
 
 function xmlPreviewText(value: string): string {

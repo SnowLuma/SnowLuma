@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { compareVersions, getUpdateInfo } from '../src/update/check';
+import { getUpdateInfo } from '../src/update/check';
 
 const LATEST_RELEASE_URL = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest';
 const NOTES_MAX = 4_000;
@@ -45,35 +45,6 @@ afterEach(() => {
 });
 
 vi.mock('@snowluma/common/version', () => ({ APP_VERSION: '0.0.0' }));
-
-describe('compareVersions', () => {
-    it.each([
-        ['1.2.3', '1.2.3', 0],
-        ['v1.2.3', '1.2.3', 0],
-        ['1.2', '1.2.0', 0],
-        ['1.2.3.9', '1.2.3.1', 0],
-        ['1.2.x', '1.2.0', 0],
-        ['', '0.0.0', 0],
-        // Only a leading lowercase `v` is stripped; `V1.2.3` parses as 0.2.3.
-        ['V1.2.3', '0.0.0', 2],
-        ['V1.2.3', '0.2.3', 0],
-        ['1.2.4', '1.2.3', 1],
-        ['1.2.3', '1.2.4', -1],
-        ['1.10.0', '1.9.0', 1],
-        ['2.0.0', '1.9.9', 1],
-        ['3.0.0', '1.0.0', 2],
-        ['1.0.0', '3.0.0', -2],
-        ['1.2.3', '1.2.3-rc.1', 1],
-        ['1.2.3-rc.1', '1.2.3', -1],
-        ['1.2.3-rc.1', '1.2.3-rc.1', 0],
-        ['1.2.3-rc.1', '1.2.3-rc.2', -1],
-        ['1.2.3-rc.2', '1.2.3-rc.1', 1],
-        ['1.2.3-rc.10', '1.2.3-rc.2', -1],
-        ['2.0.0-rc.1', '1.9.9', 1],
-    ] as const)('compareVersions(%j, %j) === %s', (a, b, expected) => {
-        expect(compareVersions(a, b)).toBe(expected);
-    });
-});
 
 describe('getUpdateInfo', () => {
     it.each(['0', 'false', 'off', 'no', 'FALSE', ' Off ', 'No'] as const)(
@@ -233,6 +204,26 @@ describe('getUpdateInfo', () => {
             expect(result.latest).toBeNull();
         },
     );
+
+    it.each(['v01.2.3', 'v1.2.x', 'v1.2.3.4', 'v1.2.3-rc.01', 'v1.2.3+build..1'])(
+        'reports an invalid release tag without offering an update: %s',
+        async (tag) => {
+            mockFetch(async () => jsonResponse({ tag_name: tag }));
+            expect(await getUpdateInfo(true)).toMatchObject({
+                latest: null,
+                hasUpdate: false,
+                error: 'invalid release version',
+            });
+        },
+    );
+
+    it('preserves build metadata in release tags', async () => {
+        mockFetch(async () => jsonResponse({ tag_name: 'v1.2.3+build.01' }));
+        expect(await getUpdateInfo(true)).toMatchObject({
+            latest: '1.2.3+build.01',
+            hasUpdate: true,
+        });
+    });
 
     it('uses the Error message when fetch throws an Error', async () => {
         mockFetch(async () => {

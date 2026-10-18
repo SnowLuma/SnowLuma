@@ -36,6 +36,7 @@ This is a pnpm workspace. Package ownership matters more than directory names:
 [The entry point](packages/core/src/index.ts) applies pending updates before starting runtime services. [The updater](packages/core/src/update) owns staging and replacement; [Core's build configuration](packages/core/vite.config.ts) emits the release manifest from its build outputs and runtime assets. Keep Core in one bundle and native libraries lazy-loaded so startup can recover an interrupted update before opening native files.
 
 Application versions come from the root `package.json` through `@snowluma/common/version`. Use `pnpm bump <version>` to update workspace manifests, or `pnpm bump` to sync them after editing the root version.
+Use `@snowluma/common/semver` for application version validation and comparison. Versions must be canonical SemVer; strip GitHub's `v` tag prefix only at the API boundary.
 
 Read the relevant owner before changing a path:
 

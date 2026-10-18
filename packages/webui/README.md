@@ -57,6 +57,7 @@ Webhook bodies and email subjects/bodies support `{uin}`, `{nickname}`, `{event}
 (`offline` or `online`), `{time}`, `{status}` (Hook process state), `{pid}`, and
 `{error}` (Hook process error). New webhook and email channels include process
 status in their default body; existing saved templates are preserved.
+JSON templates escape substituted strings, including quotes, line breaks and control characters.
 
 Process facts are resolved when the notification is dispatched, after any offline
 debounce. Each transition carries its process PID, including the final PID detached

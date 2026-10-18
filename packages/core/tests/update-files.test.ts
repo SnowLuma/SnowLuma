@@ -27,6 +27,31 @@ afterEach(async () => {
 });
 
 describe('staged updates', () => {
+    it.each(['02.0.0', '2.0.0-rc.01', '2.0.0-rc_1', '2.0.0+build..1'])(
+        'rejects invalid manifest versions before replacing files: %s',
+        async (version) => {
+            const payload = path.join(staging, 'pending/payload');
+            const manifest = await readManifest(payload);
+            await fs.writeFile(
+                path.join(payload, 'release.json'),
+                JSON.stringify({ ...manifest, version }),
+            );
+            await expect(applyPendingUpdate(root)).rejects.toThrow('清单无效');
+            expect((await readManifest(root)).version).toBe('1.0.0');
+        },
+    );
+
+    it('accepts prerelease identifiers and build metadata in manifests', async () => {
+        const payload = path.join(staging, 'pending/payload');
+        const manifest = await readManifest(payload);
+        const version = '2.0.0-rc.10+build.01';
+        await fs.writeFile(
+            path.join(payload, 'release.json'),
+            JSON.stringify({ ...manifest, version }),
+        );
+        expect((await readManifest(payload)).version).toBe(version);
+    });
+
     it('stages outside the installation and only renames replacements on the destination filesystem', async () => {
         expect(path.dirname(staging)).toBe(os.tmpdir());
         expect(staging.startsWith(root + path.sep)).toBe(false);

@@ -59,12 +59,12 @@ function parseCQParams(raw: string): Record<string, string> {
 }
 
 function cqUnescape(text: string): string {
-    return text.replace(/&#91;/g, '[').replace(/&#93;/g, ']').replace(/&amp;/g, '&');
+    return text.replaceAll('&#91;', '[').replaceAll('&#93;', ']').replaceAll('&amp;', '&');
 }
 
 function cqUnescapeParam(text: string): string {
     // Decode ampersands last so literal entity text is not decoded twice.
-    return cqUnescape(text.replace(/&#44;/g, ','));
+    return cqUnescape(text.replaceAll('&#44;', ','));
 }
 
 function segmentFromCq(type: string, data: Record<string, string>): AnyMessageSegment {

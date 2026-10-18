@@ -1,11 +1,11 @@
 import type { AnyMessageSegment } from '../types/index';
 
 export function escapeCqText(text: string): string {
-    return text.replace(/&/g, '&amp;').replace(/\[/g, '&#91;').replace(/\]/g, '&#93;');
+    return text.replaceAll('&', '&amp;').replaceAll('[', '&#91;').replaceAll(']', '&#93;');
 }
 
 export function escapeCqParam(text: string): string {
-    return escapeCqText(text).replace(/,/g, '&#44;');
+    return escapeCqText(text).replaceAll(',', '&#44;');
 }
 
 export function segmentsToCQString(segments: AnyMessageSegment[]): string {

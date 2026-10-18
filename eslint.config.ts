@@ -6,10 +6,7 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-const tsconfigRootDir = decodeURIComponent(new URL('.', import.meta.url).pathname).replace(
-    /^\/(.:\/)/,
-    '$1',
-);
+const tsconfigRootDir = import.meta.dirname;
 
 export const sourceIgnores = globalIgnores([
     '**/dist/**',

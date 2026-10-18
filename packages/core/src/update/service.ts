@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@snowluma/common/logger';
-import { compareVersions } from './check';
+import { parseVersion } from '@snowluma/common/semver';
 import { downloadUpdate } from './download';
 import { exists, MANIFEST_FILE, readManifest, updateDirectory } from './files';
 
@@ -76,17 +76,15 @@ export async function createUpdateService(
                 );
             }
 
-            if (
-                typeof version !== 'string' ||
-                !/^\d+\.\d+\.\d+$/.test(version) ||
-                compareVersions(version, current) <= 0
-            ) {
+            const parsed = parseVersion(version);
+
+            if (!parsed || parsed.prerelease.length || parsed.compare(current) <= 0) {
                 throw new Error('请选择更新的正式版本');
             }
 
-            state = { phase: 'downloading', version };
-            log.info('下载 v%s', version);
-            void prepare(version);
+            state = { phase: 'downloading', version: parsed.raw };
+            log.info('下载 v%s', parsed.raw);
+            void prepare(parsed.raw);
         },
         restart() {
             if (state.phase !== 'ready') {

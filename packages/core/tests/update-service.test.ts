@@ -71,18 +71,36 @@ describe('update service', () => {
         await vi.waitFor(() => expect(service.status().phase).toBe('error'));
     });
 
-    it.each(['1.0.0', '0.9.0', '2.0.0-rc.1', '../../outside', null])(
-        'rejects invalid or older version %s',
-        async (version) => {
-            const download = vi.fn();
-            const service = await createUpdateService(root, '1.0.0', {
-                download,
-                isContainer: false,
-            });
-            expect(() => service.start(version)).toThrow('正式版本');
-            expect(download).not.toHaveBeenCalled();
-        },
-    );
+    it.each([
+        '1.0.0',
+        '0.9.0',
+        '2.0.0-rc.1',
+        '02.0.0',
+        '2.0.0\n',
+        '1.0.0+build.2',
+        '../../outside',
+        null,
+    ])('rejects invalid or older version %s', async (version) => {
+        const download = vi.fn();
+        const service = await createUpdateService(root, '1.0.0', {
+            download,
+            isContainer: false,
+        });
+        expect(() => service.start(version)).toThrow('正式版本');
+        expect(download).not.toHaveBeenCalled();
+    });
+
+    it('downloads stable versions with build metadata without dropping the tag suffix', async () => {
+        const download = vi.fn(async (directory: string, version: string, target: string) => {
+            await releaseFixture(path.join(directory, 'payload'), version, target);
+            await writeFile(path.join(directory, 'archive'), 'archive');
+        });
+        const service = await createUpdateService(root, '1.0.0', { download, isContainer: false });
+        service.start('2.0.0+build.01');
+        await vi.waitFor(() => expect(service.status().phase).toBe('ready'));
+        expect(download).toHaveBeenCalledWith(expect.any(String), '2.0.0+build.01', 'win32-x64');
+        expect(service.status()).toMatchObject({ version: '2.0.0+build.01' });
+    });
 
     it('does not enable updates for a source checkout', async () => {
         const service = await createUpdateService(undefined, '1.0.0');
