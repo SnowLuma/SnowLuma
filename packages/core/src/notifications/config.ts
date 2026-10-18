@@ -81,10 +81,15 @@ export interface NotificationsConfig {
 
 /** Default body template — Server酱-style JSON ({title}/{desp}). The WebUI
  *  ships additional per-vendor presets (钉钉/Discord/…) as frontend constants
- *  the operator can drop in. */
+ *  the operator can drop in.
+ *
+ *  `{status}` is the hook process state at send time (`online` / `disconnected`
+ *  / `available` / …): it is what lets a receiver tell a dropped session from a
+ *  process that is already gone. `{pid}` and `{error}` are available too — kept
+ *  out of the default body because they are debugging detail, not headline. */
 export const DEFAULT_BODY_TEMPLATE = `{
   "title": "账号状态通知：{event}",
-  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
+  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**进程状态**：{status}\\n**时间**：{time}"
 }`;
 
 export const DEFAULT_SUBJECT_TEMPLATE = '账号{event}：{nickname} ({uin})';
@@ -94,6 +99,7 @@ export const DEFAULT_EMAIL_BODY_TEMPLATE = `账号状态发生了改变。
 昵称：{nickname}
 QQ号：{uin}
 当前状态：{event}
+进程状态：{status}
 时间：{time}`;
 
 const SMTP_HOST_MAX = 253;

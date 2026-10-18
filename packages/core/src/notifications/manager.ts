@@ -58,6 +58,21 @@ export interface MailPayload {
     text: string;
 }
 
+/**
+ * Process facts attached to a notification. The `offline` event alone cannot
+ * tell a receiver whether the account merely dropped its session (the client
+ * is still running and can be logged back in) or the QQ process is gone
+ * altogether — and an external supervisor needs that distinction to decide
+ * between re-login and restart. All fields are strings-in-waiting for the
+ * template map; `undefined` renders empty.
+ */
+export interface NotificationProcessFacts {
+    /** One of `HookProcessStatus`: `available` / `loading` / `connecting` / `loaded` / `online` / `error` / `disconnected`. */
+    status?: string;
+    pid?: number;
+    error?: string;
+}
+
 export interface NotificationManagerDeps {
     /** Global channel store (channels + debounceSeconds). */
     loadConfig: () => NotificationsConfig;
@@ -69,6 +84,12 @@ export interface NotificationManagerDeps {
     sendMail?: (mail: MailPayload) => Promise<PostResult>;
     now: () => number;
     historyLimit?: number;
+    /**
+     * Optional: look up the process behind a UIN at notify time. Omitted
+     * (or resolving to `undefined`) means "no process to report" — the fact
+     * variables then render empty rather than leaving `{status}` in the body.
+     */
+    resolveProcess?: (uin: string) => Promise<NotificationProcessFacts | undefined>;
 }
 
 function errMsg(err: unknown): string {
@@ -204,11 +225,15 @@ export class NotificationManager {
         }
 
         const nickname = this.nicknames.get(uin) || uin;
+        const facts = await this.resolveFacts(uin);
         const vars: Record<string, string> = {
             uin,
             nickname,
             event,
             time: new Date(this.deps.now()).toISOString(),
+            status: facts?.status ?? '',
+            pid: facts?.pid === undefined ? '' : String(facts.pid),
+            error: facts?.error ?? '',
         };
 
         for (const ch of channels) {
@@ -235,6 +260,22 @@ export class NotificationManager {
                     result.error ?? `HTTP ${result.status ?? '?'}`,
                 );
             }
+        }
+    }
+
+    /** Enrichment only: a failing lookup degrades to "unknown", never blocks
+     *  or throws into `notify()` — the transition is what the user asked about,
+     *  the facts are a bonus. */
+    private async resolveFacts(uin: string): Promise<NotificationProcessFacts | undefined> {
+        if (!this.deps.resolveProcess) {
+            return undefined;
+        }
+
+        try {
+            return await this.deps.resolveProcess(uin);
+        } catch (err) {
+            log.warn('resolveProcess(%s) failed: %s', uin, errMsg(err));
+            return undefined;
         }
     }
 
@@ -292,6 +333,9 @@ export class NotificationManager {
             nickname: '测试账号',
             event: 'offline' as const,
             time: new Date(this.deps.now()).toISOString(),
+            status: 'disconnected',
+            pid: '1234',
+            error: '',
         };
         return { ...(await this.deliver(channel, vars)), found: true };
     }
@@ -378,13 +422,17 @@ export function createDefaultSendMail(
     };
 }
 
-/** The real, fully-wired singleton. */
-export function createNotificationManager(): NotificationManager {
+/** The real, fully-wired singleton. `resolveProcess` is supplied by the
+ *  runtime — this package deliberately knows nothing about HookManager. */
+export function createNotificationManager(
+    resolveProcess?: NotificationManagerDeps['resolveProcess'],
+): NotificationManager {
     return new NotificationManager({
         loadConfig: loadNotificationsConfig,
         loadChannelIds: (uin) => loadOneBotConfig(uin).notifications?.channelIds ?? [],
         post: createDefaultPost(),
         sendMail: createDefaultSendMail(),
         now: () => Date.now(),
+        resolveProcess,
     });
 }

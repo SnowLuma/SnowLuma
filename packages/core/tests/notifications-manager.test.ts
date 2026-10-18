@@ -105,6 +105,48 @@ describe('NotificationManager — dispatch + history', () => {
         expect(posts[0].body).toBe('offline:123:Alice');
     });
 
+    it('carries process facts into the template so a supervisor can act on them', async () => {
+        const { posts, mgr } = setup({
+            loadConfig: () => ({
+                version: 1,
+                debounceSeconds: 30,
+                channels: [ch({ bodyTemplate: '{event}:{uin}:{status}:{pid}:{error}' })],
+            }),
+            resolveProcess: async () => ({ status: 'disconnected', pid: 4242, error: '' }),
+        });
+        await mgr.notify('123', 'offline');
+        expect(posts[0].body).toBe('offline:123:disconnected:4242:');
+    });
+
+    it('renders fact variables empty when no resolver is configured', async () => {
+        const { posts, mgr } = setup({
+            loadConfig: () => ({
+                version: 1,
+                debounceSeconds: 30,
+                channels: [ch({ bodyTemplate: '{event}:{status}:{pid}' })],
+            }),
+        });
+        await mgr.notify('123', 'offline');
+        // No resolver → empty, not the literal placeholders.
+        expect(posts[0].body).toBe('offline::');
+    });
+
+    it('still notifies when the resolver throws', async () => {
+        const { posts, mgr } = setup({
+            loadConfig: () => ({
+                version: 1,
+                debounceSeconds: 30,
+                channels: [ch({ bodyTemplate: '{event}:{status}' })],
+            }),
+            resolveProcess: async () => {
+                throw new Error('hook manager unavailable');
+            },
+        });
+        await mgr.notify('123', 'offline');
+        expect(posts).toHaveLength(1);
+        expect(posts[0].body).toBe('offline:');
+    });
+
     it('records ok and failed deliveries, most-recent-first', async () => {
         let n = 0;
         const { mgr } = setup({
