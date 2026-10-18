@@ -42,6 +42,10 @@ request headers. The backend still accepts `Authorization: Bearer <token>` for
 existing clients when the dedicated header is absent. Both layers still require
 their own valid credentials.
 
+Late authentication failures from an old session do not sign out a newer session.
+Live streams release subscriptions on disconnect and pause with the page.
+Malformed stream data is reported; a debug stream invocation fails instead of silently succeeding.
+
 ## Process account detection
 
 Process cards use QQ's local account data before injection and the hook's confirmed

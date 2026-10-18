@@ -322,6 +322,6 @@ export interface TokenStore {
 export interface CreateApiClientOptions {
     /** Persists the bearer token across reloads. Defaults to localStorage('snowluma_token'). */
     tokenStore?: TokenStore;
-    /** Fires whenever a request returns 401, after the token has been cleared. */
+    /** Fires when the current session expires, after its token has been cleared. */
     onUnauthorized?: () => void;
 }

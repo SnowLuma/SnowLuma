@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import { fetchPttText, getImageInfo, getRecordInfo } from '../src/modules/media-actions';
-import {
-    deliverPttTransText,
-    failPttTransWaiter,
-    pttTransKey,
-} from '../src/modules/ptt-trans-waiter';
+import { deliverPttTransText, pttTransKey } from '../src/modules/ptt-trans-waiter';
 import type { CachedImage, CachedRecord, MediaStore } from '../src/media-store';
 import type { MessageStore } from '../src/message-store';
 import type { JsonObject } from '../src/types';
@@ -21,7 +17,7 @@ afterEach(() => {
     vi.useRealTimers();
 
     for (const key of usedPttKeys) {
-        failPttTransWaiter(key, new Error('test cleanup'));
+        deliverPttTransText(key, 'test cleanup');
     }
 
     usedPttKeys.clear();
@@ -113,6 +109,60 @@ function fakeBridge(
 }
 
 describe('fetchPttText', () => {
+    it('times out even while the trigger response is still pending', async () => {
+        vi.useFakeTimers();
+        trackPttKey(SELF_ID, 40100);
+        const trigger = Promise.withResolvers<string>();
+        const settled = vi.fn();
+        const request = fetchPttText(
+            fakeMessageStore(recordEvent()),
+            fakeRecordStore(cachedRecord()),
+            fakeBridge({ translatePttToText: vi.fn(() => trigger.promise) }),
+            SELF_ID,
+            40100,
+        );
+        const done = request.then(settled, settled);
+
+        try {
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(settled).toHaveBeenCalledWith(
+                expect.objectContaining({ message: '语音转文字超时（未收到结果推送）' }),
+            );
+        } finally {
+            trigger.resolve('late');
+            await done;
+        }
+    });
+
+    it('does not let an old trigger failure reject the replacement request', async () => {
+        const key = trackPttKey(SELF_ID, 40101);
+        const trigger = Promise.withResolvers<string>();
+        const firstTrigger = vi.fn(() => trigger.promise);
+        const first = fetchPttText(
+            fakeMessageStore(recordEvent()),
+            fakeRecordStore(cachedRecord()),
+            fakeBridge({ translatePttToText: firstTrigger }),
+            SELF_ID,
+            40101,
+        ).catch((error) => error);
+        await vi.waitFor(() => expect(firstTrigger).toHaveBeenCalledOnce());
+        const secondTrigger = vi.fn(async () => '');
+        const second = fetchPttText(
+            fakeMessageStore(recordEvent()),
+            fakeRecordStore(cachedRecord()),
+            fakeBridge({ translatePttToText: secondTrigger }),
+            SELF_ID,
+            40101,
+        );
+        const result = second.catch((error) => error);
+
+        await vi.waitFor(() => expect(secondTrigger).toHaveBeenCalledOnce());
+        trigger.reject(new Error('old trigger failed'));
+        await first;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        deliverPttTransText(key, 'new text');
+        await expect(result).resolves.toEqual({ text: 'new text' });
+    });
     it('throws when the message event is missing', async () => {
         await expect(
             fetchPttText(

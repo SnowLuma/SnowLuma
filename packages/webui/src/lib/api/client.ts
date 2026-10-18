@@ -44,6 +44,7 @@ import {
     type TotpStatus,
 } from './types';
 import { localStorageTokenStore } from './token-store';
+import { readSseJson } from './sse';
 import { WEBUI_SESSION_HEADER, webuiSessionHeaders } from './session-headers';
 
 const DEFAULT_TOKEN_KEY = 'snowluma_token';
@@ -263,21 +264,12 @@ class HttpApiClient implements ApiClient {
                 return data.appearance;
             },
             uploadBackground: async (file) => {
-                // FormData must set its own multipart boundary, so this bypasses
-                // request() (which would force application/json) and attaches the
-                // bearer header directly — mirroring login()'s deliberate bypass.
                 const form = new FormData();
                 form.append('file', file);
-                const res = await fetch('/api/ui/background', {
+                const res = await this.request('/api/ui/background', {
                     method: 'POST',
-                    headers: webuiSessionHeaders(this.currentToken),
                     body: form,
                 });
-
-                if (res.status === 401) {
-                    this.setToken(null);
-                    this.onUnauthorized?.();
-                }
 
                 if (!res.ok) {
                     const payload = await readJson<ErrorPayload>(res);
@@ -480,7 +472,8 @@ class HttpApiClient implements ApiClient {
     // ---------- HTTP helpers ----------
 
     async request(url: string, init: RequestInit = {}): Promise<Response> {
-        const headers = webuiSessionHeaders(this.currentToken, init.headers);
+        const token = this.currentToken;
+        const headers = webuiSessionHeaders(token, init.headers);
 
         if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
             headers.set('Content-Type', 'application/json');
@@ -489,8 +482,7 @@ class HttpApiClient implements ApiClient {
         const res = await this.fetchWithDeadline(url, { ...init, headers });
 
         if (res.status === 401) {
-            this.setToken(null);
-            this.onUnauthorized?.();
+            this.expireSession(token);
         }
 
         return res;
@@ -551,6 +543,15 @@ class HttpApiClient implements ApiClient {
     }
 
     // ---------- token management ----------
+
+    private expireSession(token: string | null): void {
+        if (!token || token !== this.currentToken) {
+            return;
+        }
+
+        this.setToken(null);
+        this.onUnauthorized?.();
+    }
 
     private setToken(token: string | null): void {
         const changed = this.currentToken !== token;
@@ -700,7 +701,7 @@ class HttpApiClient implements ApiClient {
 
     // ---------- SSE ----------
 
-    /** Fetch-based SSE keeps the session token in a header and reconnects after transport loss. */
+    /** One active request per subscription, paused with the page and retried on disconnect. */
     private openSseChannel<T>(
         path: string,
         onMessage: (data: T) => void,
@@ -713,24 +714,45 @@ class HttpApiClient implements ApiClient {
         }
 
         let disposed = false;
+        let suspended = false;
         let active: AbortController | null = null;
         let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        const page = typeof window !== 'undefined' && typeof document !== 'undefined';
 
-        const clearReconnect = () => {
+        const cancelReconnect = () => {
             if (reconnectTimer !== null) {
                 clearTimeout(reconnectTimer);
                 reconnectTimer = null;
             }
         };
 
-        const disconnect = () => {
-            clearReconnect();
-            active?.abort();
+        const stopRequest = () => {
+            const request = active;
             active = null;
+            request?.abort();
+        };
+
+        const dispose = () => {
+            if (disposed) {
+                return;
+            }
+
+            disposed = true;
+            cancelReconnect();
+            stopRequest();
+
+            if (page) {
+                window.removeEventListener('pagehide', onPageHide);
+                window.removeEventListener('pageshow', onPageShow);
+                document.removeEventListener('visibilitychange', onVisible);
+                document.removeEventListener('freeze', onPageHide);
+            }
+
+            onStatus?.('closed');
         };
 
         const scheduleReconnect = () => {
-            if (disposed || reconnectTimer !== null) {
+            if (disposed || suspended || reconnectTimer !== null) {
                 return;
             }
 
@@ -742,7 +764,7 @@ class HttpApiClient implements ApiClient {
         };
 
         const connect = async () => {
-            if (disposed || active) {
+            if (disposed || suspended || active) {
                 return;
             }
 
@@ -755,8 +777,6 @@ class HttpApiClient implements ApiClient {
 
             const controller = new AbortController();
             active = controller;
-            const isCurrent = () =>
-                !disposed && active === controller && !controller.signal.aborted;
 
             try {
                 const response = await fetch(path, {
@@ -768,15 +788,14 @@ class HttpApiClient implements ApiClient {
                     signal: controller.signal,
                 });
 
-                if (!isCurrent()) {
+                if (active !== controller || token !== this.currentToken) {
                     await response.body?.cancel();
                     return;
                 }
 
                 if (response.status === 401) {
                     dispose();
-                    this.setToken(null);
-                    this.onUnauthorized?.();
+                    this.expireSession(token);
                     return;
                 }
 
@@ -785,107 +804,53 @@ class HttpApiClient implements ApiClient {
                 }
 
                 onStatus?.('open');
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
 
-                try {
-                    while (isCurrent()) {
-                        const { done, value } = await reader.read();
-
-                        if (!isCurrent()) {
-                            break;
-                        }
-
-                        if (done) {
-                            buffer += decoder.decode();
-                            break;
-                        }
-
-                        buffer += decoder.decode(value, { stream: true });
-
-                        if (buffer.length > 1024 * 1024) {
-                            throw new Error('SSE frame buffer exceeded 1 MiB');
-                        }
-
-                        while (isCurrent()) {
-                            const lf = buffer.indexOf('\n\n');
-                            const crlf = buffer.indexOf('\r\n\r\n');
-                            let separator = -1;
-                            let separatorLength = 0;
-
-                            if (lf >= 0 && (crlf < 0 || lf < crlf)) {
-                                separator = lf;
-                                separatorLength = 2;
-                            } else if (crlf >= 0) {
-                                separator = crlf;
-                                separatorLength = 4;
-                            }
-
-                            if (separator < 0) {
-                                break;
-                            }
-
-                            const block = buffer.slice(0, separator);
-                            buffer = buffer.slice(separator + separatorLength);
-                            const data = block
-                                .split(/\r?\n/u)
-                                .filter((line) => line.startsWith('data:'))
-                                .map((line) => line.slice(5).replace(/^ /u, ''))
-                                .join('\n');
-
-                            if (!data) {
-                                continue;
-                            }
-
-                            try {
-                                onMessage(JSON.parse(data) as T);
-                            } catch {
-                                /* malformed frame — skip */
-                            }
-                        }
+                for await (const frame of readSseJson<T>(response.body, controller.signal)) {
+                    if (active !== controller || token !== this.currentToken) {
+                        break;
                     }
-                } finally {
+
                     try {
-                        await reader.cancel();
-                    } catch {
-                        /* already closed */
+                        onMessage(frame);
+                    } catch (error) {
+                        console.error('实时消息处理失败', error);
                     }
-
-                    reader.releaseLock();
                 }
-
-                if (isCurrent()) {
-                    scheduleReconnect();
-                }
-            } catch {
-                if (isCurrent()) {
-                    scheduleReconnect();
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    console.warn('实时连接中断', error);
                 }
             } finally {
                 if (active === controller) {
                     active = null;
+                    scheduleReconnect();
                 }
             }
         };
 
-        const onPageHide = disconnect;
+        const onPageHide = () => {
+            suspended = true;
+            cancelReconnect();
+            stopRequest();
+        };
+
+        const resume = () => {
+            suspended = false;
+            cancelReconnect();
+            void connect();
+        };
 
         const onPageShow = (event: PageTransitionEvent) => {
-            if (event.persisted && !disposed) {
-                clearReconnect();
-                void connect();
+            if (event.persisted) {
+                resume();
             }
         };
 
         const onVisible = () => {
-            if (document.visibilityState === 'visible' && !disposed && !active) {
-                clearReconnect();
-                void connect();
+            if (document.visibilityState === 'visible') {
+                resume();
             }
         };
-
-        const page = typeof window !== 'undefined' && typeof document !== 'undefined';
 
         if (page) {
             window.addEventListener('pagehide', onPageHide);
@@ -894,41 +859,22 @@ class HttpApiClient implements ApiClient {
             document.addEventListener('freeze', onPageHide);
         }
 
-        const dispose = () => {
-            if (disposed) {
-                return;
-            }
-
-            disposed = true;
-
-            if (page) {
-                window.removeEventListener('pagehide', onPageHide);
-                window.removeEventListener('pageshow', onPageShow);
-                document.removeEventListener('visibilitychange', onVisible);
-                document.removeEventListener('freeze', onPageHide);
-            }
-
-            disconnect();
-            onStatus?.('closed');
-        };
-
         void connect();
         return dispose;
     }
 
     private openLogStream(options: LogsStreamOptions): () => void {
-        this.logSubscribers.add(options);
+        const subscription = { ...options };
+        this.logSubscribers.add(subscription);
 
         if (this.logStreamDispose) {
-            // A late subscriber joins the already-live shared connection — replay the
-            // current transport status so its badge isn't stuck at the default.
-            options.onStatus?.(this.lastLogStatus);
+            subscription.onStatus?.(this.lastLogStatus);
         } else {
             this.openSharedLogStream();
         }
 
         return () => {
-            this.logSubscribers.delete(options);
+            this.logSubscribers.delete(subscription);
 
             if (this.logSubscribers.size === 0 && this.logStreamDispose) {
                 this.logStreamDispose();
@@ -938,7 +884,7 @@ class HttpApiClient implements ApiClient {
         };
     }
 
-    /** Isolate subscribers and leave unauthenticated attempts free to reconnect after login. */
+    /** Share one connection, isolating subscriber failures and skipping removed listeners. */
     private openSharedLogStream(): void {
         if (!this.currentToken) {
             this.lastLogStatus = 'closed';
@@ -990,7 +936,7 @@ class HttpApiClient implements ApiClient {
         );
     }
 
-    /** A new request must pick up the changed session token. */
+    /** Replace the connection when its session token changes. */
     private reopenSharedLogStream(): void {
         if (this.logStreamDispose) {
             this.logStreamDispose();
@@ -1004,9 +950,6 @@ class HttpApiClient implements ApiClient {
         }
     }
 
-    // Invoke a (stream) action and relay each `data: <json>\n\n` SSE frame. Uses
-    // fetch + a body reader (not EventSource) so the bearer token rides in the
-    // header and the request can be a POST. Resolves when the stream ends.
     private async openDebugInvokeStream(
         uin: string,
         action: string,
@@ -1014,7 +957,8 @@ class HttpApiClient implements ApiClient {
         onFrame: (frame: import('@/types').DebugStreamFrame) => void,
         signal?: AbortSignal,
     ): Promise<void> {
-        const headers = webuiSessionHeaders(this.currentToken, {
+        const token = this.currentToken;
+        const headers = webuiSessionHeaders(token, {
             'Content-Type': 'application/json',
             Accept: 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -1029,8 +973,7 @@ class HttpApiClient implements ApiClient {
         });
 
         if (res.status === 401) {
-            this.setToken(null);
-            this.onUnauthorized?.();
+            this.expireSession(token);
             throw new ApiError(401, '未授权');
         }
 
@@ -1043,137 +986,79 @@ class HttpApiClient implements ApiClient {
             );
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-
-        const takeFrames = (raw: string) => {
-            for (;;) {
-                const lf = raw.indexOf('\n\n');
-                const crlf = raw.indexOf('\r\n\r\n');
-                let separator = -1;
-                let separatorLength = 0;
-
-                if (lf >= 0 && (crlf < 0 || lf < crlf)) {
-                    separator = lf;
-                    separatorLength = 2;
-                } else if (crlf >= 0) {
-                    separator = crlf;
-                    separatorLength = 4;
-                }
-
-                if (separator < 0) {
-                    return raw;
-                }
-
-                const block = raw.slice(0, separator);
-                raw = raw.slice(separator + separatorLength);
-                const data = block
-                    .split(/\r?\n/u)
-                    .filter((line) => line.startsWith('data:'))
-                    .map((line) => line.slice(5).replace(/^ /u, ''))
-                    .join('\n');
-
-                if (!data) {
-                    continue;
-                }
-
-                try {
-                    onFrame(JSON.parse(data) as import('@/types').DebugStreamFrame);
-                } catch {
-                    /* skip malformed */
-                }
-            }
-        };
-
-        try {
-            for (;;) {
-                const { done, value } = await reader.read();
-
-                if (done) {
-                    buf += decoder.decode();
-                    takeFrames(buf);
-                    break;
-                }
-
-                buf += decoder.decode(value, { stream: true });
-
-                if (buf.length > 1024 * 1024) {
-                    throw new Error('SSE frame buffer exceeded 1 MiB');
-                }
-
-                buf = takeFrames(buf);
-            }
-        } finally {
-            try {
-                await reader.cancel();
-            } catch {
-                /* already closed */
-            }
-
-            try {
-                reader.releaseLock();
-            } catch {
-                /* already released */
-            }
+        for await (const frame of readSseJson<import('@/types').DebugStreamFrame>(
+            res.body,
+            signal,
+        )) {
+            onFrame(frame);
         }
     }
 
-    // Upload a browser file to a server temp path. Uses XHR (not fetch) so the
-    // upload progress callback can fire — fetch can't observe request-body
-    // progress. Returns the parsed { path, size }.
-    private uploadDebugFile(
+    /** XHR exposes upload progress; every settlement releases its abort listener. */
+    private async uploadDebugFile(
         file: File,
         opts?: { filename?: string; onProgress?: (fraction: number) => void; signal?: AbortSignal },
     ): Promise<import('@/types').DebugUploadResult> {
-        return new Promise((resolve, reject) => {
-            const name = opts?.filename ?? file.name;
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `/api/debug/upload?filename=${encodeURIComponent(name)}`);
+        const signal = opts?.signal;
 
-            if (this.currentToken) {
-                xhr.setRequestHeader(WEBUI_SESSION_HEADER, this.currentToken);
-            }
+        if (signal?.aborted) {
+            throw new ApiError(0, '上传已取消');
+        }
 
-            xhr.responseType = 'json';
+        const token = this.currentToken;
+        const xhr = new XMLHttpRequest();
+        const onAbort = () => xhr.abort();
 
-            xhr.upload.onprogress = (e) => {
-                if (e.lengthComputable) {
-                    opts?.onProgress?.(e.loaded / e.total);
-                }
-            };
+        try {
+            return await new Promise<import('@/types').DebugUploadResult>((resolve, reject) => {
+                const name = opts?.filename ?? file.name;
+                xhr.open('POST', '/api/debug/upload?filename=' + encodeURIComponent(name));
 
-            xhr.onload = () => {
-                if (xhr.status === 401) {
-                    this.setToken(null);
-                    this.onUnauthorized?.();
-                    reject(new ApiError(401, '未授权'));
-                    return;
+                if (token) {
+                    xhr.setRequestHeader(WEBUI_SESSION_HEADER, token);
                 }
 
-                const body = (xhr.response ?? {}) as import('@/types').DebugUploadResult;
+                xhr.responseType = 'json';
 
-                if (xhr.status >= 200 && xhr.status < 300 && body.path) {
-                    resolve(body);
-                } else {
-                    reject(new ApiError(xhr.status, body.message || '上传失败'));
-                }
-            };
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        opts?.onProgress?.(event.loaded / event.total);
+                    }
+                };
 
-            xhr.onerror = () => reject(new ApiError(0, '上传网络错误'));
-            xhr.onabort = () => reject(new ApiError(0, '上传已取消'));
+                xhr.onload = () => {
+                    if (xhr.status === 401) {
+                        this.expireSession(token);
+                        reject(new ApiError(401, '未授权'));
+                        return;
+                    }
 
-            if (opts?.signal) {
-                if (opts.signal.aborted) {
-                    xhr.abort();
-                    return;
-                }
+                    const body = xhr.response as import('@/types').DebugUploadResult | null;
 
-                opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
-            }
+                    if (
+                        xhr.status >= 200 &&
+                        xhr.status < 300 &&
+                        typeof body?.path === 'string' &&
+                        body.path
+                    ) {
+                        resolve(body);
+                    } else {
+                        reject(new ApiError(xhr.status, body?.message || '上传失败'));
+                    }
+                };
 
-            xhr.send(file);
-        });
+                xhr.onerror = () => reject(new ApiError(0, '上传网络错误'));
+                xhr.onabort = () => reject(new ApiError(0, '上传已取消'));
+                signal?.addEventListener('abort', onAbort, { once: true });
+                xhr.send(file);
+            });
+        } finally {
+            signal?.removeEventListener('abort', onAbort);
+            xhr.onload = null;
+            xhr.onerror = null;
+            xhr.onabort = null;
+            xhr.upload.onprogress = null;
+        }
     }
 
     private openDebugStream(

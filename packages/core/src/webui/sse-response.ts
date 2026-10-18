@@ -43,11 +43,12 @@ export function sseResponse(
                 closed = true;
                 clearInterval(heartbeat);
                 signal.removeEventListener('abort', onAbort);
-                cleanups.splice(0).forEach(cleanup);
 
                 if (closeStream) {
                     controller.close();
                 }
+
+                cleanups.splice(0).forEach(cleanup);
             };
 
             const onAbort = () => teardown();

@@ -10,6 +10,75 @@ describe('API client SSE lifecycle', () => {
         vi.unstubAllGlobals();
     });
 
+    it('keeps repeated log subscriptions independent even when they reuse options', async () => {
+        let stream!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                stream = controller;
+            },
+        });
+        const fetchMock = vi.fn().mockResolvedValue(new Response(body));
+        vi.stubGlobal('fetch', fetchMock);
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const options = { onLine: vi.fn() };
+        const first = client.logs.stream(options);
+        const second = client.logs.stream(options);
+        first();
+        first();
+
+        try {
+            stream.enqueue(encoder.encode('data: {"message":"still subscribed"}\n\n'));
+            await vi.waitFor(() => expect(options.onLine).toHaveBeenCalledOnce());
+            expect(fetchMock).toHaveBeenCalledOnce();
+        } finally {
+            second();
+        }
+    });
+
+    it('fails a debug invocation on malformed stream data', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('data: broken\n\n')));
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        await expect(
+            client.debug.invokeStream('12345', 'test_action', {}, vi.fn()),
+        ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    });
+
+    it('propagates a debug callback failure and cancels the remaining body', async () => {
+        const cancel = vi.fn();
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+            },
+            cancel,
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const error = new Error('callback failed');
+        await expect(
+            client.debug.invokeStream('12345', 'test_action', {}, () => {
+                throw error;
+            }),
+        ).rejects.toBe(error);
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(body.locked).toBe(false);
+    });
+
+    it('keeps only one connection when a restored page is also made visible', async () => {
+        const page = new EventTarget();
+        const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+        vi.stubGlobal('window', page);
+        vi.stubGlobal('document', document);
+        const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+        vi.stubGlobal('fetch', fetchMock);
+        const client = createApiClient({ tokenStore: { load: () => 'token', save: vi.fn() } });
+        const dispose = client.stateStream({ onEvent: vi.fn() });
+        page.dispatchEvent(new Event('pagehide'));
+        document.dispatchEvent(new Event('visibilitychange'));
+        page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        dispose();
+    });
+
     it('keeps Authorization available for the proxy while authenticating and parsing frames', async () => {
         let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
         const stream = new ReadableStream<Uint8Array>({

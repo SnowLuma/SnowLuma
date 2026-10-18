@@ -6,12 +6,7 @@ import type { MessageStore } from '../message-store';
 import type { OneBotInstanceContext } from '../instance-context';
 import { resolveRemoteMediaUrl } from '../media-url-resolver';
 import { segmentsToRawMessage } from '../helper/cq';
-import {
-    deliverPttTransText,
-    failPttTransWaiter,
-    pttTransKey,
-    waitPttTransText,
-} from './ptt-trans-waiter';
+import { pttTransKey, requestPttTransText } from './ptt-trans-waiter';
 import type { JsonObject, JsonValue } from '../types';
 
 const log = createLogger('OneBot');
@@ -197,15 +192,8 @@ export async function fetchPttText(
     // c2c: receiver is self (inbound voice); group: the group uin.
     const peerUin = isGroup ? Number(event.group_id) || cached.sessionId : selfId;
 
-    // Register the waiter BEFORE triggering, so a fast async push can't race
-    // ahead of us. The trigger response may carry the text inline (already
-    // transcribed) — settle immediately then; otherwise the Event 0x210
-    // subType-61 push resolves the waiter via the event-pipeline subscription.
-    const key = pttTransKey(selfId, messageId);
-    const waiter = waitPttTransText(key, 20000);
-
-    try {
-        const syncText = await bridge.apis.extras.translatePttToText({
+    const text = await requestPttTransText(pttTransKey(selfId, messageId), 20_000, () =>
+        bridge.apis.extras.translatePttToText({
             isGroup,
             msgId: messageId,
             senderUin,
@@ -215,16 +203,9 @@ export async function fetchPttText(
             duration: cached.duration ?? 0,
             size: cached.fileSize ?? 0,
             format: cached.voiceFormat ?? 0,
-        });
-
-        if (syncText) {
-            deliverPttTransText(key, syncText);
-        }
-    } catch (e) {
-        failPttTransWaiter(key, e instanceof Error ? e : new Error(String(e)));
-    }
-
-    return { text: await waiter };
+        }),
+    );
+    return { text };
 }
 
 export async function getImageInfo(

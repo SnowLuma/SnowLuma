@@ -12,6 +12,29 @@ afterEach(() => {
 });
 
 describe('WebUI authentication behind a Basic-auth proxy', () => {
+    it('does not clear a new session when an old request returns 401', async () => {
+        const old = Promise.withResolvers<Response>();
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                url === '/api/login'
+                    ? Promise.resolve(Response.json({ token: 'new-token' }))
+                    : old.promise,
+            ),
+        );
+        const save = vi.fn();
+        const onUnauthorized = vi.fn();
+        const client = createApiClient({
+            tokenStore: { load: () => sessionToken, save },
+            onUnauthorized,
+        });
+        const request = client.request('/api/old');
+        await client.login('password');
+        old.resolve(new Response(null, { status: 401 }));
+        await request;
+        expect(save.mock.calls).toEqual([['new-token']]);
+        expect(onUnauthorized).not.toHaveBeenCalled();
+    });
     it.each([
         { kind: 'object', headers: { Authorization: proxyAuthorization } },
         { kind: 'Headers', headers: new Headers({ Authorization: proxyAuthorization }) },
