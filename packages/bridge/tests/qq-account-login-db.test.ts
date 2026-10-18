@@ -17,6 +17,10 @@ vi.mock('../src/qq-account/sqlcipher', () => ({
     decryptDatabase: mocks.decryptDatabase,
 }));
 
+vi.mock('../src/qq-account/paths', () => ({
+    loginDbPaths: (root: string) => [path.join(root, PRIMARY), path.join(root, SECONDARY)],
+}));
+
 import { readLocalAccounts } from '../src/qq-account/login-db';
 
 const PRIMARY = path.join('global', 'nt_db', 'login.db');
@@ -139,6 +143,40 @@ describe('local account list', () => {
         expect(mocks.decryptDatabase).toHaveBeenCalledTimes(3);
     });
 
+    it('shares concurrent reads of the same database image', async () => {
+        const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
+        const reports = await Promise.all([readLocalAccounts(root), readLocalAccounts(root)]);
+        expect(reports[0]).toEqual(reports[1]);
+        expect(mocks.decryptDatabase).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports an unreadable WAL instead of reading a stale base image', async () => {
+        const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
+        const file = path.join(root, PRIMARY);
+        await mkdir(`${file}-wal`);
+        const report = await readLocalAccounts(root);
+        expect(report.accounts).toEqual([]);
+        expect(report.failures).toMatchObject([{ path: file, reason: 'read-failed' }]);
+        expect(report.failures[0]!.error).toBeDefined();
+    });
+
+    it('reports missing schema columns instead of accepting quoted column names as identities', async () => {
+        const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
+        const file = path.join(root, PRIMARY);
+        const db = new SqliteDatabase(file);
+
+        try {
+            await db.exec('ALTER TABLE login_table DROP COLUMN "1001"');
+        } finally {
+            await db.close();
+        }
+
+        const report = await readLocalAccounts(root);
+        expect(report.accounts).toEqual([]);
+        expect(report.failures).toMatchObject([{ path: file, reason: 'query-failed' }]);
+        expect(report.failures[0]!.error).toBeDefined();
+    });
+
     it('reports no accounts when the file cannot be decrypted, and retries later', async () => {
         const root = await trackedRoot([['10001', 'u_a', 'Alice']]);
         mocks.detectAlgorithm.mockReturnValue(null);
@@ -189,6 +227,7 @@ describe('local account list', () => {
             ['10001', 'u_a', 'Alice'],
             ['10002', '', 'Broken'],
             ['', 'u_d', 'Nameless'],
+            ['../10001', 'u_e', 'Invalid UIN'],
         ]);
 
         await expect(readLocalAccounts(root)).resolves.toEqual({

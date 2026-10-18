@@ -18,6 +18,6 @@ export interface HookProcessInfo extends HookProcessBaseInfo {
     status: HookProcessStatus;
     error: string;
     method: string;
-    /** Signed-in account detected on this process, or null when there is none. */
+    /** Locally detected identity; null means unknown, not necessarily signed out. */
     account: HookProcessAccount | null;
 }

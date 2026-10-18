@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 describe('database holder probe', () => {
-    it('reports nothing for a file that is not there', () => {
+    it.runIf(IS_LINUX)('reports nothing for a file that is not there', () => {
         const missing = path.join(os.tmpdir(), `snowluma-absent-${process.pid}.db`);
         expect(probeDbLock(missing)).toEqual([]);
     });
@@ -86,34 +86,25 @@ describe('Windows holder probe', () => {
         ]);
     });
 
-    it('drops malformed entries and duplicates', () => {
-        const holders = asWindows(
-            {
-                probeDbLock: () => [
-                    { pid: 4242, name: 'QQ.exe' },
-                    { pid: 4242, name: 'QQ.exe' },
-                    { pid: 0, name: 'QQ.exe' },
-                    { pid: -1, name: 'QQ.exe' },
-                    { pid: 'nope', name: 'QQ.exe' },
-                    { pid: 9 },
-                    null,
-                ],
-            },
-            () => probeDbLock('C:\\nt_msg.db'),
-        );
+    it.each([[{ pid: 0, name: 'QQ' }], [{ pid: 9 }], [null], 'not-an-array'])(
+        'reports malformed native results: %j',
+        (result) => {
+            expect(() =>
+                asWindows({ probeDbLock: () => result }, () => probeDbLock('C:\\nt_msg.db')),
+            ).toThrow('Invalid database holders');
+        },
+    );
 
-        expect(holders).toEqual([
-            { pid: 4242, name: 'QQ.exe' },
-            { pid: 9, name: '' },
-        ]);
+    it('accepts an empty holder list', () => {
+        expect(asWindows({ probeDbLock: () => [] }, () => probeDbLock('C:\\nt_msg.db'))).toEqual(
+            [],
+        );
     });
 
-    it('reports no holder when the addon or its probe is unavailable', () => {
-        expect(asWindows(null, () => probeDbLock('C:\\nt_msg.db'))).toEqual([]);
-        expect(asWindows({}, () => probeDbLock('C:\\nt_msg.db'))).toEqual([]);
-        expect(
-            asWindows({ probeDbLock: () => 'not-an-array' }, () => probeDbLock('C:\\nt_msg.db')),
-        ).toEqual([]);
+    it.each([null, {}])('reports an unavailable native probe: %j', (addon) => {
+        expect(() => asWindows(addon, () => probeDbLock('C:\\nt_msg.db'))).toThrow(
+            'requires a hook addon with probeDbLock',
+        );
     });
 });
 

@@ -1,29 +1,12 @@
-/**
- * Which process holds a QQ database file?
- *
- * A signed-in account keeps its `nt_msg.db` held by the QQ client process for as
- * long as the session lives, so reverse-mapping that one file answers both "is
- * this account signed in?" and "which pid is hosting it?". The probe is
- * strictly read-only: it never opens the database for writing and never takes a
- * lock of its own.
- */
-
 import fs from 'node:fs';
 import { getNativeHookAddon } from '../injector';
 
-/** One process holding the database open or locking it. */
 export interface DbLockHolder {
     pid: number;
-    /** Process name as the platform reports it; empty when unavailable. */
+
     name: string;
 }
 
-/**
- * Every process holding `dbPath`, most specific first.
- *
- * A missing or unreadable file yields no holders rather than an error: callers
- * only distinguish "held by QQ" from "not held by QQ".
- */
 export function probeDbLock(dbPath: string): DbLockHolder[] {
     if (process.platform === 'win32') {
         return probeWindowsHolders(dbPath);
@@ -32,45 +15,31 @@ export function probeDbLock(dbPath: string): DbLockHolder[] {
     return process.platform === 'linux' ? probeLinuxLocks(dbPath) : [];
 }
 
-/**
- * Windows attributes holders through the Restart Manager, which reports every
- * process holding the file open together with a name for each. QQ keeps an
- * account's `nt_msg.db` open while signed in, so a QQ entry in that list both
- * proves the login and yields the hosting pid.
- *
- * When the query cannot run, the result is empty rather than an error, so a
- * caller never mistakes an unavailable probe for a signed-out account.
- */
 function probeWindowsHolders(dbPath: string): DbLockHolder[] {
-    const held = getNativeHookAddon()?.probeDbLock?.(dbPath);
+    const addon = getNativeHookAddon();
 
-    if (!Array.isArray(held)) {
-        return [];
+    if (!addon?.probeDbLock) {
+        throw new Error('Windows account detection requires a hook addon with probeDbLock');
     }
 
-    const holders: DbLockHolder[] = [];
-    const seen = new Set<number>();
+    const holders = addon.probeDbLock(dbPath);
 
-    for (const entry of held) {
-        if (!entry || typeof entry !== 'object') {
-            continue;
-        }
-
-        const pid = (entry as { pid?: unknown }).pid;
-        const name = (entry as { name?: unknown }).name;
-
-        if (!Number.isInteger(pid) || (pid as number) <= 0 || seen.has(pid as number)) {
-            continue;
-        }
-
-        seen.add(pid as number);
-        holders.push({ pid: pid as number, name: typeof name === 'string' ? name : '' });
+    if (
+        !Array.isArray(holders) ||
+        holders.some(
+            (holder) =>
+                !holder ||
+                !Number.isInteger(holder.pid) ||
+                holder.pid <= 0 ||
+                typeof holder.name !== 'string',
+        )
+    ) {
+        throw new Error('Invalid database holders returned by the hook addon');
     }
 
     return holders;
 }
 
-/** Whether a platform-reported process name belongs to the QQ client. */
 export function isQqProcessName(name: string): boolean {
     return (
         name
@@ -80,14 +49,7 @@ export function isQqProcessName(name: string): boolean {
     );
 }
 
-/**
- * POSIX advisory locks on `dbPath`, read from `/proc/locks`.
- *
- * SQLite registers a lock on the database while a connection is in a
- * transaction, and the table entry carries the holder's pid. Lock entries only
- * name the process, never the path, so the file's device and inode are matched
- * against the entry's `major:minor:inode` key.
- */
+/** Match POSIX locks by device and inode; the table does not contain file paths. */
 function probeLinuxLocks(dbPath: string): DbLockHolder[] {
     const stat = fs.statSync(dbPath, { throwIfNoEntry: false });
 
@@ -96,14 +58,7 @@ function probeLinuxLocks(dbPath: string): DbLockHolder[] {
     }
 
     const key = deviceInodeKey(stat.dev, stat.ino);
-    let table: string;
-
-    try {
-        table = fs.readFileSync('/proc/locks', 'utf8');
-    } catch {
-        return [];
-    }
-
+    const table = fs.readFileSync('/proc/locks', 'utf8');
     const holders: DbLockHolder[] = [];
     const seen = new Set<number>();
 
@@ -128,14 +83,12 @@ function probeLinuxLocks(dbPath: string): DbLockHolder[] {
     return holders;
 }
 
-/** `/proc/locks` prints the device as `major:minor` in hex, zero-padded. */
 function deviceInodeKey(device: number, inode: number): string {
     const major = (device >> 8) & 0xfff;
     const minor = (device & 0xff) | ((device >> 12) & 0xfff00);
     return `${major.toString(16).padStart(2, '0')}:${minor.toString(16).padStart(2, '0')}:${inode}`;
 }
 
-/** `/proc/<pid>/comm`, empty when the process is gone or unreadable. */
 function readProcessName(pid: number): string {
     try {
         return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();

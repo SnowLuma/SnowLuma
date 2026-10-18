@@ -1,13 +1,4 @@
-/**
- * The local account list, read from QQ NT's global login.db.
- *
- * login.db is encrypted with a passphrase baked into the client and is not
- * scoped to any account: it lists every account that has signed in on this
- * machine. QQ keeps a long-lived WAL, so the database and its sidecar are
- * re-read whenever either of them changes — an account that just signed in can
- * exist only in the WAL.
- */
-
+import { isRealUin } from '@snowluma/common/uin';
 import { SqliteDatabase } from '@snowluma/sqlite';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,62 +6,38 @@ import path from 'node:path';
 import { loginDbPaths } from './paths';
 import { decryptDatabase, detectAlgorithm } from './sqlcipher';
 
-/** Pre-login passphrase QQ NT ships for its account-independent databases. */
 const LOGIN_DB_PASSPHRASE = 'BD156D6710D54D8782F4';
-
-/** Column names in `login_table`; QQ stores its schema as numeric strings. */
 const COLUMN_UIN = '1000';
 const COLUMN_UID = '1001';
 const COLUMN_NICKNAME = '1007';
 
-/** One account QQ has cached locally. */
 export interface LocalAccount {
     uin: string;
     uid: string;
     nickname: string;
 }
 
-/**
- * Why one login.db could not contribute accounts.
- *
- * Kept apart from the empty list so "the client has nothing cached" never gets
- * confused with "the file is there but we could not read it" — the latter means
- * detection is broken and has to say so.
- */
 export type LoginDbFailure = 'read-failed' | 'undecryptable' | 'query-failed';
 
-/** The accounts under one root, plus the login.db files that could not be read. */
+type LoginDbResult = { accounts: LocalAccount[] } | { failure: LoginDbFailure; error?: unknown };
+
 export interface LocalAccountReport {
     accounts: LocalAccount[];
-    failures: Array<{ path: string; reason: LoginDbFailure }>;
+    failures: Array<{ path: string; reason: LoginDbFailure; error?: unknown }>;
 }
 
-interface CachedAccounts {
-    /** Modification stamp of the database plus sidecar the accounts came from. */
-    stamp: string;
-    accounts: LocalAccount[];
-}
+// Share concurrent reads and invalidate when either the database or its WAL changes.
+const accountCache = new Map<string, { stamp: string; result: Promise<LoginDbResult> }>();
 
-const accountCache = new Map<string, CachedAccounts>();
-
-/**
- * Every cached account under `root`, deduplicated by uin, with a note for each
- * login.db that was present but unreadable.
- *
- * An empty account list is a normal outcome: a machine where QQ never signed in
- * has no accounts to report. A login.db that cannot be decrypted also yields no
- * accounts, but it is reported through `failures` so the caller can log it
- * instead of silently reading it as "not signed in".
- */
 export async function readLocalAccounts(root: string): Promise<LocalAccountReport> {
     const merged = new Map<string, LocalAccount>();
-    const failures: Array<{ path: string; reason: LoginDbFailure }> = [];
+    const failures: LocalAccountReport['failures'] = [];
 
     for (const dbPath of loginDbPaths(root)) {
         const result = await readLoginDb(dbPath);
 
         if ('failure' in result) {
-            failures.push({ path: dbPath, reason: result.failure });
+            failures.push({ path: dbPath, reason: result.failure, error: result.error });
             continue;
         }
 
@@ -84,72 +51,58 @@ export async function readLocalAccounts(root: string): Promise<LocalAccountRepor
     return { accounts: [...merged.values()], failures };
 }
 
-/**
- * Accounts from one login.db, re-decrypted whenever the file changes.
- *
- * A missing file is a normal, account-free result (QQ may use the other
- * candidate path); every other way of failing names a reason.
- */
-async function readLoginDb(
-    dbPath: string,
-): Promise<{ accounts: LocalAccount[] } | { failure: LoginDbFailure }> {
-    const stamp = await databaseStamp(dbPath);
+async function readLoginDb(dbPath: string): Promise<LoginDbResult> {
+    let stamp: string;
+
+    try {
+        const files = await Promise.all([statIfPresent(dbPath), statIfPresent(dbPath + '-wal')]);
+        stamp = files.map((info) => (info ? info.mtimeMs + ':' + info.size : '-')).join('|');
+    } catch (error) {
+        accountCache.delete(dbPath);
+        return { failure: 'read-failed', error };
+    }
+
     const cached = accountCache.get(dbPath);
 
-    if (cached && cached.stamp === stamp) {
-        return { accounts: cached.accounts };
+    if (cached?.stamp === stamp) {
+        return cached.result;
     }
 
-    const result = await decryptAndQuery(dbPath);
+    const entry = { stamp, result: decryptAndQuery(dbPath) };
+    accountCache.set(dbPath, entry);
+    const result = await entry.result;
 
-    if ('missing' in result) {
-        // QQ may keep its login.db at the other candidate path; an absent file
-        // here is normal and is not something to report.
+    if ('failure' in result && accountCache.get(dbPath) === entry) {
         accountCache.delete(dbPath);
-        return { accounts: [] };
     }
 
-    if ('failure' in result) {
-        // Unreadable for now: drop the entry so a later change is retried rather
-        // than pinned to an empty list.
-        accountCache.delete(dbPath);
-        return result;
-    }
-
-    accountCache.set(dbPath, { stamp, accounts: result.accounts });
     return result;
 }
 
-/**
- * Decrypt one database and read its account rows, name why it could not, or
- * report that the file is simply not there.
- */
-async function decryptAndQuery(
-    dbPath: string,
-): Promise<{ accounts: LocalAccount[] } | { missing: true } | { failure: LoginDbFailure }> {
+async function decryptAndQuery(dbPath: string): Promise<LoginDbResult> {
     let image: Buffer;
+    let wal: Buffer | null;
 
     try {
-        image = await readFile(dbPath);
+        const contents = await readIfPresent(dbPath);
+
+        if (!contents) {
+            return { accounts: [] };
+        }
+
+        image = contents;
+        wal = await readIfPresent(dbPath + '-wal');
     } catch (error) {
-        // A missing candidate path is normal; a present-but-unreadable one is a
-        // detection failure and has to be visible.
-        return isNotFound(error) ? { missing: true } : { failure: 'read-failed' };
+        return { failure: 'read-failed', error };
     }
 
     const algorithm = detectAlgorithm(image, LOGIN_DB_PASSPHRASE);
 
     if (!algorithm) {
-        // The passphrase or the SQLCipher page layout is not what we expect.
         return { failure: 'undecryptable' };
     }
 
-    const decrypted = decryptDatabase(
-        image,
-        await readFileOrNull(`${dbPath}-wal`),
-        LOGIN_DB_PASSPHRASE,
-        algorithm,
-    );
+    const decrypted = decryptDatabase(image, wal, LOGIN_DB_PASSPHRASE, algorithm);
 
     if (!decrypted) {
         return { failure: 'undecryptable' };
@@ -157,19 +110,12 @@ async function decryptAndQuery(
 
     try {
         return { accounts: await queryLoginTable(decrypted.image) };
-    } catch {
-        // A decrypted image the schema does not match: worth a name, not a throw.
-        return { failure: 'query-failed' };
+    } catch (error) {
+        return { failure: 'query-failed', error };
     }
 }
 
-/**
- * Read the account rows out of a decrypted image.
- *
- * The image is handed to SQLite through a private temporary directory, because
- * the driver opens databases by path and the decrypted bytes must never be
- * written next to QQ's own copy.
- */
+// SQLite opens a private temporary image; QQ's database and sidecars stay read-only.
 async function queryLoginTable(image: Buffer): Promise<LocalAccount[]> {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'snowluma-qq-login-'));
     const dbPath = path.join(directory, 'login.db');
@@ -181,7 +127,7 @@ async function queryLoginTable(image: Buffer): Promise<LocalAccount[]> {
         try {
             const rows = await db
                 .prepare(
-                    `SELECT "${COLUMN_UIN}", "${COLUMN_UID}", "${COLUMN_NICKNAME}" FROM login_table`,
+                    `SELECT [${COLUMN_UIN}], [${COLUMN_UID}], [${COLUMN_NICKNAME}] FROM login_table`,
                 )
                 .all();
             const accounts: LocalAccount[] = [];
@@ -193,7 +139,7 @@ async function queryLoginTable(image: Buffer): Promise<LocalAccount[]> {
                     nickname: asText(row[COLUMN_NICKNAME]),
                 };
 
-                if (account.uin.length > 0 && account.uid.length > 0) {
+                if (isRealUin(account.uin) && account.uid.length > 0) {
                     accounts.push(account);
                 }
             }
@@ -207,41 +153,31 @@ async function queryLoginTable(image: Buffer): Promise<LocalAccount[]> {
     }
 }
 
-/** Modification stamp of a database and its `-wal`, empty when neither exists. */
-async function databaseStamp(dbPath: string): Promise<string> {
-    const parts: string[] = [];
-
-    for (const file of [dbPath, `${dbPath}-wal`]) {
-        const info = await statOrNull(file);
-        parts.push(info ? `${info.mtimeMs}:${info.size}` : '-');
-    }
-
-    return parts.join('|');
-}
-
-async function readFileOrNull(file: string): Promise<Buffer | null> {
+async function readIfPresent(file: string): Promise<Buffer | null> {
     try {
         return await readFile(file);
-    } catch {
-        return null;
+    } catch (error) {
+        if (isNotFound(error)) {
+            return null;
+        }
+
+        throw error;
     }
 }
 
-/** Whether a filesystem error means the file is simply not there. */
 function isNotFound(error: unknown): boolean {
-    return (
-        typeof error === 'object' &&
-        error !== null &&
-        (error as NodeJS.ErrnoException).code === 'ENOENT'
-    );
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-async function statOrNull(file: string): Promise<{ mtimeMs: number; size: number } | null> {
+async function statIfPresent(file: string) {
     try {
-        const info = await stat(file);
-        return { mtimeMs: info.mtimeMs, size: info.size };
-    } catch {
-        return null;
+        return await stat(file);
+    } catch (error) {
+        if (isNotFound(error)) {
+            return null;
+        }
+
+        throw error;
     }
 }
 

@@ -1001,6 +1001,31 @@ describe('HookSession — packet forwarding', () => {
 });
 
 describe('HookSession — login reconcile (Docker auto-login safety net)', () => {
+    it('discards an identity read started before a pipe reconnect', async () => {
+        const detection = Promise.withResolvers<string | null>();
+        const ctx = makeSession({ pipeLive: true, detectLoginUin: () => detection.promise });
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await flush();
+            const previous = ctx.currentClient();
+            previous.close();
+            await flush();
+            ctx.session.onPipeUp();
+            await flush();
+            const current = ctx.currentClient();
+            expect(current).not.toBe(previous);
+            detection.resolve('10001');
+            await flush();
+            expect(current.loginIdentityHints).toEqual([]);
+            expect(previous.loginIdentityHints).toEqual([]);
+        } finally {
+            detection.resolve(null);
+            ctx.session.dispose();
+        }
+    });
+
     it('keeps the packet sender usable only after native readiness confirms the identity hint', async () => {
         const ctx = makeSession({
             pipeLive: true,

@@ -19,7 +19,7 @@ vi.mock('../src/qq-account/db-lock', async (importOriginal) => ({
 }));
 
 import { detectAccountLogins, detectAccountLoginsForPids } from '../src/qq-account/detect';
-import { ntMsgDbPath, qqDataRoots } from '../src/qq-account/paths';
+import { loginDbPaths, ntMsgDbPath } from '../src/qq-account/paths';
 
 const ALICE = { uin: '10001', uid: 'u_alice', nickname: 'Alice' };
 const BOB = { uin: '10002', uid: 'u_bob', nickname: 'Bob' };
@@ -112,7 +112,7 @@ describe('local account detection', () => {
         expect(mocks.probeDbLock).toHaveBeenCalledWith(ntMsgDbPath(extra, BOB));
     });
 
-    it('keeps the first definition when two roots know the same uin', async () => {
+    it('keeps account records with the same uin scoped to their own root', async () => {
         const first = await makeRoot();
         const second = await makeRoot();
         mocks.readLocalAccounts.mockImplementation(async (root: string) =>
@@ -120,10 +120,13 @@ describe('local account detection', () => {
                 ? { accounts: [ALICE], failures: [] }
                 : { accounts: [{ ...ALICE, nickname: 'Stale' }], failures: [] },
         );
-        mocks.probeDbLock.mockReturnValue([]);
+        mocks.probeDbLock.mockImplementation((file: string) =>
+            file === ntMsgDbPath(second, ALICE) ? [{ pid: 5151, name: 'qq' }] : [],
+        );
 
         await expect(detectAccountLogins([first, second])).resolves.toEqual([
             { ...ALICE, pid: null },
+            { ...ALICE, nickname: 'Stale', pid: 5151 },
         ]);
     });
 
@@ -144,7 +147,7 @@ describe('local account detection', () => {
                 accounts: [],
                 failures: [
                     {
-                        path: path.join(root, 'global', 'nt_db', 'login.db'),
+                        path: loginDbPaths(root)[0]!,
                         reason: 'undecryptable',
                     },
                 ],
@@ -168,7 +171,7 @@ describe('local account detection', () => {
     });
 });
 
-describe('per-process data roots', () => {
+describe.runIf(process.platform === 'linux')('per-process data roots', () => {
     it('reads each pid against the HOME that process runs under', async () => {
         const home = await makeRoot();
         const pid = await spawnWithHome(home);
@@ -218,7 +221,7 @@ describe('per-process data roots', () => {
         expect(mocks.readLocalAccounts).toHaveBeenCalledWith(path.join(second, '.config', 'QQ'));
     });
 
-    it('falls back to this process roots when the pid is gone', async () => {
+    it('does not substitute another HOME when the pid is gone', async () => {
         const home = await makeRoot();
         const pid = await spawnWithHome(home);
         mocks.readLocalAccounts.mockResolvedValue({ accounts: [], failures: [] });
@@ -233,9 +236,6 @@ describe('per-process data roots', () => {
 
         await detectAccountLoginsForPids([pid]);
 
-        // Its root is unreachable, so detection falls back to SnowLuma's own
-        // roots instead of reporting nothing at all.
-        expect(mocks.readLocalAccounts).toHaveBeenCalledWith(qqDataRoots()[0]);
-        expect(mocks.readLocalAccounts).not.toHaveBeenCalledWith(path.join(home, '.config', 'QQ'));
+        expect(mocks.readLocalAccounts).not.toHaveBeenCalled();
     });
 });

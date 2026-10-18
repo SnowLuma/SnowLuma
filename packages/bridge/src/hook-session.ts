@@ -830,7 +830,9 @@ export class HookSession extends EventEmitter {
             return;
         }
 
-        if (this.disposed || !this.connected || this.loggedIn) {
+        const client = this.client;
+
+        if (this.disposed || !client || !this.connected || this.loggedIn) {
             this.stopLoginReconcile();
             return;
         }
@@ -848,10 +850,9 @@ export class HookSession extends EventEmitter {
                 uin = await this.detectLoginUin(this.pid);
             } catch (error) {
                 const message = errMsg(error);
-                const note = `${this.pid}:${message}`;
 
-                if (this.lastDetectFailure !== note) {
-                    this.lastDetectFailure = note;
+                if (this.lastDetectFailure !== message) {
+                    this.lastDetectFailure = message;
                     this.log.warn(
                         'login identity detection failed: PID=%d err=%s',
                         this.pid,
@@ -862,19 +863,14 @@ export class HookSession extends EventEmitter {
                 return; // best-effort; the interval retries
             }
 
-            // The await yielded — re-check we still want this before mutating state.
-            if (this.disposed || !this.connected || this.loggedIn) {
-                this.stopLoginReconcile();
+            // A reconnect owns a new client; an older read cannot supply its identity.
+            if (this.client !== client || this.disposed || !this.connected || this.loggedIn) {
                 return;
             }
 
+            this.lastDetectFailure = '';
+
             if (uin !== null && isRealUin(uin)) {
-                const client = this.client;
-
-                if (!client) {
-                    return;
-                }
-
                 if (this.acceptedLoginHintUin === uin) {
                     this.nextLoginIdentityObservationAt =
                         Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;

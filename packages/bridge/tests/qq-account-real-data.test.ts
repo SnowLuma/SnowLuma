@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
 import { detectAccountLogins } from '../src/qq-account/detect';
 
 /**
@@ -24,7 +23,7 @@ describe('account detection against real client data', () => {
 
             if (account.pid !== null) {
                 expect(Number.isInteger(account.pid)).toBe(true);
-                expect(existsSync(`/proc/${account.pid}`)).toBe(true);
+                expect(() => process.kill(account.pid!, 0)).not.toThrow();
             }
         }
     });

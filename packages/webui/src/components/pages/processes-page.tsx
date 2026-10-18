@@ -49,11 +49,7 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
         return 'success' as const;
     }
 
-    if (status === 'error') {
-        return 'destructive' as const;
-    }
-
-    if (status === 'disconnected') {
+    if (status === 'error' || status === 'disconnected') {
         return 'destructive' as const;
     }
 
@@ -64,13 +60,6 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
     return 'secondary' as const;
 }
 
-/**
- * Process / injection control surface. Split out of the overview page so the
- * homepage stays a read-only monitoring dashboard. State (processList,
- * processOps) is owned by AppLayout and read from context, so this page needs
- * no plumbing of its own; the layout keeps polling and the unload-failed alert
- * regardless of which page is mounted.
- */
 export function ProcessesPage() {
     const { processList, processOps, refreshProcesses, resources } = useAppState();
     const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
@@ -86,12 +75,9 @@ export function ProcessesPage() {
         const arr = [...processList];
 
         if (sortKey === 'name') {
-            arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            arr.sort((a, b) => a.name.localeCompare(b.name));
         } else if (sortKey === 'status') {
-            arr.sort(
-                (a, b) =>
-                    (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.pid - b.pid,
-            );
+            arr.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.pid - b.pid);
         } else {
             arr.sort((a, b) => a.pid - b.pid);
         }
@@ -105,9 +91,7 @@ export function ProcessesPage() {
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
                     <div className="min-w-0">
                         <CardTitle>进程注入</CardTitle>
-                        <CardDescription>
-                            加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程
-                        </CardDescription>
+                        <CardDescription>加载后，已登录账号将自动接入 OneBot</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
                         {processList.length > 1 && (
@@ -195,12 +179,16 @@ export function ProcessesPage() {
                                     <Cpu className="size-8 opacity-40" strokeWidth={1.5} />
                                     <p className="text-sm">未检测到可加载 QQ 主进程</p>
                                     <p className="text-xs text-muted-foreground/80">
-                                        请确认 QQ 已启动后点击右上角刷新
+                                        启动 QQ 后刷新
                                     </p>
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
                                     {sorted.map((proc, idx) => {
+                                        const uin = proc.loggedIn ? proc.uin : proc.account?.uin;
+                                        const nickname =
+                                            proc.account?.uin === uin ? proc.account?.nickname : '';
+                                        const name = nickname || uin || proc.name;
                                         const op = statusOf(proc.pid);
                                         const loading = op === 'load' || proc.status === 'loading';
                                         const unloading = op === 'unload';
@@ -232,20 +220,14 @@ export function ProcessesPage() {
                         a second row so name / PID / path get the full width
                         instead of collapsing to "Q..". */}
                                                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                                                    {proc.account ? (
+                                                    {uin ? (
                                                         <Avatar size={40}>
                                                             <AvatarImage
-                                                                src={qqAvatarUrl(proc.account.uin)}
-                                                                alt={
-                                                                    proc.account.nickname ||
-                                                                    proc.account.uin
-                                                                }
+                                                                src={qqAvatarUrl(uin)}
+                                                                alt={name}
                                                             />
                                                             <AvatarFallback>
-                                                                {(
-                                                                    proc.account.nickname ||
-                                                                    proc.account.uin
-                                                                ).slice(0, 2)}
+                                                                {name.slice(0, 2)}
                                                             </AvatarFallback>
                                                         </Avatar>
                                                     ) : (
@@ -267,11 +249,7 @@ export function ProcessesPage() {
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex items-center gap-2">
                                                             <span className="min-w-0 truncate text-sm font-semibold">
-                                                                {proc.account
-                                                                    ? proc.account.nickname
-                                                                        ? `${proc.account.nickname}/${proc.account.uin}`
-                                                                        : proc.account.uin
-                                                                    : `${proc.name || 'QQ.exe'}（未登录）`}
+                                                                {name}
                                                             </span>
                                                             <Badge
                                                                 variant={processBadgeVariant(
@@ -284,9 +262,7 @@ export function ProcessesPage() {
                                                         </div>
                                                         <div className="mt-0.5 truncate font-mono text-meta text-muted-foreground tabular-nums">
                                                             PID {proc.pid}
-                                                            {proc.uin && proc.uin !== '0'
-                                                                ? ` · UIN ${proc.uin}`
-                                                                : ''}
+                                                            {uin ? ` · QQ ${uin}` : ''}
                                                         </div>
                                                         {proc.path && (
                                                             <div

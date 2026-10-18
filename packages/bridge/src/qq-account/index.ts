@@ -3,7 +3,6 @@ export {
     detectAccountLogins,
     detectAccountLoginsForPids,
     detectUinForPid,
-    findHostingPid,
     type AccountLoginState,
 } from './detect';
 export {
