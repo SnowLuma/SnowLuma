@@ -23,6 +23,8 @@ import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 const log = createLogger('Highway');
 const HIGHWAY_APP_ID = 1600001604;
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
+const HIGHWAY_CONNECT_TIMEOUT_MS = 3000;
+const HIGHWAY_CONNECT_BUDGET_MS = 10000;
 
 // Per-chunk transport retry. A large file uploads as many sequential
 // one-shot TCP connections; QQ's highway edge nodes (and proxies/NAT on the
@@ -56,11 +58,15 @@ const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeo
 export const PRIVATE_IMAGE_CMD_ID = 1003;
 export const GROUP_IMAGE_CMD_ID = 1004;
 
+export interface HighwayServer {
+    host: string;
+    port: number;
+}
+
 export interface HighwaySession {
     sigSession: Uint8Array;
     sessionKey: Uint8Array;
-    host: string;
-    port: number;
+    servers: HighwayServer[];
 }
 
 function ipv4ToString(value: number): string {
@@ -68,6 +74,7 @@ function ipv4ToString(value: number): string {
 }
 
 type HighwayPutFailureReason =
+    | 'connect_exhausted'
     | 'control_decode_failed'
     | 'server_rejected'
     | 'source_close_failed'
@@ -154,9 +161,9 @@ export function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySessi
             const session: HighwaySession = {
                 sigSession: resp.httpConn.sigSession as Uint8Array,
                 sessionKey: (resp.httpConn.sessionKey as Uint8Array) ?? new Uint8Array(0),
-                host: 'htdata3.qq.com',
-                port: 80,
+                servers: [],
             };
+            const servers = new Map<string, HighwayServer>();
 
             for (const si of resp.httpConn.serverInfos ?? []) {
                 if ((si.serviceType ?? 0) !== 1 || !si.serverAddrs?.length) {
@@ -167,17 +174,22 @@ export function fetchHighwaySession(bridge: BridgeContext): Promise<HighwaySessi
                     const ip = addr.ip ?? 0;
                     const port = addr.port ?? 0;
 
-                    if (ip && port) {
-                        session.host = ipv4ToString(ip);
-                        session.port = port;
+                    if (ip && port > 0 && port <= 65535) {
+                        const host = ipv4ToString(ip);
+                        servers.set(`${host}:${port}`, { host, port });
                     }
                 }
             }
 
+            session.servers = [...servers.values()];
+
+            if (session.servers.length === 0) {
+                throw new Error('HttpConn response has no upload servers');
+            }
+
             log.trace(
-                'highway_session_terminal outcome=completed reason=session_ready host=%j port=%d sigBytes=%d sessionKeyBytes=%d elapsedMs=%d',
-                session.host,
-                session.port,
+                'highway_session_terminal outcome=completed reason=session_ready servers=%j sigBytes=%d sessionKeyBytes=%d elapsedMs=%d',
+                session.servers,
                 session.sigSession.byteLength,
                 session.sessionKey.byteLength,
                 Date.now() - startedAt,
@@ -299,6 +311,7 @@ function tcpConnect(host: string, port: number, timeoutMs = 10000): Promise<net.
             }
 
             settled = true;
+            socket.destroy();
             reject(err);
         };
 
@@ -319,6 +332,41 @@ function tcpConnect(host: string, port: number, timeoutMs = 10000): Promise<net.
         socket.once('timeout', onTimeout);
         socket.once('error', onError);
     });
+}
+
+async function connectHighway(
+    servers: HighwayServer[],
+): Promise<{ socket: net.Socket; server: HighwayServer }> {
+    const deadline = Date.now() + HIGHWAY_CONNECT_BUDGET_MS;
+    const errors: Error[] = [];
+
+    for (const server of servers) {
+        const remaining = deadline - Date.now();
+
+        if (remaining <= 0) {
+            break;
+        }
+
+        try {
+            const socket = await tcpConnect(
+                server.host,
+                server.port,
+                Math.min(HIGHWAY_CONNECT_TIMEOUT_MS, remaining),
+            );
+            return { socket, server };
+        } catch (cause) {
+            const error = new Error(`${server.host}:${server.port}: ${highwayErrorText(cause)}`, {
+                cause,
+            });
+            errors.push(error);
+            log.debug('highway connect failed: %s', error.message);
+        }
+    }
+
+    throw new AggregateError(
+        errors,
+        `highway upload connection failed: ${errors.map((error) => error.message).join('; ')}`,
+    );
 }
 
 function socketWrite(socket: net.Socket, data: Uint8Array): Promise<void> {
@@ -559,11 +607,10 @@ export function uploadHighwayHttp(
     };
     return runWithTraceRequest(async () => {
         log.trace(() => [
-            'highway_put_start cmdId=%d uin=%j host=%j port=%d totalBytes=%d fileMd5=%s extendBytes=%d',
+            'highway_put_start cmdId=%d uin=%j servers=%j totalBytes=%d fileMd5=%s extendBytes=%d',
             commandId,
             bridge.identity.uin,
-            session.host,
-            session.port,
+            session.servers,
             source.size,
             renderTraceBytes(fileMd5),
             extend.byteLength,
@@ -650,6 +697,7 @@ async function uploadHighwayHttpOperation(
     let sourceCloseFailure: { error: unknown } | undefined;
     let socket: net.Socket | null = null;
     let connectCount = 0;
+    let server = session.servers[0]!;
 
     const dropSocket = (): void => {
         if (socket) {
@@ -723,15 +771,24 @@ async function uploadHighwayHttpOperation(
 
                 try {
                     if (!socket) {
-                        socket = await tcpConnect(session.host, session.port);
+                        // Select only before the first connection succeeds. Zero acknowledged
+                        // bytes does not mean no data was sent to an already connected node.
+                        if (connectCount === 0) {
+                            ({ socket, server } = await connectHighway(session.servers));
+                        } else {
+                            socket = await tcpConnect(server.host, server.port);
+                        }
+
                         connectCount += 1;
                         trace.connectCount = connectCount;
                         log.trace(
-                            'highway_put_branch branch=%s offset=%d attempt=%d connection=%d',
+                            'highway_put_branch branch=%s offset=%d attempt=%d connection=%d host=%j port=%d',
                             connectCount === 1 ? 'connect' : 'reconnect',
                             offset,
                             attempt,
                             connectCount,
+                            server.host,
+                            server.port,
                         );
                     }
 
@@ -742,8 +799,14 @@ async function uploadHighwayHttpOperation(
                         attempt,
                         connectCount,
                     );
-                    responseBody = await httpPostFrame(socket, session.host, pathStr, frame);
+                    responseBody = await httpPostFrame(socket, server.host, pathStr, frame);
                 } catch (err) {
+                    if (connectCount === 0) {
+                        trace.failureReason = 'connect_exhausted';
+                        trace.error = err;
+                        throw err;
+                    }
+
                     if (err instanceof HighwayResponseReadError && err.responseBody) {
                         log.trace(() => [
                             'highway_put_branch branch=chunk_control_response_partial offset=%d attempt=%d responseBytes=%d responseHex=%s',
