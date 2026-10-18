@@ -1,14 +1,11 @@
-// Global notification-channel store + the pure template renderer.
-//
-// Mirrors the conventions of `webui/ui-config.ts` (the plan calls for this
-// explicitly): every `normalize*` is TOTAL — any unknown / corrupt input
-// collapses to a safe default, numbers clamp, unknown keys are dropped — and
-// persistence is an atomic write (tmp → rename) behind a module-level cache.
-//
-// Channels are GLOBAL (defined once here); each UIN opts into a subset via
-// `OneBotConfig.notifications.channelIds` (see packages/onebot/src/config.ts).
+// Global channels are selected per account by OneBotConfig.notifications.channelIds.
 import { boolOr, clampInt, isObject } from '@snowluma/common/coerce';
 import { createLogger } from '@snowluma/common/logger';
+import {
+    DEFAULT_WEBHOOK_BODY,
+    DEFAULT_EMAIL_BODY,
+    DEFAULT_EMAIL_SUBJECT,
+} from '@snowluma/common/notification-templates';
 import fs from 'fs';
 import path from 'path';
 import { extractAddress, parseRecipients } from './smtp';
@@ -78,23 +75,6 @@ export interface NotificationsConfig {
     debounceSeconds: number;
     channels: NotificationChannel[];
 }
-
-/** Default body template — Server酱-style JSON ({title}/{desp}). The WebUI
- *  ships additional per-vendor presets (钉钉/Discord/…) as frontend constants
- *  the operator can drop in. */
-export const DEFAULT_BODY_TEMPLATE = `{
-  "title": "账号状态通知：{event}",
-  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
-}`;
-
-export const DEFAULT_SUBJECT_TEMPLATE = '账号{event}：{nickname} ({uin})';
-
-export const DEFAULT_EMAIL_BODY_TEMPLATE = `账号状态发生了改变。
-
-昵称：{nickname}
-QQ号：{uin}
-当前状态：{event}
-时间：{time}`;
 
 const SMTP_HOST_MAX = 253;
 const SMTP_USER_MAX = 256;
@@ -315,7 +295,7 @@ function normalizeEmailChannel(
         name,
         type: 'email',
         url: '',
-        bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_EMAIL_BODY_TEMPLATE, BODY_TEMPLATE_MAX),
+        bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_EMAIL_BODY, BODY_TEMPLATE_MAX),
         enabled: boolOr(raw.enabled, true),
         smtpHost,
         smtpPort,
@@ -325,8 +305,8 @@ function normalizeEmailChannel(
         from,
         to,
         subjectTemplate:
-            strOr(raw.subjectTemplate, DEFAULT_SUBJECT_TEMPLATE, SUBJECT_TEMPLATE_MAX) ||
-            DEFAULT_SUBJECT_TEMPLATE,
+            strOr(raw.subjectTemplate, DEFAULT_EMAIL_SUBJECT, SUBJECT_TEMPLATE_MAX) ||
+            DEFAULT_EMAIL_SUBJECT,
     };
 }
 
@@ -368,7 +348,7 @@ function normalizeChannel(raw: unknown): NotificationChannel | null {
         name,
         type: 'webhook',
         url,
-        bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_BODY_TEMPLATE, BODY_TEMPLATE_MAX),
+        bodyTemplate: strOr(raw.bodyTemplate, DEFAULT_WEBHOOK_BODY, BODY_TEMPLATE_MAX),
         enabled: boolOr(raw.enabled, true),
         ...(headers ? { headers } : {}),
     };

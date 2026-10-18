@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-    applyType,
     DEFAULT_EMAIL_BODY,
     DEFAULT_EMAIL_SUBJECT,
     DEFAULT_WEBHOOK_BODY,
-    toChannel,
-} from '../src/components/settings/notification-channel-dialog';
+} from '@snowluma/common/notification-templates';
+import { applyType, toChannel } from '../src/components/settings/notification-channel-dialog';
 import { notificationChannelType, type NotificationChannel } from '../src/types';
 
 function webhook(over: Partial<NotificationChannel> = {}): NotificationChannel {

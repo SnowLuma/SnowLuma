@@ -339,6 +339,7 @@ describe('BridgeManager PID ownership', () => {
         manager.onPidDisconnected(101);
         expect(manager.getSession('10001')).toBeNull();
         expect(closed).toHaveBeenCalledOnce();
+        expect(closed).toHaveBeenCalledWith('10001', bridge, 101);
         await expect(
             bridge.sendRawPacket('Test.NoSender', new Uint8Array([3])),
         ).resolves.toMatchObject({
@@ -512,7 +513,7 @@ describe('BridgeManager PID ownership', () => {
 
         expect(started).toHaveBeenCalledTimes(2);
         expect(closed).toHaveBeenCalledOnce();
-        expect(closed).toHaveBeenCalledWith('10001', expect.anything());
+        expect(closed).toHaveBeenCalledWith('10001', expect.anything(), 101);
         expect(manager.getSession('10001')).toBeNull();
         expect(manager.getSession('20002')!.bridge).toBe(targetBridge);
         expect(targetBridge.activePid).toBe(101);
@@ -561,9 +562,7 @@ describe('BridgeManager PID ownership', () => {
         try {
             manager.onHookLogin(101, '10001', sender.client);
 
-            // Deliberately violate the private ownership invariant through Bridge's
-            // compatibility surface: Manager still maps PID 101 to this UIN, while
-            // Bridge no longer owns either the PID or its sender.
+            // Remove the connection without updating the manager's ownership index.
             manager.getSession('10001')!.bridge.detachPid(101);
 
             expect(() => manager.onPacket(packet(101, '10001'))).toThrowError(

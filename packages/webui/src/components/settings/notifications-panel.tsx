@@ -4,6 +4,7 @@
 // like the per-account config page — no explicit save button.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
+import { DEFAULT_WEBHOOK_BODY } from '@snowluma/common/notification-templates';
 import { Bell, Loader2, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,7 @@ import {
     type NotificationChannel,
     type NotificationsConfig,
 } from '@/types';
-import { DEFAULT_WEBHOOK_BODY, NotificationChannelDialog } from './notification-channel-dialog';
+import { NotificationChannelDialog } from './notification-channel-dialog';
 
 /** A fresh channel with a non-colliding default id. */
 function blankChannel(existing: NotificationChannel[]): NotificationChannel {
@@ -43,7 +44,6 @@ function blankChannel(existing: NotificationChannel[]): NotificationChannel {
 }
 
 interface DialogState {
-    open: boolean;
     index: number | null; // null → create
     seed: NotificationChannel;
 }
@@ -53,11 +53,7 @@ export function NotificationsPanel() {
     const { runAction } = useActionFeedback();
     const [config, setConfig] = useState<NotificationsConfig | null>(null);
     const [loading, setLoading] = useState(true);
-    const [dialog, setDialog] = useState<DialogState>({
-        open: false,
-        index: null,
-        seed: blankChannel([]),
-    });
+    const [dialog, setDialog] = useState<DialogState | null>(null);
     const [testing, setTesting] = useState<string | null>(null);
     const { msg, flash, setMsg } = useFlashMessage();
     const saveTimer = useRef<number | null>(null);
@@ -166,18 +162,18 @@ export function NotificationsPanel() {
     const otherIds = (index: number | null) =>
         channels.filter((_, i) => i !== index).map((c) => c.id);
 
-    const openCreate = () => setDialog({ open: true, index: null, seed: blankChannel(channels) });
-    const openEdit = (i: number) => setDialog({ open: true, index: i, seed: channels[i] });
+    const openCreate = () => setDialog({ index: null, seed: blankChannel(channels) });
+    const openEdit = (i: number) => setDialog({ index: i, seed: channels[i] });
 
-    const submitChannel = (ch: NotificationChannel) => {
-        if (dialog.index == null) {
+    const submitChannel = (ch: NotificationChannel, index: number | null) => {
+        if (index === null) {
             setChannels([...channels, ch], {
                 title: '正在新增通知渠道',
                 successTitle: '通知渠道已新增',
             });
         } else {
             setChannels(
-                channels.map((c, idx) => (idx === dialog.index ? ch : c)),
+                channels.map((c, idx) => (idx === index ? ch : c)),
                 { title: '正在更新通知渠道', successTitle: '通知渠道已更新' },
             );
         }
@@ -234,10 +230,7 @@ export function NotificationsPanel() {
                 <div className="flex flex-col gap-4 rounded-xl border bg-card/40 p-4">
                     <div className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
                         <Bell className="mt-0.5 size-3.5 shrink-0" />
-                        <p>
-                            账号上线 / 下线时向启用的渠道发送通知（Webhook POST
-                            或邮件，仅去抖防刷屏）。渠道在此全局定义，每个账号在其「配置」页勾选启用哪些。
-                        </p>
+                        <p>在此管理通知渠道，再到账号「配置」页选择启用。</p>
                     </div>
                     <div className="flex flex-col gap-1.5 border-t pt-3">
                         <Label>去抖窗口（秒）</Label>
@@ -258,8 +251,7 @@ export function NotificationsPanel() {
                             }}
                         />
                         <p className="text-xs leading-relaxed text-muted-foreground">
-                            下线后在该秒数内自愈则不发；超时才发「下线」，恢复时再发「上线」。
-                            <code className="font-mono">0</code> = 立即发、不去抖。
+                            下线持续超过此时长才通知，恢复时再通知。0 表示立即通知。
                         </p>
                     </div>
                 </div>
@@ -329,14 +321,14 @@ export function NotificationsPanel() {
                     </p>
                 )}
 
-                {dialog.open && (
+                {dialog && (
                     <NotificationChannelDialog
-                        open={dialog.open}
-                        onOpenChange={(open) => !open && setDialog((d) => ({ ...d, open: false }))}
+                        open
+                        onOpenChange={(open) => !open && setDialog(null)}
                         isEdit={dialog.index != null}
                         initial={dialog.seed}
                         otherIds={otherIds(dialog.index)}
-                        onSubmit={submitChannel}
+                        onSubmit={(channel) => submitChannel(channel, dialog.index)}
                     />
                 )}
             </div>

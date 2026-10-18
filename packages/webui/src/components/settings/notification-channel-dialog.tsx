@@ -3,6 +3,11 @@
 // The channel id is the stable key per-account opt-ins reference, so it's
 // editable only on create and locked on edit.
 import { useState } from 'react';
+import {
+    DEFAULT_WEBHOOK_BODY,
+    DEFAULT_EMAIL_BODY,
+    DEFAULT_EMAIL_SUBJECT,
+} from '@snowluma/common/notification-templates';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '@/components/interior/modal';
 import { Button } from '@/components/ui/button';
@@ -64,20 +69,6 @@ function looksLikeEmail(value: string): boolean {
 function hasRecipient(value: string): boolean {
     return value.split(/[,;\n]+/).some((part) => looksLikeEmail(part));
 }
-
-export const DEFAULT_WEBHOOK_BODY = `{
-  "title": "账号状态通知：{event}",
-  "desp": "您的账号状态发生了改变。\\n\\n**昵称**：{nickname}\\n**QQ号**：{uin}\\n**当前状态**：{event}\\n**时间**：{time}"
-}`;
-
-export const DEFAULT_EMAIL_BODY = `账号状态发生了改变。
-
-昵称：{nickname}
-QQ号：{uin}
-当前状态：{event}
-时间：{time}`;
-
-export const DEFAULT_EMAIL_SUBJECT = '账号{event}：{nickname} ({uin})';
 
 export function applyType(
     draft: NotificationChannel,
@@ -227,11 +218,6 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
             open={open}
             onClose={() => onOpenChange(false)}
             title={isEdit ? '编辑渠道' : '新建渠道'}
-            description={
-                type === 'email'
-                    ? '账号上线 / 下线时向该邮箱发送一封渲染后的通知。'
-                    : '账号上线 / 下线时向该 Webhook POST 一条渲染后的通知。'
-            }
             closeLabel="关闭渠道编辑弹窗"
             maxWidth={576}
             maxHeight="min(86dvh, 780px)"
@@ -365,7 +351,7 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
                                 ))}
                             </div>
                             <p className="text-xs leading-relaxed text-muted-foreground">
-                                可选。用于飞书等需要鉴权头的 Webhook；默认仍带 JSON Content-Type。
+                                可选，默认 Content-Type 为 application/json。
                             </p>
                         </div>
                     </>
@@ -442,7 +428,7 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
                             <div className="min-w-0">
                                 <Label className="text-sm">隐式 TLS</Label>
                                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                    465 通常开启；587 先明文再 STARTTLS，请关掉此项。
+                                    465 开启，587 关闭（STARTTLS）。
                                 </p>
                             </div>
                             <ToggleSwitch
@@ -492,8 +478,12 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
                         变量：<code className="font-mono">{'{uin}'}</code>{' '}
                         <code className="font-mono">{'{nickname}'}</code>{' '}
                         <code className="font-mono">{'{event}'}</code>（offline/online）{' '}
-                        <code className="font-mono">{'{time}'}</code>
-                        {type === 'email' ? '。正文以 < 开头时按 HTML 发送。' : ''}
+                        <code className="font-mono">{'{time}'}</code>{' '}
+                        <code className="font-mono">{'{status}'}</code>（Hook 状态）{' '}
+                        <code className="font-mono">{'{pid}'}</code>（进程 ID）{' '}
+                        <code className="font-mono">{'{error}'}</code>（进程错误）
+                        。进程信息为空表示未知。
+                        {type === 'email' ? '正文以 < 开头时按 HTML 发送。' : ''}
                     </p>
                 </div>
 
@@ -501,7 +491,7 @@ export function NotificationChannelDialog(props: NotificationChannelDialogProps)
                     <div className="min-w-0">
                         <Label className="text-sm">启用</Label>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                            关闭后保留配置但不推送；账号侧对应开关会被锁定并关闭。
+                            关闭后停止推送，保留配置。
                         </p>
                     </div>
                     <ToggleSwitch

@@ -6,7 +6,7 @@ import { IdentityService } from '@snowluma/protocol/identity-service';
 import { Bridge } from './bridge';
 
 export type SessionStartedCallback = (uin: string, bridge: Bridge) => void;
-export type SessionClosedCallback = (uin: string, bridge: Bridge) => void;
+export type SessionClosedCallback = (uin: string, bridge: Bridge, pid: number) => void;
 
 interface QQSession {
     bridge: Bridge;
@@ -64,8 +64,8 @@ export class BridgeManager {
     /** Additive subscription: every observer (OneBotManager, NotificationManager,
      *  …) receives every session edge. (Was a single `set*Callback` setter —
      *  converted to N listeners so a second observer can't clobber the first.)
-     *  The close edge now carries the bridge too, since callers read the last
-     *  nickname before it is disposed. */
+     *  The close edge carries the final detached PID and the bridge so observers
+     *  can identify the process and read its nickname before disposal. */
     addSessionStartedListener(cb: SessionStartedCallback): void {
         this.sessionStartedListeners_.push(cb);
     }
@@ -86,10 +86,10 @@ export class BridgeManager {
         }
     }
 
-    private fireSessionClosed(uin: string, bridge: Bridge): void {
+    private fireSessionClosed(uin: string, bridge: Bridge, pid: number): void {
         for (const cb of this.sessionClosedListeners_) {
             try {
-                cb(uin, bridge);
+                cb(uin, bridge, pid);
             } catch (err) {
                 log.warn(
                     'session-closed listener threw: %s',
@@ -397,12 +397,6 @@ export class BridgeManager {
             throw new Error(message);
         }
 
-        if (!session.bridge.packetClientForPid(pid)) {
-            const message = `BridgeManager invariant violated: PID=${pid} is mapped to UIN=${uin}, but Bridge has no sender for the PID`;
-            log.error(message);
-            throw new Error(message);
-        }
-
         // Validation is complete. Mutate both sides only after the ownership
         // invariant is known to hold, so a fail-fast error preserves the evidence.
         this.pidToUin_.delete(pid);
@@ -415,7 +409,7 @@ export class BridgeManager {
         this.sessions_.delete(uin);
         log.debug('session closed: UIN=%s', uin);
         // Fire before dispose() so listeners can still read bridge.identity.
-        this.fireSessionClosed(uin, session.bridge);
+        this.fireSessionClosed(uin, session.bridge, pid);
         this.closeSession(uin, session.bridge);
         return true;
     }

@@ -16,19 +16,19 @@ const log = createLogger('Bridge');
 const runtimeLog = createLogger('Bridge.Runtime');
 const VERBOSE_WARMUP = process.env.SNOWLUMA_VERBOSE_WARMUP === '1';
 
+interface ProcessConnection {
+    pid: number;
+    client: PacketSender;
+    receiveHealthy: boolean;
+}
+
 export class Bridge implements BridgeInterface {
     readonly identity: IdentityService;
-    private pids_ = new Set<number>();
-    private readonly receiveHealthByPid_ = new Map<number, boolean>();
-    /** Packet senders keyed by their owning QQ process. Keeping the sender and
-     *  PID together is what makes disconnect fallback deterministic: a sender
-     *  can never outlive the PID that supplied it. */
-    private readonly packetClientsByPid_ = new Map<number, PacketSender>();
+    /** Insertion order tracks login recency; the newest connection sends packets. */
+    private readonly connections = new Map<number, ProcessConnection>();
     readonly events = new BridgeEventBus();
     readonly apis: ApiHub;
     private readonly pipeline: IncomingPacketPipeline;
-    private packetClient_: PacketSender | null = null;
-    private packetClientPid_: number | null = null;
     private static readonly UPLOADED_FILE_CACHE_MAX = 1024;
     private uploadedFileMeta_ = new Map<string, UploadedFileMeta>();
     private clientSeq_ = 100000000 + (Date.now() % 1000000000);
@@ -40,9 +40,10 @@ export class Bridge implements BridgeInterface {
     private disposePromise_: Promise<void> | null = null;
     private readonly pendingPackets_ = new Set<Promise<void>>();
     private rosterWarmupStarted_ = false;
-    private rosterWarmupSettled_ = false;
-    private rosterWarmupResult_: RosterWarmupResult | null = null;
-    private readonly rosterWarmupWaiters_: Array<(result: RosterWarmupResult) => void> = [];
+    private settleRosterWarmup!: (result: RosterWarmupResult) => void;
+    private readonly rosterWarmup = new Promise<RosterWarmupResult>((resolve) => {
+        this.settleRosterWarmup = resolve;
+    });
 
     constructor(identity: IdentityService) {
         this.identity = identity;
@@ -151,11 +152,7 @@ export class Bridge implements BridgeInterface {
 
         this.disposed_ = true;
         this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
-        this.pids_.clear();
-        this.receiveHealthByPid_.clear();
-        this.packetClientsByPid_.clear();
-        this.packetClient_ = null;
-        this.packetClientPid_ = null;
+        this.connections.clear();
         this.onlineClients_ = null;
         this.disposePromise_ = (async () => {
             try {
@@ -168,22 +165,6 @@ export class Bridge implements BridgeInterface {
         return this.disposePromise_;
     }
 
-    /** Legacy two-step setter retained for external compatibility. It assigns
-     *  the sender to the most recently attached PID when one exists. New
-     *  BridgeManager code uses bindPid() for an atomic transition. */
-    setPacketClient(client: PacketSender): void {
-        this.packetClient_ = client;
-        const pids = [...this.pids_];
-        const pid = pids.length > 0 ? pids[pids.length - 1]! : null;
-        this.packetClientPid_ = pid;
-
-        if (pid !== null) {
-            this.packetClientsByPid_.set(pid, client);
-        }
-
-        this.maybeStartRosterWarmup();
-    }
-
     registerCmd(cmd: string, parser: CmdParser): void {
         this.pipeline.registerCmd(cmd, parser);
     }
@@ -192,34 +173,18 @@ export class Bridge implements BridgeInterface {
         return this.pipeline.handlesCmd(cmd);
     }
 
-    /** Attach a process without a sender. Retained for compatibility; the
-     *  manager uses bindPid() for the atomic PID+sender transition. Re-attaching
-     *  deliberately refreshes recency. */
-    attachPid(pid: number): void {
-        this.pids_.delete(pid);
-        this.pids_.add(pid);
-        // A fresh/rebound login starts UNKNOWN-but-compatible. The receive
-        // watchdog only flips this false after observing QQ's own heartbeat and
-        // then missing the full stale + confirmation window.
-        this.receiveHealthByPid_.set(pid, true);
-    }
-
-    /** Atomically attach a process and make its sender the active sender.
-     *  Set insertion order is the recency order used for fallback. */
     bindPid(pid: number, client: PacketSender): void {
-        const previousPid = this.packetClientPid_;
-        const previousClient = this.packetClient_;
-        this.attachPid(pid);
-        this.packetClientsByPid_.set(pid, client);
-        this.packetClient_ = client;
-        this.packetClientPid_ = pid;
+        const previous = this.activeConnection;
+        this.connections.delete(pid);
+        // A new login stays healthy until the watchdog confirms a failure.
+        this.connections.set(pid, { pid, client, receiveHealthy: true });
 
-        if (previousPid !== pid || previousClient !== client) {
+        if (previous?.pid !== pid || previous.client !== client) {
             runtimeLog.trace(
                 'bridge_sender_fact event=selected uin=%j pid=%d previousPid=%j',
                 this.identity.uin,
                 pid,
-                previousPid,
+                previous?.pid ?? null,
             );
         }
 
@@ -229,84 +194,59 @@ export class Bridge implements BridgeInterface {
     /** @internal BridgeManager lookup used when an incoming packet is the first
      *  observation that a live PID changed UIN. */
     packetClientForPid(pid: number): PacketSender | null {
-        return this.packetClientsByPid_.get(pid) ?? null;
+        return this.connections.get(pid)?.client ?? null;
     }
 
     detachPid(pid: number): void {
-        this.pids_.delete(pid);
-        this.receiveHealthByPid_.delete(pid);
-        this.packetClientsByPid_.delete(pid);
+        const wasActive = this.activePid === pid;
+        this.connections.delete(pid);
+        const active = this.activeConnection;
 
-        if (this.packetClientPid_ !== pid) {
-            // An unscoped legacy sender cannot be associated with a particular PID.
-            // It is safe to retain while another PID exists, but never after the
-            // Bridge becomes empty.
-            if (this.pids_.size === 0) {
-                this.packetClient_ = null;
-                this.packetClientPid_ = null;
-            }
-
-            return;
+        if (wasActive && active) {
+            runtimeLog.trace(
+                'bridge_sender_fact event=fallback uin=%j detachedPid=%d fallbackPid=%d',
+                this.identity.uin,
+                pid,
+                active.pid,
+            );
+            log.debug(
+                'packet sender changed: UIN=%s PID=%d→%d',
+                this.identity.uin,
+                pid,
+                active.pid,
+            );
         }
-
-        this.selectFallbackPacketClient(pid);
     }
     hasPid(pid: number): boolean {
-        return this.pids_.has(pid);
+        return this.connections.has(pid);
     }
     get empty(): boolean {
-        return this.pids_.size === 0;
+        return this.connections.size === 0;
+    }
+    private get activeConnection(): ProcessConnection | undefined {
+        return [...this.connections.values()].at(-1);
     }
     get activePid(): number | null {
-        if (this.packetClientPid_ !== null && this.pids_.has(this.packetClientPid_)) {
-            return this.packetClientPid_;
-        }
-
-        const pids = [...this.pids_];
-        return pids.length > 0 ? pids[pids.length - 1]! : null;
+        return this.activeConnection?.pid ?? null;
     }
     get receiveHealthy(): boolean {
-        for (const pid of this.pids_) {
-            const healthy = this.receiveHealthByPid_.get(pid);
-
-            if (healthy === undefined) {
-                const message = `Bridge receive-health invariant violated: PID=${pid} has no health state`;
-                log.error(message);
-                throw new Error(message);
-            }
-
-            if (healthy) {
-                return true;
-            }
-        }
-
-        return false;
+        return [...this.connections.values()].some((connection) => connection.receiveHealthy);
     }
     setPidReceiveHealthy(pid: number, healthy: boolean): void {
-        if (!this.pids_.has(pid)) {
+        const connection = this.connections.get(pid);
+
+        if (!connection) {
             throw new Error(`Bridge receive-health invariant violated: PID=${pid} is not attached`);
         }
 
-        this.receiveHealthByPid_.set(pid, healthy);
+        connection.receiveHealthy = healthy;
     }
     getOnlineClients(): readonly Readonly<OnlineDeviceInfo>[] | null {
         return this.onlineClients_;
     }
 
     whenRosterWarmupSettled(): Promise<RosterWarmupResult> {
-        if (this.rosterWarmupSettled_ && this.rosterWarmupResult_) {
-            return Promise.resolve(this.rosterWarmupResult_);
-        }
-
-        this.maybeStartRosterWarmup();
-        return new Promise((resolve) => {
-            if (this.rosterWarmupSettled_ && this.rosterWarmupResult_) {
-                resolve(this.rosterWarmupResult_);
-                return;
-            }
-
-            this.rosterWarmupWaiters_.push(resolve);
-        });
+        return this.rosterWarmup;
     }
 
     onPacket(pkt: PacketInfo): Promise<void> {
@@ -358,7 +298,9 @@ export class Bridge implements BridgeInterface {
         body: Uint8Array,
         timeoutMs = packetTimeoutMs(),
     ): Promise<SendPacketResult> {
-        if (!this.packetClient_) {
+        const connection = this.activeConnection;
+
+        if (!connection) {
             return runWithTraceRequest(() => {
                 const startedAt = Date.now();
                 runtimeLog.trace(() => [
@@ -391,11 +333,7 @@ export class Bridge implements BridgeInterface {
         }
 
         const startedAt = Date.now();
-        const result = await this.packetClient_.sendPacket(
-            serviceCmd,
-            Buffer.from(body),
-            timeoutMs,
-        );
+        const result = await connection.client.sendPacket(serviceCmd, Buffer.from(body), timeoutMs);
         const elapsed = Date.now() - startedAt;
         const respLen = result.responseData ? result.responseData.length : 0;
 
@@ -424,52 +362,12 @@ export class Bridge implements BridgeInterface {
         return result;
     }
 
-    private selectFallbackPacketClient(detachedPid: number): void {
-        const pids = [...this.pids_];
-
-        for (let index = pids.length - 1; index >= 0; index -= 1) {
-            const fallbackPid = pids[index]!;
-            const fallback = this.packetClientsByPid_.get(fallbackPid);
-
-            if (!fallback) {
-                continue;
-            }
-
-            this.packetClient_ = fallback;
-            this.packetClientPid_ = fallbackPid;
-            runtimeLog.trace(
-                'bridge_sender_fact event=fallback uin=%j detachedPid=%d fallbackPid=%d',
-                this.identity.uin,
-                detachedPid,
-                fallbackPid,
-            );
-            log.debug(
-                'packet sender fallback: UIN=%s detached PID=%d fallback PID=%d',
-                this.identity.uin,
-                detachedPid,
-                fallbackPid,
-            );
-            return;
-        }
-
-        this.packetClient_ = null;
-        this.packetClientPid_ = null;
-
-        if (this.pids_.size > 0) {
-            log.warn(
-                'packet sender unavailable after PID detach: UIN=%s detached PID=%d remaining PIDs=%d',
-                this.identity.uin,
-                detachedPid,
-                this.pids_.size,
-            );
-        }
-    }
     async resolveUserUid(uin: number, groupId?: number): Promise<string> {
         return this.identity.resolveUid(uin, groupId);
     }
 
     private maybeStartRosterWarmup(): void {
-        if (this.disposed_ || this.rosterWarmupStarted_ || !this.packetClient_) {
+        if (this.disposed_ || this.rosterWarmupStarted_ || this.empty) {
             return;
         }
 
@@ -493,20 +391,6 @@ export class Bridge implements BridgeInterface {
                 this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
             },
         );
-    }
-
-    private settleRosterWarmup(result: RosterWarmupResult): void {
-        if (this.rosterWarmupSettled_) {
-            return;
-        }
-
-        this.rosterWarmupSettled_ = true;
-        this.rosterWarmupResult_ = result;
-        const waiters = this.rosterWarmupWaiters_.splice(0);
-
-        for (const resolve of waiters) {
-            resolve(result);
-        }
     }
 
     private stillOpen(): boolean {
