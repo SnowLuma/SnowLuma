@@ -68,6 +68,35 @@ function makeProfile(uin: number, uid: string, nickname: string): UserProfileInf
 }
 
 describe('Bridge roster warmup', () => {
+    it('settles all callers, including callers waiting before the first connection', async () => {
+        const bridge = new Bridge(IdentityService.memory('10001'));
+        const fetchFriends = vi
+            .spyOn(bridge.apis.contacts, 'fetchFriendList')
+            .mockResolvedValue([makeFriend(10001, 'u_self', 'me')]);
+        vi.spyOn(bridge.apis.contacts, 'fetchGroupList').mockResolvedValue([]);
+        const beforeLogin = bridge.whenRosterWarmupSettled();
+
+        bridge.bindPid(7, sender);
+        const afterLogin = bridge.whenRosterWarmupSettled();
+        const expected = { friendsLoaded: true, groupsLoaded: true };
+        await expect(Promise.all([beforeLogin, afterLogin])).resolves.toEqual([expected, expected]);
+        await expect(bridge.whenRosterWarmupSettled()).resolves.toEqual(expected);
+        expect(fetchFriends).toHaveBeenCalledOnce();
+        await bridge.dispose();
+        await expect(bridge.whenRosterWarmupSettled()).resolves.toEqual(expected);
+    });
+
+    it('releases warmup waiters when disposed before the first connection', async () => {
+        const bridge = new Bridge(IdentityService.memory('10001'));
+        const waiting = bridge.whenRosterWarmupSettled();
+        await bridge.dispose();
+        await expect(waiting).resolves.toEqual({ friendsLoaded: false, groupsLoaded: false });
+        await expect(bridge.whenRosterWarmupSettled()).resolves.toEqual({
+            friendsLoaded: false,
+            groupsLoaded: false,
+        });
+    });
+
     it('fetches friends and groups after the first sender and writes Identity', async () => {
         const identity = IdentityService.memory('10001');
         const bridge = new Bridge(identity);

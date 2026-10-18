@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import {
     clearAvatarSessionCookie,
-    extractBearerToken,
+    extractWebuiSessionToken,
     LOGIN_BODY_LIMIT_BYTES,
     readAvatarSessionToken,
     registerLoginRequestSecurity,
@@ -50,15 +50,48 @@ describe('WebUI public request security', () => {
 
     it('never treats a query parameter as a bearer credential', () => {
         expect(
-            extractBearerToken(new Request('http://localhost/api/state/stream?token=leaked')),
+            extractWebuiSessionToken(new Request('http://localhost/api/state/stream?token=leaked')),
         ).toBe('');
         expect(
-            extractBearerToken(
+            extractWebuiSessionToken(
                 new Request('http://localhost/api/state/stream', {
                     headers: { authorization: 'Bearer header-token' },
                 }),
             ),
         ).toBe('header-token');
+    });
+
+    it('reads the WebUI session without consuming reverse proxy Basic credentials', () => {
+        const request = new Request('http://localhost/api/auth/state', {
+            headers: {
+                authorization: 'Basic cHJveHk6cGFzc3dvcmQ=',
+                'X-SnowLuma-Token': 'session-token',
+            },
+        });
+        expect(extractWebuiSessionToken(request)).toBe('session-token');
+    });
+
+    it.each(['session-token', 'invalid-token', ''])(
+        'uses an explicit WebUI credential even when it is %j',
+        (token) => {
+            const request = new Request('http://localhost/api/auth/state', {
+                headers: {
+                    authorization: 'Bearer legacy-token',
+                    'X-SnowLuma-Token': token,
+                },
+            });
+            expect(extractWebuiSessionToken(request)).toBe(token);
+        },
+    );
+
+    it('does not treat proxy credentials or the avatar cookie as an API session', () => {
+        const request = new Request('http://localhost/api/auth/state?token=leaked', {
+            headers: {
+                authorization: 'Basic cHJveHk6cGFzc3dvcmQ=',
+                cookie: 'snowluma_avatar_session=avatar-token',
+            },
+        });
+        expect(extractWebuiSessionToken(request)).toBe('');
     });
 
     it('round-trips an HttpOnly avatar session cookie and clears it on logout', async () => {

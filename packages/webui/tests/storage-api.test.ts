@@ -49,7 +49,7 @@ describe('storage API client', () => {
         expect(fetchMock).toHaveBeenCalledWith(
             '/api/system/storage',
             expect.objectContaining({
-                headers: { Authorization: 'Bearer test-token' },
+                headers: new Headers({ 'X-SnowLuma-Token': 'test-token' }),
                 signal: expect.any(AbortSignal),
             }),
         );
@@ -82,10 +82,10 @@ describe('storage API client', () => {
             expect.objectContaining({
                 method: 'POST',
                 body: JSON.stringify({ logRetainDays: 0 }),
-                headers: {
-                    Authorization: 'Bearer test-token',
+                headers: new Headers({
+                    'X-SnowLuma-Token': 'test-token',
                     'Content-Type': 'application/json',
-                },
+                }),
                 signal: expect.any(AbortSignal),
             }),
         );

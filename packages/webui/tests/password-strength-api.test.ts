@@ -41,10 +41,10 @@ describe('password strength API client', () => {
             expect.objectContaining({
                 method: 'POST',
                 body: JSON.stringify({ password: 'Strong-password' }),
-                headers: {
-                    Authorization: 'Bearer test-token',
+                headers: new Headers({
+                    'X-SnowLuma-Token': 'test-token',
                     'Content-Type': 'application/json',
-                },
+                }),
                 signal: expect.any(AbortSignal),
             }),
         );

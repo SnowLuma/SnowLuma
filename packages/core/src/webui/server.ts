@@ -108,7 +108,7 @@ import { registerStorageRoutes } from './storage-routes';
 import { LogStorageSettingsManager } from './storage-settings';
 import {
     clearAvatarSessionCookie,
-    extractBearerToken,
+    extractWebuiSessionToken,
     readAvatarSessionToken,
     registerLoginRequestSecurity,
     setAvatarSessionCookie,
@@ -801,7 +801,7 @@ export async function initWebUI(
             return next();
         }
 
-        const token = extractBearerToken(c.req.raw);
+        const token = extractWebuiSessionToken(c.req.raw);
 
         if (!token) {
             return c.json({ status: 'failed', message: 'Unauthorized' }, 401);
@@ -1672,9 +1672,8 @@ export async function initWebUI(
     });
 
     // Invoke a Stream API action (or any action) and relay every frame to the
-    // browser over an SSE body. The frontend reads this with fetch()+a stream
-    // reader (Bearer auth in the header), so — unlike /api/debug/stream — it does
-    // NOT need a query-token allowlist entry. Frames are never dropped.
+    // browser over an SSE body. The frontend uses fetch()+a stream reader so
+    // the session token stays in a header on this POST. Frames are never dropped.
     app.post('/api/debug/invoke-stream', async (c) => {
         let body: unknown;
 

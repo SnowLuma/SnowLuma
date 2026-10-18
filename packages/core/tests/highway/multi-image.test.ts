@@ -35,8 +35,7 @@ vi.mock('@snowluma/protocol/highway', async () => {
         fetchHighwaySession: vi.fn(async () => ({
             sigSession: new Uint8Array([0xaa]),
             sessionKey: new Uint8Array([0xbb]),
-            host: 'highway.example',
-            port: 80,
+            servers: [{ host: 'highway.example', port: 80 }],
         })),
         uploadHighwayHttp: vi.fn(async () => undefined),
     };

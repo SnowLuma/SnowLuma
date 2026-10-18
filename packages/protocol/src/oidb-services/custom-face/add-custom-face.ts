@@ -46,8 +46,7 @@ export namespace AddCustomFace {
 
         // 1. fetchHighwaySession 拿上传节点 host:port（复用 SnowLuma highway-client）
         const session = await fetchHighwaySession(deps as unknown as BridgeContext);
-        const host = session.host;
-        const port = session.port;
+        const { host, port } = session.servers[0]!;
 
         // 2. BDHExpressionRoam 申请上传 token
         const reqBody = protobuf_encode<BDHExpressionRoamReq>({

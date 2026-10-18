@@ -42,6 +42,7 @@ import {
     type TotpStatus,
 } from './types';
 import { localStorageTokenStore } from './token-store';
+import { WEBUI_SESSION_HEADER, webuiSessionHeaders } from './session-headers';
 
 const DEFAULT_TOKEN_KEY = 'snowluma_token';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -310,15 +311,9 @@ class HttpApiClient implements ApiClient {
                 // bearer header directly — mirroring login()'s deliberate bypass.
                 const form = new FormData();
                 form.append('file', file);
-                const headers: Record<string, string> = {};
-
-                if (this.currentToken) {
-                    headers['Authorization'] = `Bearer ${this.currentToken}`;
-                }
-
                 const res = await fetch('/api/ui/background', {
                     method: 'POST',
-                    headers,
+                    headers: webuiSessionHeaders(this.currentToken),
                     body: form,
                 });
 
@@ -528,16 +523,10 @@ class HttpApiClient implements ApiClient {
     // ---------- HTTP helpers ----------
 
     async request(url: string, init: RequestInit = {}): Promise<Response> {
-        const headers: Record<string, string> = {
-            ...((init.headers as Record<string, string> | undefined) ?? {}),
-        };
+        const headers = webuiSessionHeaders(this.currentToken, init.headers);
 
-        if (this.currentToken) {
-            headers['Authorization'] = `Bearer ${this.currentToken}`;
-        }
-
-        if (init.body && !(init.body instanceof FormData) && !headers['Content-Type']) {
-            headers['Content-Type'] = 'application/json';
+        if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+            headers.set('Content-Type', 'application/json');
         }
 
         const res = await this.fetchWithDeadline(url, { ...init, headers });
@@ -612,7 +601,7 @@ class HttpApiClient implements ApiClient {
         this.tokenStore.save(token);
 
         // Rebuild the shared stream on any change so a re-login doesn't leave
-        // subscribers on a stale Authorization header (#185).
+        // subscribers on a stale session token (#185).
         if (changed) {
             this.reopenSharedLogStream();
         }
@@ -759,7 +748,7 @@ class HttpApiClient implements ApiClient {
      * `onMessage` and surfacing transport state ('open' / 'reconnecting' /
      * 'closed') via `onStatus`. The fetch stream reconnects after transport loss
      * so it retains EventSource's user-visible behaviour while keeping the token
-     * in the Authorization header. A malformed frame (or a throw from
+     * in the WebUI session header. A malformed frame (or a throw from
      * `onMessage`) is skipped. The returned disposer aborts the active request.
      */
     private openSseChannel<T>(
@@ -803,11 +792,10 @@ class HttpApiClient implements ApiClient {
             try {
                 const response = await fetch(path, {
                     cache: 'no-store',
-                    headers: {
+                    headers: webuiSessionHeaders(token, {
                         Accept: 'text/event-stream',
-                        Authorization: `Bearer ${token}`,
                         'Cache-Control': 'no-cache',
-                    },
+                    }),
                     signal: controller.signal,
                 });
 
@@ -1077,15 +1065,11 @@ class HttpApiClient implements ApiClient {
         onFrame: (frame: import('@/types').DebugStreamFrame) => void,
         signal?: AbortSignal,
     ): Promise<void> {
-        const headers: Record<string, string> = {
+        const headers = webuiSessionHeaders(this.currentToken, {
             'Content-Type': 'application/json',
             Accept: 'text/event-stream',
             'Cache-Control': 'no-cache',
-        };
-
-        if (this.currentToken) {
-            headers['Authorization'] = `Bearer ${this.currentToken}`;
-        }
+        });
 
         const res = await fetch('/api/debug/invoke-stream', {
             method: 'POST',
@@ -1199,7 +1183,7 @@ class HttpApiClient implements ApiClient {
             xhr.open('POST', `/api/debug/upload?filename=${encodeURIComponent(name)}`);
 
             if (this.currentToken) {
-                xhr.setRequestHeader('Authorization', `Bearer ${this.currentToken}`);
+                xhr.setRequestHeader(WEBUI_SESSION_HEADER, this.currentToken);
             }
 
             xhr.responseType = 'json';

@@ -78,6 +78,9 @@ class FakeSocket extends EventEmitter {
     readableEnded = false;
     writable = true;
     posts = 0;
+    headers: string[] = [];
+    connectFailure?: Error | 'timeout';
+    private connectTimer?: ReturnType<typeof setTimeout>;
     private buf = Buffer.alloc(0);
     constructor(
         private readonly responseFrame: Buffer,
@@ -90,8 +93,12 @@ class FakeSocket extends EventEmitter {
         super();
     }
 
-    setTimeout(_ms?: number) {
-        /* no-op */
+    setTimeout(ms = 0) {
+        clearTimeout(this.connectTimer);
+
+        if (ms > 0 && this.connectFailure === 'timeout') {
+            this.connectTimer = setTimeout(() => this.emit('timeout'), ms);
+        }
     }
 
     write(data: unknown, cb?: (err?: Error) => void): boolean {
@@ -133,6 +140,7 @@ class FakeSocket extends EventEmitter {
                 return;
             }
 
+            this.headers.push(s.slice(0, he));
             this.buf = this.buf.subarray(total);
             this.posts += 1;
             const thisPost = this.posts;
@@ -184,6 +192,7 @@ class FakeSocket extends EventEmitter {
     }
 
     destroy() {
+        clearTimeout(this.connectTimer);
         this.destroyed = true;
         this.writable = false;
     }
@@ -226,8 +235,7 @@ function makeSession(): HighwaySession {
     return {
         sigSession: new Uint8Array([0xaa]),
         sessionKey: new Uint8Array([0xbb]),
-        host: '127.0.0.1',
-        port: 80,
+        servers: [{ host: '127.0.0.1', port: 80 }],
     };
 }
 
@@ -241,7 +249,9 @@ function installFactory(make: (idx: number) => FakeSocket): void {
         const sock = socketFactoryRef.make!(idx) as FakeSocket;
         createdSockets.push(sock);
 
-        if (listener) {
+        if (sock.connectFailure instanceof Error) {
+            setImmediate(() => sock.emit('error', sock.connectFailure));
+        } else if (!sock.connectFailure && listener) {
             setImmediate(listener);
         } // 握手成功后异步回调 → tcpConnect resolve
 
@@ -321,8 +331,7 @@ describe('fetchHighwaySession trace lifecycle', () => {
             const session = await fetchHighwaySession(bridge);
             expect([...session.sigSession]).toEqual([0xaa, 0xbb]);
             expect([...session.sessionKey]).toEqual([0xcc]);
-            expect(session.host).toBe('1.2.3.4');
-            expect(session.port).toBe(8080);
+            expect(session.servers).toEqual([{ host: '1.2.3.4', port: 8080 }]);
             const requestBytes = sendRawPacket.mock.calls[0]![1] as Uint8Array;
             const messages = highwayTrace(entries).map((entry) => entry.message);
             expect(messages).toEqual(
@@ -332,7 +341,7 @@ describe('fetchHighwaySession trace lifecycle', () => {
                         `branch=control_response success=true gotResponse=true errorCode=0 errorMessage="" responseBytes=${responseData.byteLength}`,
                     ),
                     expect.stringMatching(
-                        /^highway_session_terminal outcome=completed reason=session_ready host="1\.2\.3\.4" port=8080 sigBytes=2 sessionKeyBytes=1 elapsedMs=\d+$/,
+                        /^highway_session_terminal outcome=completed reason=session_ready servers=\[\{"host":"1\.2\.3\.4","port":8080\}\] sigBytes=2 sessionKeyBytes=1 elapsedMs=\d+$/,
                     ),
                 ]),
             );
@@ -363,8 +372,49 @@ describe('fetchHighwaySession trace lifecycle', () => {
 
         const session = await fetchHighwaySession(bridge);
 
-        expect(session.host).toBe('1.2.3.4');
-        expect(session.port).toBe(8080);
+        expect(session.servers).toEqual([{ host: '1.2.3.4', port: 8080 }]);
+    });
+
+    it('keeps distinct service-1 candidates in response order', async () => {
+        const responseData = protobuf_encode<HttpConn0x6FF501Response>({
+            httpConn: {
+                sigSession: new Uint8Array([0xaa]),
+                serverInfos: [
+                    { serviceType: 5, serverAddrs: [{ ip: 0x090200c0, port: 80 }] },
+                    {
+                        serviceType: 1,
+                        serverAddrs: [
+                            { ip: 0x010200c0, port: 15000 },
+                            { ip: 0x010200c0, port: 15000 },
+                            { ip: 0, port: 80 },
+                            { ip: 0x020200c0, port: 0 },
+                            { ip: 0x020200c0, port: 65536 },
+                            { ip: 0x020200c0, port: 443 },
+                        ],
+                    },
+                ],
+            },
+        });
+        const bridge = {
+            sendRawPacket: vi.fn(async () => ({ success: true, gotResponse: true, responseData })),
+        } as unknown as BridgeContext;
+        const session = await fetchHighwaySession(bridge);
+        expect(session).toMatchObject({
+            servers: [
+                { host: '192.0.2.1', port: 15000 },
+                { host: '192.0.2.2', port: 443 },
+            ],
+        });
+    });
+
+    it('rejects a session without upload candidates', async () => {
+        const responseData = protobuf_encode<HttpConn0x6FF501Response>({
+            httpConn: { sigSession: new Uint8Array([0xaa]), serverInfos: [] },
+        });
+        const bridge = {
+            sendRawPacket: vi.fn(async () => ({ success: true, gotResponse: true, responseData })),
+        } as unknown as BridgeContext;
+        await expect(fetchHighwaySession(bridge)).rejects.toThrow('no upload servers');
     });
 
     it('records a thrown control request as one failed terminal', async () => {
@@ -390,6 +440,185 @@ describe('fetchHighwaySession trace lifecycle', () => {
         } finally {
             unsubscribe();
         }
+    });
+});
+
+describe('Highway initial connection selection', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        setLogLevel(previousLogLevel);
+    });
+
+    function sessionWithCandidates() {
+        return {
+            ...makeSession(),
+            servers: [
+                { host: '192.0.2.1', port: 15000 },
+                { host: '192.0.2.2', port: 443 },
+            ],
+        };
+    }
+
+    it.each(['timeout', 'ECONNREFUSED', 'ENETUNREACH'])(
+        'switches on %s and uploads over the successful connection',
+        async (failure) => {
+            vi.useFakeTimers();
+            installFactory((idx) => {
+                const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+
+                if (idx === 0) {
+                    socket.connectFailure = failure === 'timeout' ? 'timeout' : new Error(failure);
+                }
+
+                return socket;
+            });
+            const session = sessionWithCandidates();
+            const original = structuredClone(session);
+            const source = new RecordingChunkSource(2 * HIGHWAY_BLOCK_SIZE + 1);
+            const upload = uploadHighwayHttp(
+                makeBridge(),
+                session,
+                1004,
+                source,
+                new Uint8Array(16),
+                new Uint8Array(),
+            );
+            const completed = expect(upload).resolves.toBeUndefined();
+            await vi.runAllTimersAsync();
+            await completed;
+            expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual(
+                session.servers,
+            );
+            const [failed, connected] = createdSockets as FakeSocket[];
+            expect(failed!.destroyed).toBe(true);
+            expect(failed!.posts).toBe(0);
+            expect(connected!.posts).toBe(3);
+            expect(
+                connected!.headers.every((header) => header.includes('Host: 192.0.2.2\r\n')),
+            ).toBe(true);
+            expect(connected!.destroyed).toBe(true);
+            expect(source.closeCount).toBe(1);
+            expect(session).toEqual(original);
+        },
+    );
+
+    it('bounds initial selection to ten seconds without repeating exhausted candidates', async () => {
+        vi.useFakeTimers();
+        installFactory(() => {
+            const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+            socket.connectFailure = 'timeout';
+            return socket;
+        });
+        const session = {
+            ...makeSession(),
+            servers: Array.from({ length: 5 }, (_, i) => ({
+                host: `192.0.2.${i + 1}`,
+                port: 15000,
+            })),
+        };
+        const source = new RecordingChunkSource(1);
+        const entries: LogEntry[] = [];
+        setLogLevel('trace');
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+
+        try {
+            const start = Date.now();
+            const upload = uploadHighwayHttp(
+                makeBridge(),
+                session,
+                1004,
+                source,
+                new Uint8Array(16),
+                new Uint8Array(),
+            );
+            const failed = expect(upload).rejects.toThrow(/connection failed.*TCP connect timeout/);
+            await vi.runAllTimersAsync();
+            await failed;
+            expect(Date.now() - start).toBe(10000);
+            expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual(
+                session.servers.slice(0, 4),
+            );
+            expect(
+                (createdSockets as FakeSocket[]).every(
+                    (socket) => socket.destroyed && socket.posts === 0,
+                ),
+            ).toBe(true);
+            expect(source.closeCount).toBe(1);
+            const terminals = highwayTrace(entries).filter((entry) =>
+                entry.message.startsWith('highway_put_terminal '),
+            );
+            expect(terminals).toHaveLength(1);
+            expect(terminals[0]!.message).toContain('reason=connect_exhausted');
+            expect(terminals[0]!.message).toContain('connections=0');
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('fails immediately after all candidates refuse the connection', async () => {
+        vi.useFakeTimers();
+        installFactory(() => {
+            const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+            socket.connectFailure = new Error('ECONNREFUSED');
+            return socket;
+        });
+        const session = sessionWithCandidates();
+        const source = new RecordingChunkSource(1);
+        const upload = uploadHighwayHttp(
+            makeBridge(),
+            session,
+            1004,
+            source,
+            new Uint8Array(16),
+            new Uint8Array(),
+        );
+        const failed = expect(upload).rejects.toThrow(
+            /192\.0\.2\.1:15000.*ECONNREFUSED.*192\.0\.2\.2:443.*ECONNREFUSED/,
+        );
+        await vi.runAllTimersAsync();
+        await failed;
+        expect(createConnectionMock).toHaveBeenCalledTimes(2);
+        expect(source.closeCount).toBe(1);
+    });
+
+    it('stays on the selected node after data was sent without an acknowledgement', async () => {
+        vi.useFakeTimers();
+        installFactory(
+            (idx) =>
+                new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', idx === 0 ? 1 : -1),
+        );
+        const session = sessionWithCandidates();
+        const upload = uploadHighwayHttp(
+            makeBridge(),
+            session,
+            1004,
+            new RecordingChunkSource(1),
+            new Uint8Array(16),
+            new Uint8Array(),
+        );
+        const completed = expect(upload).resolves.toBeUndefined();
+        await vi.runAllTimersAsync();
+        await completed;
+        expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual([
+            session.servers[0],
+            session.servers[0],
+        ]);
+    });
+
+    it('does not switch nodes on a protocol rejection', async () => {
+        installFactory(() => new FakeSocket(buildErrorCodeFrame(), 'keepalive'));
+        await expect(
+            uploadHighwayHttp(
+                makeBridge(),
+                sessionWithCandidates(),
+                1004,
+                new RecordingChunkSource(1),
+                new Uint8Array(16),
+                new Uint8Array(),
+            ),
+        ).rejects.toThrow('error_code=921');
+        expect(createConnectionMock).toHaveBeenCalledTimes(1);
     });
 });
 
