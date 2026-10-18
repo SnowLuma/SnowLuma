@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
-  <a href="./docs/onebot-actions.md">动作参考</a> ·
+  <a href="https://snowluma.github.io/zh/docs/api">动作参考</a> ·
   <a href="https://github.com/SnowLuma/SnowLuma/issues">问题反馈</a>
 </p>
 
@@ -60,7 +60,8 @@ SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生
 
 | 入口 | 文档 |
 | --- | --- |
-| WebSocket / HTTP | [OneBot 动作参考](docs/onebot-actions.md) |
+| WebSocket / HTTP | [OneBot 动作参考](https://snowluma.github.io/zh/docs/api) |
+| 部署（Docker / Windows） | [部署指南](https://snowluma.github.io/zh/docs/guide/deploy) |
 | TypeScript SDK | [`packages/sdk/README.md`](packages/sdk/README.md) |
 | MCP | [`packages/mcp/README.md`](packages/mcp/README.md) |
 
