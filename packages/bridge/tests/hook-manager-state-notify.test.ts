@@ -262,12 +262,15 @@ describe('HookManager periodic account re-probe', () => {
 
         try {
             await ctx.pipeWatcher.start();
+            const snapshot = ctx.manager.listProcesses();
+            await flush();
             ctx.setProcesses([]);
             await ctx.pipeWatcher.tickNow();
             await flush();
             ctx.onSessionsChanged.mockClear();
             probe.resolve([{ uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 }]);
             await flush();
+            expect(await snapshot).toEqual([]);
             expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
             expect(await ctx.manager.listProcesses()).toEqual([]);
         } finally {

@@ -207,7 +207,10 @@ export class HookManager {
                       return session;
                   });
         await this.refreshAccounts();
-        return sessions.map((session) => this.processInfo(session)).sort((a, b) => a.pid - b.pid);
+        return sessions
+            .filter((session) => this.sessions.get(session.pid) === session)
+            .map((session) => this.processInfo(session))
+            .sort((a, b) => a.pid - b.pid);
     }
 
     async loadProcess(pid: number): Promise<HookProcessInfo> {
