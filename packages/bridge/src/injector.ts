@@ -16,6 +16,7 @@ export interface ManualMapHandle {
 interface NativeHookAddon {
     getRuntimeIntegrity?(): unknown;
     getAllMainProcess(): number[];
+    probeDbLock?(dbPath: string): { pid: number; name: string }[];
     loadModuleManual(pid: number, dylibPath: string): ManualMapHandle | Promise<ManualMapHandle>;
     unloadModuleManual(pid: number, handle: ManualMapHandle): void;
 }

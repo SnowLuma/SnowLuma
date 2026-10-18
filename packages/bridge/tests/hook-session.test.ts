@@ -8,7 +8,6 @@ import {
     type QqHookClient,
     type QqHookPacket,
 } from '../src/qq-hook-client';
-import type { QqPortLoginInfo } from '../src/qq-port-probe';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import type { PacketSink } from '@snowluma/common/protocol-types';
 import { getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
@@ -104,7 +103,7 @@ function makeSession(
         pipeLive?: boolean;
         clientFailsConnect?: boolean;
         onPacket?: PacketSink;
-        probeLogin?: (pid: number) => Promise<QqPortLoginInfo | null>;
+        detectLoginUin?: (pid: number) => Promise<string | null>;
         nativeReadyOnIdentityHint?: boolean;
         identityHintFailures?: number;
     } = {},
@@ -116,10 +115,9 @@ function makeSession(
         inject: vi.fn(() => ({ method: 'loadModuleManual' as const, handle: DUMMY_HANDLE })),
         unload: vi.fn(),
     };
-    // Default probe exposes no identity so the reconcile safety net is inert
-    // unless a test opts into a known account.
-    const probeLogin =
-        opts.probeLogin ?? (async () => ({ port: 0, uin: '', identityKnown: false }));
+    // Default detection exposes no account so the reconcile safety net is inert
+    // unless a test opts into a known one.
+    const detectLoginUin = opts.detectLoginUin ?? (async () => null);
 
     const session = new HookSession(pid, {
         injector,
@@ -136,7 +134,7 @@ function makeSession(
             // Cast: FakeClient mirrors only the surface HookSession touches.
             return c as unknown as QqHookClient;
         },
-        probeLogin,
+        detectLoginUin,
         pipeWatcher: { isPipeLive: () => pipeLive },
         onPacket: opts.onPacket,
     });
@@ -1003,10 +1001,35 @@ describe('HookSession — packet forwarding', () => {
 });
 
 describe('HookSession — login reconcile (Docker auto-login safety net)', () => {
+    it('discards an identity read started before a pipe reconnect', async () => {
+        const detection = Promise.withResolvers<string | null>();
+        const ctx = makeSession({ pipeLive: true, detectLoginUin: () => detection.promise });
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await flush();
+            const previous = ctx.currentClient();
+            previous.close();
+            await flush();
+            ctx.session.onPipeUp();
+            await flush();
+            const current = ctx.currentClient();
+            expect(current).not.toBe(previous);
+            detection.resolve('10001');
+            await flush();
+            expect(current.loginIdentityHints).toEqual([]);
+            expect(previous.loginIdentityHints).toEqual([]);
+        } finally {
+            detection.resolve(null);
+            ctx.session.dispose();
+        }
+    });
+
     it('keeps the packet sender usable only after native readiness confirms the identity hint', async () => {
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
+            detectLoginUin: async () => '10001',
             nativeReadyOnIdentityHint: true,
         });
         let sender: PacketSender | undefined;
@@ -1033,12 +1056,12 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         ]);
     });
 
-    it('treats a port-probed account as an identity hint, not native login proof', async () => {
+    it('treats a locally detected account as an identity hint, not native login proof', async () => {
         // Account identity does not prove request readiness. The bridge must wait
         // for a login-state confirmation instead of synthesizing one.
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
+            detectLoginUin: async () => '10001',
         });
         const loginSpy = vi.fn();
         ctx.session.on('login', loginSpy);
@@ -1058,7 +1081,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         vi.useFakeTimers();
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
+            detectLoginUin: async () => '10001',
         });
 
         try {
@@ -1079,7 +1102,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         let uin = '10001';
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin, identityKnown: true }),
+            detectLoginUin: async () => uin,
         });
 
         try {
@@ -1104,7 +1127,7 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         vi.useFakeTimers();
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown: true }),
+            detectLoginUin: async () => '10001',
             identityHintFailures: 3,
         });
 
@@ -1128,10 +1151,10 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         }
     });
 
-    it('does not log in when the probe reports not-logged-in', async () => {
+    it('does not log in when no account is detected', async () => {
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 0, uin: '', identityKnown: false }),
+            detectLoginUin: async () => null,
         });
         const loginSpy = vi.fn();
         ctx.session.on('login', loginSpy);
@@ -1144,10 +1167,10 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         expect(ctx.session.status).toBe('loaded');
     });
 
-    it('ignores a probe with a non-real uin (0)', async () => {
+    it('ignores a detected account with a non-real uin (0)', async () => {
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => ({ port: 4301, uin: '0', identityKnown: true }),
+            detectLoginUin: async () => '0',
         });
         const loginSpy = vi.fn();
         ctx.session.on('login', loginSpy);
@@ -1159,11 +1182,11 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         expect(loginSpy).not.toHaveBeenCalled();
     });
 
-    it('tolerates a throwing probe (best-effort, no crash/login)', async () => {
+    it('tolerates a throwing detection (best-effort, no crash/login)', async () => {
         const ctx = makeSession({
             pipeLive: true,
-            probeLogin: async () => {
-                throw new Error('port scan failed');
+            detectLoginUin: async () => {
+                throw new Error('account detection unavailable');
             },
         });
         const loginSpy = vi.fn();
@@ -1177,14 +1200,14 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
         expect(ctx.session.status).toBe('loaded');
     });
 
-    it('detects a login that lands on a LATER interval probe', async () => {
+    it('detects a login that lands on a LATER interval check', async () => {
         vi.useFakeTimers();
 
         try {
-            let identityKnown = false;
+            let signedIn = false;
             const ctx = makeSession({
                 pipeLive: true,
-                probeLogin: async () => ({ port: 4301, uin: '10001', identityKnown }),
+                detectLoginUin: async () => (signedIn ? '10001' : null),
                 nativeReadyOnIdentityHint: true,
             });
             const loginSpy = vi.fn();
@@ -1195,8 +1218,8 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
             await vi.advanceTimersByTimeAsync(0); // connect + immediate probe (not logged in yet)
             expect(loginSpy).not.toHaveBeenCalled();
 
-            identityKnown = true; // QQ exposes the restored identity
-            await vi.advanceTimersByTimeAsync(3000); // next interval probe picks it up
+            signedIn = true; // the account's database shows up as signed in
+            await vi.advanceTimersByTimeAsync(3000); // next interval check picks it up
 
             expect(loginSpy).toHaveBeenCalledOnce();
             expect(ctx.session.status).toBe('online');
@@ -1208,8 +1231,8 @@ describe('HookSession — login reconcile (Docker auto-login safety net)', () =>
     it('does not double-emit when the pushed frame logs in first', async () => {
         // Pushed-frame login wins; a subsequent probe with the same uin must not
         // re-emit (handleLoginState dedups), and the reconcile timer is stopped.
-        const probeLogin = vi.fn(async () => ({ port: 4301, uin: '10001', identityKnown: true }));
-        const ctx = makeSession({ pipeLive: true, probeLogin });
+        const detectLoginUin = vi.fn(async () => '10001');
+        const ctx = makeSession({ pipeLive: true, detectLoginUin });
         const loginSpy = vi.fn();
         ctx.session.on('login', loginSpy);
 
@@ -1414,27 +1437,27 @@ describe('HookSession — end-to-end receive health (#233)', () => {
     });
 });
 
-describe('HookSession — login reconcile does not stack concurrent probes', () => {
-    it('skips overlapping ticks while a slow probe is in flight', async () => {
+describe('HookSession — login reconcile does not stack concurrent detections', () => {
+    it('skips overlapping ticks while a slow detection is in flight', async () => {
         vi.useFakeTimers();
 
         try {
-            // A probe that never resolves — simulates a slow port scan spanning
+            // A detection that never resolves — simulates a slow read spanning
             // multiple intervals. The in-flight guard must call it only once.
-            const probeLogin = vi.fn(
+            const detectLoginUin = vi.fn(
                 () =>
                     new Promise<never>(() => {
                         /* pending */
                     }),
             );
-            const ctx = makeSession({ pipeLive: true, probeLogin });
+            const ctx = makeSession({ pipeLive: true, detectLoginUin });
 
             await ctx.session.load();
             ctx.session.onPipeUp();
             await vi.advanceTimersByTimeAsync(0); // connect + immediate probe (starts, stays pending)
             await vi.advanceTimersByTimeAsync(9000); // 3 more interval ticks
 
-            expect(probeLogin).toHaveBeenCalledTimes(1); // not stacked
+            expect(detectLoginUin).toHaveBeenCalledTimes(1); // not stacked
         } finally {
             vi.useRealTimers();
         }

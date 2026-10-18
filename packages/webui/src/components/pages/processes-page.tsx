@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertCircle, CheckCircle2, Cpu, Eye, Loader2, RefreshCw, Unplug } from 'lucide-react';
+import { AlertCircle, Cpu, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { ProcessProbeDialog } from '@/components/process-probe-dialog';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import type { HookProcessInfo } from '@/types';
@@ -18,6 +18,11 @@ const SORT_OPTIONS: { id: string; label: string }[] = [
     { id: 'name', label: '名称' },
     { id: 'status', label: '状态' },
 ];
+
+function qqAvatarUrl(uin: string) {
+    return `/avatar/${encodeURIComponent(uin)}`;
+}
+
 // Online-first, then by how actionable the state is.
 const STATUS_ORDER: Record<HookProcessInfo['status'], number> = {
     online: 0,
@@ -44,11 +49,7 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
         return 'success' as const;
     }
 
-    if (status === 'error') {
-        return 'destructive' as const;
-    }
-
-    if (status === 'disconnected') {
+    if (status === 'error' || status === 'disconnected') {
         return 'destructive' as const;
     }
 
@@ -59,13 +60,6 @@ function processBadgeVariant(status: HookProcessInfo['status']) {
     return 'secondary' as const;
 }
 
-/**
- * Process / injection control surface. Split out of the overview page so the
- * homepage stays a read-only monitoring dashboard. State (processList,
- * processOps) is owned by AppLayout and read from context, so this page needs
- * no plumbing of its own; the layout keeps polling and the unload-failed alert
- * regardless of which page is mounted.
- */
 export function ProcessesPage() {
     const { processList, processOps, refreshProcesses, resources } = useAppState();
     const { statusOf, banner: processActionStatus, load, unload, refresh } = processOps;
@@ -76,19 +70,14 @@ export function ProcessesPage() {
         pid: number;
         name: string;
     } | null>(null);
-    const [probeDialog, setProbeDialog] = useState<{ pid: number; name: string } | null>(null);
-
     const sortKey = pages.processesSort;
     const sorted = useMemo(() => {
         const arr = [...processList];
 
         if (sortKey === 'name') {
-            arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            arr.sort((a, b) => a.name.localeCompare(b.name));
         } else if (sortKey === 'status') {
-            arr.sort(
-                (a, b) =>
-                    (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.pid - b.pid,
-            );
+            arr.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.pid - b.pid);
         } else {
             arr.sort((a, b) => a.pid - b.pid);
         }
@@ -102,9 +91,7 @@ export function ProcessesPage() {
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
                     <div className="min-w-0">
                         <CardTitle>进程注入</CardTitle>
-                        <CardDescription>
-                            加载 SnowLuma 后会监听登录状态，登录后自动接入 OneBot 流程
-                        </CardDescription>
+                        <CardDescription>加载后，已登录账号将自动接入 OneBot</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
                         {processList.length > 1 && (
@@ -192,18 +179,21 @@ export function ProcessesPage() {
                                     <Cpu className="size-8 opacity-40" strokeWidth={1.5} />
                                     <p className="text-sm">未检测到可加载 QQ 主进程</p>
                                     <p className="text-xs text-muted-foreground/80">
-                                        请确认 QQ 已启动后点击右上角刷新
+                                        启动 QQ 后刷新
                                     </p>
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
                                     {sorted.map((proc, idx) => {
+                                        const uin = proc.loggedIn ? proc.uin : proc.account?.uin;
+                                        const nickname =
+                                            proc.account?.uin === uin ? proc.account?.nickname : '';
+                                        const name = nickname || uin || proc.name;
                                         const op = statusOf(proc.pid);
                                         const loading = op === 'load' || proc.status === 'loading';
                                         const unloading = op === 'unload';
                                         const refreshing = op === 'refresh';
                                         const busy = op != null || proc.status === 'loading';
-                                        const isOnline = proc.status === 'online';
                                         const canUnload = proc.injected;
                                         // Refresh is meaningful whenever a hook may exist (so the user
                                         // can re-check the pipe and trigger a reconnect on demand).
@@ -230,28 +220,36 @@ export function ProcessesPage() {
                         a second row so name / PID / path get the full width
                         instead of collapsing to "Q..". */}
                                                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                                                    <div
-                                                        className={cn(
-                                                            'flex size-10 shrink-0 items-center justify-center rounded-xl',
-                                                            isOnline
-                                                                ? 'bg-success/15 text-success'
-                                                                : proc.status === 'error'
-                                                                  ? 'bg-destructive/15 text-destructive'
-                                                                  : 'bg-primary/10 text-primary',
-                                                        )}
-                                                    >
-                                                        {isOnline ? (
-                                                            <CheckCircle2 className="size-5" />
-                                                        ) : proc.status === 'error' ? (
-                                                            <AlertCircle className="size-5" />
-                                                        ) : (
-                                                            <Cpu className="size-5" />
-                                                        )}
-                                                    </div>
+                                                    {uin ? (
+                                                        <Avatar size={40}>
+                                                            <AvatarImage
+                                                                src={qqAvatarUrl(uin)}
+                                                                alt={name}
+                                                            />
+                                                            <AvatarFallback>
+                                                                {name.slice(0, 2)}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                    ) : (
+                                                        <div
+                                                            className={cn(
+                                                                'flex size-10 shrink-0 items-center justify-center rounded-xl',
+                                                                proc.status === 'error'
+                                                                    ? 'bg-destructive/15 text-destructive'
+                                                                    : 'bg-primary/10 text-primary',
+                                                            )}
+                                                        >
+                                                            {proc.status === 'error' ? (
+                                                                <AlertCircle className="size-5" />
+                                                            ) : (
+                                                                <Cpu className="size-5" />
+                                                            )}
+                                                        </div>
+                                                    )}
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex items-center gap-2">
                                                             <span className="min-w-0 truncate text-sm font-semibold">
-                                                                {proc.name || 'QQ.exe'}
+                                                                {name}
                                                             </span>
                                                             <Badge
                                                                 variant={processBadgeVariant(
@@ -264,9 +262,7 @@ export function ProcessesPage() {
                                                         </div>
                                                         <div className="mt-0.5 truncate font-mono text-meta text-muted-foreground tabular-nums">
                                                             PID {proc.pid}
-                                                            {proc.uin && proc.uin !== '0'
-                                                                ? ` · UIN ${proc.uin}`
-                                                                : ''}
+                                                            {uin ? ` · QQ ${uin}` : ''}
                                                         </div>
                                                         {proc.path && (
                                                             <div
@@ -287,20 +283,6 @@ export function ProcessesPage() {
                                                     </div>
                                                 </div>
                                                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        disabled={busy}
-                                                        onClick={() =>
-                                                            setProbeDialog({
-                                                                pid: proc.pid,
-                                                                name:
-                                                                    proc.name || `PID ${proc.pid}`,
-                                                            })
-                                                        }
-                                                    >
-                                                        <Eye className="size-3.5" /> 探测登录
-                                                    </Button>
                                                     {showRefresh && (
                                                         <Button
                                                             size="icon"
@@ -385,25 +367,6 @@ export function ProcessesPage() {
                     }
                 }}
             />
-
-            {probeDialog && (
-                <ProcessProbeDialog
-                    pid={probeDialog.pid}
-                    processName={probeDialog.name}
-                    open={!!probeDialog}
-                    onOpenChange={(open) => !open && setProbeDialog(null)}
-                    onLoad={() => {
-                        if (probeDialog) {
-                            setConfirm({
-                                kind: 'load',
-                                pid: probeDialog.pid,
-                                name: probeDialog.name,
-                            });
-                            setProbeDialog(null);
-                        }
-                    }}
-                />
-            )}
         </div>
     );
 }

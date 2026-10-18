@@ -39,6 +39,18 @@ request headers. The backend still accepts `Authorization: Bearer <token>` for
 existing clients when the dedicated header is absent. Both layers still require
 their own valid credentials.
 
+## Process account detection
+
+Process cards use QQ's local account data before injection and the hook's confirmed
+identity after login. Missing local data means the account is unknown. It does not
+prove that QQ is signed out, and local detection alone never marks a bridge online.
+The manual login probe and `/api/processes/:pid/probe-login` endpoint are removed.
+
+Linux resolves data roots from each QQ process's `XDG_CONFIG_HOME` or `HOME`.
+Windows requires a hook addon with `probeDbLock`; the currently bundled addon does
+not provide it, so pre-injection account detection is unavailable there. A missing
+interface is logged. Hook login events continue to report the online account.
+
 ## Account notification templates
 
 Webhook bodies and email subjects/bodies support `{uin}`, `{nickname}`, `{event}`

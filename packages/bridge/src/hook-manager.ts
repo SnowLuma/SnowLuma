@@ -14,10 +14,12 @@ import {
 import { PipeWatcher } from './pipe-watcher';
 import { createNativeProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
-import { probeQqLoginInfo, type QqPortLoginInfo } from './qq-port-probe';
-import type { HookProcessInfo } from './types';
+import { detectAccountLoginsForPids, type AccountLoginState } from './qq-account';
+import type { HookProcessAccount, HookProcessInfo } from './types';
 
 const AUTO_LOAD_MAX_ATTEMPTS = 3;
+
+const DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS = 5000;
 
 type AutoLoadAttempt = {
     attempts: number;
@@ -54,6 +56,14 @@ export type HookManagerDeps = {
     watcherIntervalMs?: number;
     /** Native process lister used by `listProcesses()`. Defaults to the native addon. */
     listProcesses?: () => HookProcessBaseInfo[];
+    /** Local account detection used to label each process with the account QQ is
+     *  signed in as. Receives the pids to label so each one is resolved against
+     *  the HOME it actually runs under (a container can give every QQ instance
+     *  its own). Defaults to reading QQ's own account data. */
+    detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
+    /** How often the watcher re-probes the account label of each process, in
+     *  milliseconds. Defaults to `DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS`. */
+    accountReprobeIntervalMs?: number;
     /** When true, every newly-discovered QQ process is auto-injected (fires
      * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
      * Failed loads are logged and leave the session in the 'error' state.
@@ -101,12 +111,19 @@ export class HookManager {
     /** The owned enumerator (worker lifecycle), or null when a custom lister was
      *  injected (tests) — nothing to tear down in that case. */
     private readonly enumerator: ProcessEnumerator | null;
+    private readonly detectAccounts: (pids: readonly number[]) => Promise<AccountLoginState[]>;
+    private readonly accountReprobeIntervalMs: number;
     private readonly autoLoadOnDiscovery: boolean;
     private readonly onSessionsChangedRaw?: () => void;
     private readonly log: Logger;
     private readonly sessions = new Map<number, HookSession>();
     private readonly autoLoadAttempts = new Map<number, AutoLoadAttempt>();
     private readonly startPromise: Promise<void>;
+
+    private accounts = new Map<number, HookProcessAccount>();
+    private accountProbe: Promise<void> | null = null;
+    private nextAccountProbeAt = 0;
+    private lastAccountProbeFailure = '';
 
     private disposed = false;
 
@@ -127,6 +144,9 @@ export class HookManager {
             },
         };
         this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
+        this.detectAccounts = deps.detectAccounts ?? detectAccountLoginsForPids;
+        this.accountReprobeIntervalMs =
+            deps.accountReprobeIntervalMs ?? DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS;
         this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
 
         // A custom lister (tests) is used directly — no worker, no isolation, just
@@ -177,22 +197,20 @@ export class HookManager {
     async listProcesses(): Promise<HookProcessInfo[]> {
         await this.startPromise;
         const processes = await this.enumerate();
-
-        if (processes === null) {
-            // Enumeration timed out / failed — report the last-known sessions rather
-            // than an empty list (which the WebUI would render as "no QQ").
-            return [...this.sessions.values()].map((s) => s.toInfo()).sort((a, b) => a.pid - b.pid);
-        }
-
-        const result: HookProcessInfo[] = [];
-
-        for (const proc of processes) {
-            const session = this.ensureSession(proc.pid);
-            session.attachProcessInfo(proc);
-            result.push(session.toInfo());
-        }
-
-        return result.sort((a, b) => a.pid - b.pid);
+        // A failed enumeration preserves the last known process set.
+        const sessions =
+            processes === null
+                ? [...this.sessions.values()]
+                : processes.map((proc) => {
+                      const session = this.ensureSession(proc.pid);
+                      session.attachProcessInfo(proc);
+                      return session;
+                  });
+        await this.refreshAccounts();
+        return sessions
+            .filter((session) => this.sessions.get(session.pid) === session)
+            .map((session) => this.processInfo(session))
+            .sort((a, b) => a.pid - b.pid);
     }
 
     async loadProcess(pid: number): Promise<HookProcessInfo> {
@@ -200,11 +218,10 @@ export class HookManager {
         await this.startPromise;
         this.autoLoadAttempts.delete(pid);
         const session = this.ensureSession(pid);
-        const info = await session.load();
-        // Pull the next tick forward so a freshly-injected pipe gets noticed
-        // within the next event-loop turn instead of after the full interval.
+        await session.load();
         this.pipeWatcher.wake();
-        return info;
+        await this.refreshAccounts();
+        return this.processInfo(session);
     }
 
     async unloadProcess(pid: number): Promise<HookProcessInfo> {
@@ -212,19 +229,18 @@ export class HookManager {
         await this.startPromise;
         this.autoLoadAttempts.delete(pid);
         const session = this.ensureSession(pid);
-        return session.unload();
+        await session.unload();
+        await this.refreshAccounts();
+        return this.processInfo(session);
     }
 
     async refreshProcess(pid: number): Promise<HookProcessInfo> {
         this.assertValidPid(pid);
         await this.startPromise;
         const session = this.ensureSession(pid);
-        return session.refresh();
-    }
-
-    async probeProcessLoginInfo(pid: number): Promise<QqPortLoginInfo | null> {
-        this.assertValidPid(pid);
-        return probeQqLoginInfo(pid);
+        await session.refresh();
+        await this.refreshAccounts();
+        return this.processInfo(session);
     }
 
     dispose(): void {
@@ -239,6 +255,7 @@ export class HookManager {
         }
 
         this.sessions.clear();
+        this.accounts.clear();
         this.autoLoadAttempts.clear();
         this.enumerator?.dispose();
 
@@ -248,6 +265,80 @@ export class HookManager {
     }
 
     // ─────────────── wiring ───────────────
+
+    private processInfo(session: HookSession): HookProcessInfo {
+        return { ...session.toInfo(), account: this.accounts.get(session.pid) ?? null };
+    }
+
+    /** REST, watcher ticks and login reconciliation share the same account snapshot. */
+    private async refreshAccounts(): Promise<void> {
+        if (this.disposed) {
+            return;
+        }
+
+        if (this.accountProbe) {
+            await this.accountProbe;
+
+            // Process discovery invalidates the snapshot while a read is in flight.
+            if (this.nextAccountProbeAt === 0) {
+                await this.refreshAccounts();
+            }
+
+            return;
+        }
+
+        if (Date.now() < this.nextAccountProbeAt || this.sessions.size === 0) {
+            return;
+        }
+
+        this.nextAccountProbeAt = Date.now() + this.accountReprobeIntervalMs;
+        this.accountProbe = runWithTraceRequest(() => this.readAccounts()).finally(() => {
+            this.accountProbe = null;
+        });
+        await this.accountProbe;
+    }
+
+    private async readAccounts(): Promise<void> {
+        const sessions = new Map(this.sessions);
+        const accounts = new Map<number, HookProcessAccount>();
+
+        try {
+            for (const state of await this.detectAccounts([...sessions.keys()])) {
+                if (
+                    state.pid !== null &&
+                    sessions.has(state.pid) &&
+                    this.sessions.get(state.pid) === sessions.get(state.pid)
+                ) {
+                    accounts.set(state.pid, { uin: state.uin, nickname: state.nickname });
+                }
+            }
+
+            this.lastAccountProbeFailure = '';
+        } catch (error) {
+            const message = errMsg(error);
+
+            if (this.lastAccountProbeFailure !== message) {
+                this.lastAccountProbeFailure = message;
+                this.log.warn('account detection failed: %s', message);
+            }
+        }
+
+        if (this.disposed) {
+            return;
+        }
+
+        const changed =
+            accounts.size !== this.accounts.size ||
+            [...accounts].some(([pid, account]) => {
+                const previous = this.accounts.get(pid);
+                return previous?.uin !== account.uin || previous.nickname !== account.nickname;
+            });
+        this.accounts = accounts;
+
+        if (changed) {
+            this.notifySessionsChanged();
+        }
+    }
 
     private bindWatcher(): void {
         this.pipeWatcher.on('process-discovered', (info: HookProcessBaseInfo) => {
@@ -337,6 +428,8 @@ export class HookManager {
             if (this.disposed) {
                 return;
             }
+
+            void this.refreshAccounts();
 
             for (const session of this.sessions.values()) {
                 const autoLoad = this.autoLoadAttempts.get(session.pid);
@@ -500,6 +593,10 @@ export class HookManager {
             makeClient: this.makeClient,
             pipeWatcher: this.pipeWatcher,
             onPacket: this.onPacket,
+            detectLoginUin: async () => {
+                await this.refreshAccounts();
+                return this.accounts.get(pid)?.uin ?? null;
+            },
             log: this.log,
         });
         session.attachProcessInfo({ name: defaultProcessName() });
@@ -523,9 +620,12 @@ export class HookManager {
         });
         session.on('disposed', () => {
             this.sessions.delete(pid);
+            this.accounts.delete(pid);
+            this.nextAccountProbeAt = 0;
         });
 
         this.sessions.set(pid, session);
+        this.nextAccountProbeAt = 0;
         return session;
     }
 
@@ -612,5 +712,4 @@ export function shouldAutoLoadPid(pid: number, log: Logger): boolean {
 }
 
 export type { HookProcessBaseInfo } from './injector';
-export type { QqPortLoginInfo } from './qq-port-probe';
-export type { HookProcessInfo, HookProcessStatus } from './types';
+export type { HookProcessAccount, HookProcessInfo, HookProcessStatus } from './types';

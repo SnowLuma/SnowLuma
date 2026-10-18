@@ -5,6 +5,7 @@ import { PipeWatcher } from '../src/pipe-watcher';
 import type { ManualMapHandle } from '../src/injector';
 import type { BridgeManagerSink } from '../src/hook-manager';
 import type { QqHookClient } from '../src/qq-hook-client';
+import type { AccountLoginState } from '../src/qq-account';
 
 // Regression cover for the WebUI SSE wiring: HookManager must call its
 // optional `onSessionsChanged` callback every time the observable set of
@@ -25,7 +26,14 @@ interface Harness {
     clientFactory: ReturnType<typeof vi.fn>;
 }
 
-function makeManager(opts: { processes?: number[]; livePipes?: number[] } = {}): Harness {
+function makeManager(
+    opts: {
+        processes?: number[];
+        livePipes?: number[];
+        detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
+        accountReprobeIntervalMs?: number;
+    } = {},
+): Harness {
     let pids = opts.processes ?? [];
     let live = new Set<number>(opts.livePipes ?? []);
     const pipeWatcher = new PipeWatcher({
@@ -65,6 +73,8 @@ function makeManager(opts: { processes?: number[]; livePipes?: number[] } = {}):
         },
         makeClient: clientFactory,
         listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+        detectAccounts: opts.detectAccounts ?? (async () => []),
+        accountReprobeIntervalMs: opts.accountReprobeIntervalMs,
         onSessionsChanged,
     });
     return {
@@ -184,6 +194,7 @@ describe('HookManager.onSessionsChanged', () => {
                 return c;
             }),
             listProcesses: () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
+            detectAccounts: async () => [],
             // onSessionsChanged deliberately omitted
         });
         await pipeWatcher.start();
@@ -193,6 +204,202 @@ describe('HookManager.onSessionsChanged', () => {
         expect(list).toHaveLength(1);
         expect(list[0].pid).toBe(4242);
         manager.dispose();
+    });
+});
+
+describe('HookManager periodic account re-probe', () => {
+    it('shares one account probe between watcher ticks and concurrent snapshots', async () => {
+        const probe = Promise.withResolvers<AccountLoginState[]>();
+        const detectAccounts = vi.fn(() => probe.promise);
+        const ctx = makeManager({ processes: [4242], detectAccounts });
+
+        try {
+            await ctx.pipeWatcher.start();
+            const first = ctx.manager.listProcesses();
+            const second = ctx.manager.listProcesses();
+            await flush();
+            expect(detectAccounts).toHaveBeenCalledTimes(1);
+            probe.resolve([{ uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 }]);
+            const snapshots = await Promise.all([first, second]);
+            expect(snapshots.map((list) => list[0]!.account)).toEqual([
+                { uin: '10001', nickname: 'Alice' },
+                { uin: '10001', nickname: 'Alice' },
+            ]);
+        } finally {
+            probe.resolve([]);
+            ctx.manager.dispose();
+        }
+    });
+
+    it('keeps all process labels when an operation reads just one process', async () => {
+        const accounts: AccountLoginState[] = [
+            { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+            { uin: '10002', uid: 'u_b', nickname: 'Bob', pid: 5151 },
+        ];
+        const detectAccounts = vi.fn(async (pids: readonly number[]) =>
+            accounts.filter((account) => pids.includes(account.pid!)),
+        );
+        const ctx = makeManager({ processes: [4242, 5151], detectAccounts });
+
+        try {
+            await ctx.manager.listProcesses();
+            const baseline = detectAccounts.mock.calls.length;
+            expect((await ctx.manager.refreshProcess(4242)).account?.uin).toBe('10001');
+            ctx.onSessionsChanged.mockClear();
+            await ctx.pipeWatcher.tickNow();
+            await flush();
+            expect(detectAccounts).toHaveBeenCalledTimes(baseline);
+            expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+            expect((await ctx.manager.listProcesses())[1]!.account?.uin).toBe('10002');
+        } finally {
+            ctx.manager.dispose();
+        }
+    });
+
+    it('does not publish a late account result for an exited process', async () => {
+        const probe = Promise.withResolvers<AccountLoginState[]>();
+        const ctx = makeManager({ processes: [4242], detectAccounts: () => probe.promise });
+
+        try {
+            await ctx.pipeWatcher.start();
+            const snapshot = ctx.manager.listProcesses();
+            await flush();
+            ctx.setProcesses([]);
+            await ctx.pipeWatcher.tickNow();
+            await flush();
+            ctx.onSessionsChanged.mockClear();
+            probe.resolve([{ uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 }]);
+            await flush();
+            expect(await snapshot).toEqual([]);
+            expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+            expect(await ctx.manager.listProcesses()).toEqual([]);
+        } finally {
+            probe.resolve([]);
+            ctx.manager.dispose();
+        }
+    });
+
+    // A login can happen with no hook edge at all (QQ signs in after SnowLuma
+    // started, or before the hook was injected), so no session status changes
+    // and nothing pushes a fresh processes snapshot. These cover the watcher
+    // pass that re-reads the account labels and invalidates when they move.
+
+    it('publishes when a process gains an account label', async () => {
+        let accounts: AccountLoginState[] = [{ uin: '1', uid: 'u1', nickname: 'A', pid: null }];
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts: async () => accounts,
+            accountReprobeIntervalMs: 0,
+        });
+        await ctx.pipeWatcher.start();
+        await flush();
+        ctx.onSessionsChanged.mockClear();
+
+        // QQ finished signing in: the account's nt_msg.db is now held by 4242.
+        accounts = [{ uin: '1', uid: 'u1', nickname: 'A', pid: 4242 }];
+        await ctx.pipeWatcher.tickNow();
+        await flush();
+        await flush();
+
+        expect(ctx.onSessionsChanged).toHaveBeenCalled();
+        const list = await ctx.manager.listProcesses();
+        expect(list[0]!.account).toEqual({ uin: '1', nickname: 'A' });
+
+        ctx.manager.dispose();
+    });
+
+    it('stays silent while the labels are unchanged', async () => {
+        const accounts: AccountLoginState[] = [{ uin: '1', uid: 'u1', nickname: 'A', pid: 4242 }];
+        const detectAccounts = vi.fn(async () => accounts);
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts,
+            accountReprobeIntervalMs: 0,
+        });
+        await ctx.pipeWatcher.start();
+        await flush();
+        ctx.onSessionsChanged.mockClear();
+
+        await ctx.pipeWatcher.tickNow();
+        await ctx.pipeWatcher.tickNow();
+        await flush();
+        await flush();
+
+        // Detection did run again — it just had nothing new to report.
+        expect(detectAccounts.mock.calls.length).toBeGreaterThan(1);
+        expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+
+        ctx.manager.dispose();
+    });
+
+    it('ignores accounts that are not signed in on any process', async () => {
+        let accounts: AccountLoginState[] = [{ uin: '1', uid: 'u1', nickname: 'A', pid: null }];
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts: async () => accounts,
+            accountReprobeIntervalMs: 0,
+        });
+        await ctx.pipeWatcher.start();
+        await flush();
+        ctx.onSessionsChanged.mockClear();
+
+        // Only the cached-account set changed (another account signed in on
+        // another machine/user); no process label moved.
+        accounts = [
+            { uin: '1', uid: 'u1', nickname: 'A', pid: null },
+            { uin: '2', uid: 'u2', nickname: 'B', pid: null },
+        ];
+        await ctx.pipeWatcher.tickNow();
+        await flush();
+        await flush();
+
+        expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+
+        ctx.manager.dispose();
+    });
+
+    it('throttles the probe to the configured interval', async () => {
+        const detectAccounts = vi.fn(async () => [] as AccountLoginState[]);
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts,
+            accountReprobeIntervalMs: 60_000,
+        });
+        await ctx.pipeWatcher.start();
+        await flush();
+        const baseline = detectAccounts.mock.calls.length;
+
+        await ctx.pipeWatcher.tickNow();
+        await ctx.pipeWatcher.tickNow();
+        await flush();
+
+        expect(detectAccounts.mock.calls.length).toBe(baseline);
+
+        ctx.manager.dispose();
+    });
+
+    it('keeps working when detection fails, and reports the failure once', async () => {
+        const ctx = makeManager({
+            processes: [4242],
+            detectAccounts: async () => {
+                throw new Error('login.db unreadable');
+            },
+            accountReprobeIntervalMs: 0,
+        });
+        await ctx.pipeWatcher.start();
+        await flush();
+        ctx.onSessionsChanged.mockClear();
+
+        await expect(ctx.pipeWatcher.tickNow()).resolves.not.toThrow();
+        await expect(ctx.pipeWatcher.tickNow()).resolves.not.toThrow();
+        await flush();
+        await flush();
+
+        // Detection failing is not a label change, so nothing is published.
+        expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+        expect((await ctx.manager.listProcesses())[0]!.account).toBeNull();
+
+        ctx.manager.dispose();
     });
 });
 

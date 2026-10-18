@@ -40,9 +40,9 @@
       "types": "./src/qq-hook-client.ts",
       "default": "./src/qq-hook-client.ts"
     },
-    "./qq-port-probe": {
-      "types": "./src/qq-port-probe.ts",
-      "default": "./src/qq-port-probe.ts"
+    "./qq-account": {
+      "types": "./src/qq-account/index.ts",
+      "default": "./src/qq-account/index.ts"
     },
     "./types": {
       "types": "./src/types.ts",
@@ -54,7 +54,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@snowluma/common": "workspace:*"
+    "@snowluma/common": "workspace:*",
+    "@snowluma/sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
