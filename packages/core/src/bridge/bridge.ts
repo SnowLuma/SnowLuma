@@ -6,6 +6,11 @@ import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
 import { MSG_PUSH_CMD, parseMsgPushOrThrow, SysMsgDedup } from '@snowluma/protocol/msg-push';
 import { KICK_NT_CMD, parseKickNT } from '@snowluma/protocol/kick-nt';
+import {
+    PB_SEND_MSG_CMD,
+    PbSendMsgEchoTracker,
+    parsePbSendMsg,
+} from '@snowluma/protocol/pb-send-msg';
 import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
 import type { OnlineDeviceInfo } from '@snowluma/protocol/events';
 import { buildApiHub, type ApiHub } from './apis';
@@ -35,6 +40,8 @@ export class Bridge implements BridgeInterface {
     private msgRandom_ = (Date.now() & 0xffffffff) >>> 0;
     // Per-account dedup for QQ NT's already-deduped system pushes (#137).
     private readonly sysMsgDedup_ = new SysMsgDedup();
+    // Request/response pairing for self-sent message echoes (#528).
+    private readonly pbSendMsgTracker_ = new PbSendMsgEchoTracker();
     private onlineClients_: readonly Readonly<OnlineDeviceInfo>[] | null = null;
     private disposePromise_: Promise<void> | null = null;
     private readonly pendingPackets_ = new Set<Promise<void>>();
@@ -132,6 +139,12 @@ export class Bridge implements BridgeInterface {
             parseMsgPushOrThrow(pkt, identity, this.sysMsgDedup_),
         );
         this.pipeline.registerCmd(KICK_NT_CMD, parseKickNT);
+        // #528: a message typed inside the injected QQ client is never pushed
+        // back to that client, so its PbSendMsg response is the only trace.
+        // Parsing it restores the missing `message_sent` event.
+        this.pipeline.registerCmd(PB_SEND_MSG_CMD, (pkt, identity) =>
+            parsePbSendMsg(pkt, identity, this.pbSendMsgTracker_),
+        );
         this.events.on('online_devices_changed', (event) => {
             const snapshot = event.devices.map((device) => Object.freeze({ ...device }));
             this.onlineClients_ = Object.freeze(snapshot);
@@ -289,6 +302,9 @@ export class Bridge implements BridgeInterface {
 
     nextMessageRandom(): number {
         this.msgRandom_ = (this.msgRandom_ + 0x9e3779b9) >>> 0;
+        // #528: registering every random we mint lets the self-sent echo parser
+        // tell our own sends apart from messages typed by the operator.
+        this.pbSendMsgTracker_.rememberSelfRandom(this.msgRandom_);
         return this.msgRandom_ & 0x7fffffff;
     }
     async sendRawPacket(

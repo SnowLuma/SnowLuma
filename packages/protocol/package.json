@@ -32,6 +32,10 @@
       "types": "./src/kick-nt.ts",
       "default": "./src/kick-nt.ts"
     },
+    "./pb-send-msg": {
+      "types": "./src/pb-send-msg.ts",
+      "default": "./src/pb-send-msg.ts"
+    },
     "./element-builder": {
       "types": "./src/element-builder.ts",
       "default": "./src/element-builder.ts"
