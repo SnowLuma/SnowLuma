@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { cn } from '@/lib/utils';
 import { useApi } from '@/lib/api';
+import { startPolling } from '@/lib/polling';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { NotificationDeliveryRecord } from '@/types';
 
@@ -20,54 +21,27 @@ export function DeliveriesWidget() {
 
     useEffect(() => {
         let active = true;
-        let inFlight = false;
+        const stop = startPolling(async () => {
+            try {
+                const records = await api.notifications.recent(50);
 
-        const pull = () => {
-            // Skip while the tab is backgrounded, or if a request is still in flight
-            // (a slow endpoint must not stack overlapping polls). #185.
-            if (inFlight || document.hidden) {
-                return;
+                if (active) {
+                    setLoadError(null);
+                    setRecords(records);
+                }
+            } catch (error) {
+                console.error('load recent notification deliveries failed', error);
+
+                if (active) {
+                    setLoadError(error instanceof Error ? error.message : '加载最近投递失败');
+                    setRecords((prev) => prev ?? []);
+                }
             }
-
-            inFlight = true;
-            api.notifications
-                .recent(50)
-                .then((r) => {
-                    if (active) {
-                        setLoadError(null);
-                        setRecords(r);
-                    }
-                })
-                .catch((error) => {
-                    console.error('load recent notification deliveries failed', error);
-
-                    if (active) {
-                        setLoadError(error instanceof Error ? error.message : '加载最近投递失败');
-                        setRecords((prev) => prev ?? []);
-                    }
-                })
-                .finally(() => {
-                    inFlight = false;
-                });
-        };
-
-        void pull();
-        const id = window.setInterval(() => void pull(), POLL_MS);
-
-        // The interval keeps firing but no-ops while hidden, so refresh immediately
-        // when the tab becomes visible again to shed any staleness.
-        const onVisible = () => {
-            if (!document.hidden) {
-                pull();
-            }
-        };
-
-        document.addEventListener('visibilitychange', onVisible);
+        }, POLL_MS);
 
         return () => {
             active = false;
-            window.clearInterval(id);
-            document.removeEventListener('visibilitychange', onVisible);
+            stop();
         };
     }, [api]);
 

@@ -1,13 +1,23 @@
-/** Run immediately, then at the requested cadence without overlapping requests. */
+/** Wait between requests; keep no timer while hidden or awaiting a response. */
 export function startPolling(
     refresh: () => Promise<unknown>,
     intervalMs: number,
     pauseWhenHidden = true,
 ): () => void {
+    let stopped = false;
     let running = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const paused = () => pauseWhenHidden && document.hidden;
+
+    const clearTimer = () => {
+        if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+        }
+    };
 
     const tick = async () => {
-        if (running || (pauseWhenHidden && document.hidden)) {
+        if (stopped || running || paused()) {
             return;
         }
 
@@ -15,31 +25,40 @@ export function startPolling(
 
         try {
             await refresh();
+        } catch (error) {
+            console.error('polling failed', error);
         } finally {
             running = false;
+
+            if (!stopped && !paused() && intervalMs > 0) {
+                timer = setTimeout(() => {
+                    timer = null;
+                    void tick();
+                }, intervalMs);
+            }
         }
     };
 
     void tick();
-    const interval = intervalMs > 0 ? setInterval(tick, intervalMs) : null;
 
-    const onVisible = () => {
+    const onVisibilityChange = () => {
+        clearTimer();
+
         if (!document.hidden) {
             void tick();
         }
     };
 
     if (pauseWhenHidden) {
-        document.addEventListener('visibilitychange', onVisible);
+        document.addEventListener('visibilitychange', onVisibilityChange);
     }
 
     return () => {
-        if (interval !== null) {
-            clearInterval(interval);
-        }
+        stopped = true;
+        clearTimer();
 
         if (pauseWhenHidden) {
-            document.removeEventListener('visibilitychange', onVisible);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
         }
     };
 }

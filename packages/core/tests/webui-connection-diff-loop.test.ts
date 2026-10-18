@@ -1,12 +1,57 @@
 import { getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StateBus } from '../src/webui/state-bus';
-import { startConnectionDiffLoop } from '../src/webui/connection-diff-loop';
+import {
+    createConnectionPoller,
+    type ConnectionDiffLoopOptions,
+} from '../src/webui/connection-diff-loop';
 import { comparableConnectionSnapshot } from '../src/webui/connection-snapshot';
 
 const previousLogLevel = getLogLevel();
 
-describe('startConnectionDiffLoop', () => {
+function startConnectionDiffLoop(options: ConnectionDiffLoopOptions) {
+    return { dispose: createConnectionPoller(options)() };
+}
+
+describe('connection polling', () => {
+    it('shares one timer and releases it with the last subscriber', () => {
+        const bus = new StateBus();
+        const getSnapshot = vi.fn(() => []);
+        const subscribe = createConnectionPoller({ bus, getSnapshot });
+        vi.advanceTimersByTime(1000);
+        expect(getSnapshot).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+        const releaseFirst = subscribe();
+        const releaseSecond = subscribe();
+        expect(getSnapshot).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(1);
+        releaseFirst();
+        releaseFirst();
+        vi.advanceTimersByTime(500);
+        expect(getSnapshot).toHaveBeenCalledTimes(2);
+        releaseSecond();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.advanceTimersByTime(1000);
+        expect(getSnapshot).toHaveBeenCalledTimes(2);
+    });
+
+    it('takes a fresh baseline on resubscription and detects changes from the first interval', () => {
+        const bus = new StateBus();
+        const publish = vi.spyOn(bus, 'publish');
+        let snapshot = 'initial';
+        const subscribe = createConnectionPoller({ bus, getSnapshot: () => snapshot });
+        const release = subscribe();
+        snapshot = 'connected';
+        vi.advanceTimersByTime(500);
+        expect(publish).toHaveBeenCalledOnce();
+        release();
+        snapshot = 'offline';
+        const releaseNext = subscribe();
+        vi.advanceTimersByTime(500);
+        expect(publish).toHaveBeenCalledOnce();
+        releaseNext();
+    });
+
     it('treats an undefined snapshot as an established baseline', () => {
         vi.useFakeTimers();
         const bus = new StateBus();
@@ -26,6 +71,7 @@ describe('startConnectionDiffLoop', () => {
     });
     afterEach(() => {
         setLogLevel(previousLogLevel);
+        vi.clearAllTimers();
         vi.useRealTimers();
     });
 
@@ -169,7 +215,7 @@ describe('startConnectionDiffLoop', () => {
         }
     });
 
-    it('first tick baselines the snapshot (no publish); only the second tick with a different value publishes', () => {
+    it('publishes only when the current snapshot differs from the subscription baseline', () => {
         const bus = new StateBus();
         const seen: string[] = [];
         bus.subscribe((r) => seen.push(r));
@@ -181,7 +227,7 @@ describe('startConnectionDiffLoop', () => {
             getSnapshot: () => snap,
             intervalMs: 500,
         });
-        vi.advanceTimersByTime(500); // first observation — baseline, no publish
+        vi.advanceTimersByTime(500);
         expect(seen).toEqual([]);
         snap = [
             { uin: '12345', nickname: 'me', adapters: [{ kind: 'http', status: 'connected' }] },

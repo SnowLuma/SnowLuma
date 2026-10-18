@@ -11,6 +11,9 @@ status, OneBot configuration, logs, storage, and server settings.
   automatically after a visible countdown.
 - Routine, high-frequency adjustments should not generate a notice for every
   intermediate edit.
+- Foreground polling pauses in hidden tabs and waits for each request to finish
+  before scheduling the next. Connection-state polling runs only while SSE clients
+  are subscribed.
 - Data-backed surfaces use the Interior Skeleton Swap defaults (120 ms delay,
   380 ms minimum visibility) so fast local responses do not flash a placeholder.
   Submission, upload, and other explicit operation progress keeps its spinner.

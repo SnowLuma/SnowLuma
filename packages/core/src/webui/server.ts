@@ -81,7 +81,7 @@ import { buildStreamInvokeResponse, streamUploadToDisk } from './debug-tools';
 import { sseResponse as createSseResponse } from './sse-response';
 import { bindStateStream } from './state-stream';
 import type { StateBus, StateResource } from './state-bus';
-import { startConnectionDiffLoop } from './connection-diff-loop';
+import { createConnectionPoller } from './connection-diff-loop';
 import { comparableConnectionSnapshot } from './connection-snapshot';
 import { traceAuthenticatedWebuiMutation } from './mutation-trace';
 import { describeTrustProxy, makeClientIpResolver, parseTrustProxy } from './client-ip';
@@ -663,40 +663,6 @@ export async function initWebUI(
     // rate-limit bucketing; this resolver fails closed with an empty address.
     const getSecurityClientIp = makeClientIpResolver(trustProxyMode, '');
 
-    // Connection-status diff loop: OneBot adapters don't emit events for
-    // listening/connected/client-count changes, so we poll the snapshot at
-    // 500ms and publish 'connections' to the StateBus when it actually
-    // moves. One loop per server lifetime, lives until process exit (the
-    // setInterval is .unref'd inside the loop so it doesn't pin the event
-    // loop on shutdown).
-    //
-    // `pickComparable` strips `adapter.detail` — that's a localised human
-    // string assembled with HH:MM:SS timestamps from the last webhook
-    // delivery; including it in the diff would make every webhook event
-    // produce a publish (defeating the diff). We compare name + kind + status,
-    // plus the structured `lastErrorAt`: a new apply failure must refresh its
-    // error/time even when the adapter was already degraded. The SSE handler
-    // still ships the FULL snapshot (with `detail` and `lastError`) — it's only
-    // the diff key that's pruned.
-    //
-    // Trade-off: the rendered detail string (e.g. "3 个客户端", "上次推送
-    // 14:53:01") only refreshes on the next SSE push or on the 30s REST
-    // reconcile — not in real time. The user's original reported bugs were
-    // about process / account edges (which DO push instantly); refreshing
-    // adapter detail strings at sub-second cadence wasn't required. If it
-    // becomes one, surface client-count as a structured field on
-    // AdapterStatus and include it in the comparable.
-    let connectionDiffLoop: ReturnType<typeof startConnectionDiffLoop> | undefined;
-
-    if (listener.stateBus) {
-        connectionDiffLoop = startConnectionDiffLoop({
-            bus: listener.stateBus,
-            getSnapshot: () => oneBotManager.getConnectionStatuses(),
-            pickComparable: comparableConnectionSnapshot,
-            intervalMs: 500,
-        });
-    }
-
     // Actual bound port (set just before serve; findAvailablePort may bump it).
     // Read by GET /api/system/settings so the panel shows what's really live.
     let boundPort = desiredPort;
@@ -849,11 +815,6 @@ export async function initWebUI(
             return c.res;
         });
     });
-
-    // Periodic janitor — keeps sessionTokens / loginAttempts from growing
-    // unbounded and replaces the per-request O(n) sweep we used to do.
-    const tokenJanitor = setInterval(purgeExpiredTokens, 60_000);
-    tokenJanitor.unref();
 
     // ─── Login ───────────────────────────────────────────────────────────────
     app.post('/api/login', async (c) => {
@@ -1802,8 +1763,15 @@ export async function initWebUI(
     // connection-status diff loop). 50ms per-resource debounce coalesces a
     // burst (e.g. multiple HookSessions flipping status simultaneously).
     const stateBus = listener.stateBus;
+    const subscribeConnections =
+        stateBus &&
+        createConnectionPoller({
+            bus: stateBus,
+            getSnapshot: () => oneBotManager.getConnectionStatuses(),
+            pickComparable: comparableConnectionSnapshot,
+        });
     app.get('/api/state/stream', (c) => {
-        if (!stateBus) {
+        if (!stateBus || !subscribeConnections) {
             // Build without state-wiring (e.g. a future headless mode) — clients
             // fall back to the REST endpoints. Treat as endpoint-not-here.
             return c.text('state stream not configured', 503);
@@ -1811,6 +1779,7 @@ export async function initWebUI(
 
         const liveBus = stateBus;
         return sseResponse(c, (ch) => {
+            ch.onClose(subscribeConnections());
             const pushFrame = createFramePusher({
                 desiredSize: ch.desiredSize,
                 enqueue: ch.raw,
@@ -2352,10 +2321,12 @@ export async function initWebUI(
             },
         );
     });
+    const tokenJanitor = setInterval(purgeExpiredTokens, 60_000);
+    tokenJanitor.unref();
     return {
         port: finalPort,
         async stop() {
-            connectionDiffLoop?.dispose();
+            clearInterval(tokenJanitor);
             shutdownStreams.abort();
             await new Promise<void>((resolve, reject) => {
                 listeningServer.close((err) => (err ? reject(err) : resolve()));

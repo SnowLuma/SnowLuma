@@ -1,16 +1,3 @@
-/**
- * Connection-status diff loop. OneBot adapters don't have an internal
- * event-emitter for connection state (listening / connected / client-count
- * changes), so this loop polls `getConnectionStatuses()` and publishes
- * `connections` to the StateBus when the JSON-serialised snapshot changes
- * vs the previous tick.
- *
- * Cheap (500ms default cadence, 1-3 accounts, ~hundreds of bytes), only
- * fires the StateBus when state actually moves — so the SSE handler only
- * pushes a fresh `connections` frame when the user would actually see
- * something update.
- */
-
 import { createLogger, runWithTraceRequest } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import type { StateBus } from './state-bus';
@@ -33,15 +20,12 @@ export interface ConnectionDiffLoopOptions {
     intervalMs?: number;
 }
 
-export interface ConnectionDiffLoopHandle {
-    /** Stop the loop. Subsequent snapshot mutations produce nothing. */
-    dispose(): void;
-}
-
-export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): ConnectionDiffLoopHandle {
+/** One shared loop while clients subscribe; each subscription returns its release handle. */
+export function createConnectionPoller(opts: ConnectionDiffLoopOptions): () => () => void {
     const intervalMs = opts.intervalMs ?? 500;
     let lastSerialized: string | undefined | null = null;
-    let disposed = false;
+    let subscribers = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
     // One-shot diagnostic latch: a projector that starts throwing only after
     // a shape regression would otherwise wedge the baseline silently — no
     // publishes, no log, no symptom besides "the dashboard's connections
@@ -50,7 +34,7 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
     let warnedProjectorThrew = false;
 
     const tick = (): void => {
-        if (disposed) {
+        if (subscribers === 0) {
             return;
         }
 
@@ -137,21 +121,28 @@ export function startConnectionDiffLoop(opts: ConnectionDiffLoopOptions): Connec
         });
     };
 
-    const timer = setInterval(tick, intervalMs);
-    // Don't pin the Node event loop: the loop is permanent for the server
-    // lifetime by design, but tests / a future hot-reload scenario must be
-    // able to exit cleanly without an outstanding interval ref. Mirrors the
-    // tokenJanitor pattern in server.ts.
-    timer.unref();
+    return () => {
+        if (subscribers++ === 0) {
+            lastSerialized = null;
+            tick();
+            timer = setInterval(tick, intervalMs);
+            timer.unref();
+        }
 
-    return {
-        dispose(): void {
-            if (disposed) {
+        let subscribed = true;
+
+        return () => {
+            if (!subscribed) {
                 return;
             }
 
-            disposed = true;
-            clearInterval(timer);
-        },
+            subscribed = false;
+
+            if (--subscribers === 0 && timer !== null) {
+                clearInterval(timer);
+                timer = null;
+                lastSerialized = null;
+            }
+        };
     };
 }
