@@ -139,6 +139,43 @@ it('rejects failed opens and safely closes a partially initialized connection', 
     await db.close();
 });
 
+it.each(['ready', 'failed'] as const)(
+    'opens only after the previous owner is %s',
+    async (outcome) => {
+        const driver = await import('../src/driver');
+        const open = vi.spyOn(driver, 'openDatabase');
+        let resolve!: () => void;
+        let reject!: (error: Error) => void;
+        const beforeOpen = new Promise<void>((yes, no) => {
+            resolve = yes;
+            reject = no;
+        });
+        const db = new SqliteDatabase(':memory:', { beforeOpen });
+
+        try {
+            await nextTurn();
+            expect(open).not.toHaveBeenCalled();
+
+            if (outcome === 'ready') {
+                resolve();
+                await db.initialization;
+                expect(open).toHaveBeenCalledOnce();
+                expect(await db.prepare('SELECT 1 AS value').get()).toEqual({ value: 1 });
+            } else {
+                const failure = new Error('previous owner could not close');
+                reject(failure);
+                await expect(db.initialization).rejects.toBe(failure);
+                await expect(db.exec('SELECT 1')).rejects.toBe(failure);
+                expect(open).not.toHaveBeenCalled();
+            }
+        } finally {
+            resolve();
+            await db.close();
+            open.mockRestore();
+        }
+    },
+);
+
 it('keeps writes rejected after a failed close while allowing cleanup to retry', async () => {
     const db = new SqliteDatabase(':memory:');
     await db.initialization;

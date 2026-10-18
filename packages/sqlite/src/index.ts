@@ -19,8 +19,13 @@ export class SqliteDatabase {
     private pending = 0;
     private shutdown: { task: Promise<void> | null } | null = null;
 
-    constructor(filename: string, options: { readOnly?: boolean; busyTimeout?: number } = {}) {
+    constructor(
+        filename: string,
+        options: { readOnly?: boolean; busyTimeout?: number; beforeOpen?: Promise<void> } = {},
+    ) {
         this.initialization = (async () => {
+            await options.beforeOpen;
+
             if (!options.readOnly && filename !== ':memory:') {
                 await mkdir(path.dirname(filename), { recursive: true });
             }

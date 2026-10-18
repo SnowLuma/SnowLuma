@@ -36,7 +36,6 @@ export class Bridge implements BridgeInterface {
     // Per-account dedup for QQ NT's already-deduped system pushes (#137).
     private readonly sysMsgDedup_ = new SysMsgDedup();
     private onlineClients_: readonly Readonly<OnlineDeviceInfo>[] | null = null;
-    private disposed_ = false;
     private disposePromise_: Promise<void> | null = null;
     private readonly pendingPackets_ = new Set<Promise<void>>();
     private rosterWarmupStarted_ = false;
@@ -150,7 +149,6 @@ export class Bridge implements BridgeInterface {
             return this.disposePromise_;
         }
 
-        this.disposed_ = true;
         this.settleRosterWarmup({ friendsLoaded: false, groupsLoaded: false });
         this.connections.clear();
         this.onlineClients_ = null;
@@ -250,7 +248,7 @@ export class Bridge implements BridgeInterface {
     }
 
     onPacket(pkt: PacketInfo): Promise<void> {
-        if (this.disposed_) {
+        if (this.disposePromise_) {
             return Promise.reject(new Error('Bridge is disposed'));
         }
 
@@ -367,7 +365,7 @@ export class Bridge implements BridgeInterface {
     }
 
     private maybeStartRosterWarmup(): void {
-        if (this.disposed_ || this.rosterWarmupStarted_ || this.empty) {
+        if (this.disposePromise_ || this.rosterWarmupStarted_ || this.empty) {
             return;
         }
 
@@ -380,7 +378,7 @@ export class Bridge implements BridgeInterface {
         void this.runRosterWarmup().then(
             (result) =>
                 this.settleRosterWarmup(
-                    this.disposed_ ? { friendsLoaded: false, groupsLoaded: false } : result,
+                    this.disposePromise_ ? { friendsLoaded: false, groupsLoaded: false } : result,
                 ),
             (err) => {
                 log.warn(
@@ -394,13 +392,13 @@ export class Bridge implements BridgeInterface {
     }
 
     private stillOpen(): boolean {
-        return !this.disposed_;
+        return this.disposePromise_ === null;
     }
 
     private async runRosterWarmup(): Promise<RosterWarmupResult> {
         await this.identity.initialization;
 
-        if (this.disposed_) {
+        if (this.disposePromise_) {
             return { friendsLoaded: false, groupsLoaded: false };
         }
 

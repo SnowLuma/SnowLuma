@@ -829,7 +829,7 @@ describe('IdentityService', () => {
         }
     });
 
-    it('stays open and preserves pending writes when SQLite close throws', async () => {
+    it('keeps shutdown terminal and reports pending writes when SQLite cleanup needs a retry', async () => {
         vi.useFakeTimers();
         const dbPath = tempDbPath('close-failure');
         const identity = new IdentityService(SELF_UIN, dbPath);
@@ -859,31 +859,32 @@ describe('IdentityService', () => {
                 abandonedWrites: 0,
                 retryAttempt: 2,
             });
-            expect(vi.getTimerCount()).toBe(1);
-            expect(identity.persistenceStatus.nextRetryAt! - Date.now()).toBe(500);
+            expect(vi.getTimerCount()).toBe(0);
+            expect(identity.persistenceStatus.nextRetryAt).toBeNull();
+
+            await expect(identity.flush()).rejects.toThrow(/closed/);
 
             expect(() =>
                 identity.rememberRequestIdentity({
                     uid: 'u_after_close_failure',
                     uin: 33333,
                 }),
-            ).not.toThrow();
-            expect(identity.persistenceStatus.pendingWrites).toBe(2);
+            ).toThrow(/closed/);
+            expect(identity.persistenceStatus.pendingWrites).toBe(1);
 
             closeSpy.mockRestore();
             await releaseLock();
-            await vi.runOnlyPendingTimersAsync();
-            await identity.flush();
-            expect(identity.persistenceStatus).toMatchObject({
-                state: 'healthy',
-                pendingWrites: 0,
-            });
             await identity.close();
+            expect(identity.persistenceStatus).toMatchObject({
+                state: 'closed',
+                pendingWrites: 0,
+                abandonedWrites: 1,
+            });
 
             const reopened = new IdentityService(SELF_UIN, dbPath);
             await reopened.initialization;
-            expect(reopened.findFriend(22222)?.uid).toBe('u_close_retry_friend');
-            expect(reopened.findUinByUid('u_after_close_failure')).toBe(33333);
+            expect(reopened.findFriend(22222)).toBeNull();
+            expect(reopened.findUinByUid('u_after_close_failure')).toBeNull();
             await reopened.close();
         } finally {
             closeSpy.mockRestore();

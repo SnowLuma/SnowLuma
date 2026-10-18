@@ -13,39 +13,50 @@ const runtimeLog = createLogger('Bridge.Runtime');
 export class BridgeManager implements BridgeSessionSource {
     private readonly bridges = new Map<string, Bridge>();
     private readonly pidToUin_ = new Map<number, string>();
-    private readonly closingSessions_ = new Map<string, Promise<void>>();
-    private readonly closeErrors_: unknown[] = [];
+    private readonly closingSessions_ = new Map<string, Set<Promise<void>>>();
     private readonly sessionSubscriptions = new Set<{ listener: BridgeSessionListener }>();
+    private disposal_: Promise<void> | null = null;
 
     /** Hook callbacks remain synchronous; shutdown awaits every detached account. */
-    async dispose(): Promise<void> {
+    dispose(): Promise<void> {
         this.sessionSubscriptions.clear();
+        // Finish synchronous lifecycle observers before collecting detached sessions.
+        return (this.disposal_ ??= Promise.resolve().then(() => this.disposeSessions()));
+    }
 
+    private async disposeSessions(): Promise<void> {
         for (const [uin, session] of this.bridges) {
             this.closeSession(uin, session);
         }
 
         this.bridges.clear();
         this.pidToUin_.clear();
-        await Promise.allSettled(this.closingSessions_.values());
+        const results = await Promise.allSettled(
+            [...this.closingSessions_.values()].flatMap((sessions) => [...sessions]),
+        );
+        const errors = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : [],
+        );
 
-        if (this.closeErrors_.length) {
-            throw new AggregateError(this.closeErrors_, 'Bridge persistence shutdown failed');
+        if (errors.length) {
+            throw new AggregateError(errors, 'Bridge persistence shutdown failed');
         }
     }
 
     private closeSession(uin: string, bridge: Bridge): void {
-        const previous = this.closingSessions_.get(uin);
-        const closing = Promise.all([previous, bridge.dispose()]).then(() => undefined);
-        this.closingSessions_.set(uin, closing);
+        const sessions = this.closingSessions_.get(uin) ?? new Set<Promise<void>>();
+        const closing = bridge.dispose();
+        sessions.add(closing);
+        this.closingSessions_.set(uin, sessions);
         void closing.then(
             () => {
-                if (this.closingSessions_.get(uin) === closing) {
+                sessions.delete(closing);
+
+                if (sessions.size === 0) {
                     this.closingSessions_.delete(uin);
                 }
             },
             (error) => {
-                this.closeErrors_.push(error);
                 log.error(
                     'identity close failed: UIN=%s err=%s',
                     uin,
@@ -137,6 +148,10 @@ export class BridgeManager implements BridgeSessionSource {
     }
 
     onPidReceiveHealthChanged(pid: number, healthy: boolean): void {
+        if (this.disposal_) {
+            return;
+        }
+
         const uin = this.pidToUin_.get(pid);
 
         if (!uin) {
@@ -157,7 +172,7 @@ export class BridgeManager implements BridgeSessionSource {
     }
 
     onHookLogin(pid: number, uin: string, packetClient: PacketSender): void {
-        if (!isRealUin(uin)) {
+        if (this.disposal_ || !isRealUin(uin)) {
             return;
         }
 
@@ -225,6 +240,10 @@ export class BridgeManager implements BridgeSessionSource {
     }
 
     onPacket(pkt: PacketInfo): void {
+        if (this.disposal_) {
+            return;
+        }
+
         runWithTraceRequest(() => this.onPacketInContext(pkt));
     }
 
@@ -414,9 +433,9 @@ export class BridgeManager implements BridgeSessionSource {
             return { session, created: false };
         }
 
-        const bridge = new Bridge(
-            IdentityService.openForUin(uin, 'data', this.closingSessions_.get(uin)),
-        );
+        const closing = this.closingSessions_.get(uin);
+        const beforeOpen = closing ? Promise.all(closing).then(() => undefined) : undefined;
+        const bridge = new Bridge(IdentityService.openForUin(uin, 'data', beforeOpen));
         this.bridges.set(uin, bridge);
 
         return { session: bridge, created: true };

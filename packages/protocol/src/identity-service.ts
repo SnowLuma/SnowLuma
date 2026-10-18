@@ -1,4 +1,4 @@
-import { SqliteDatabase, type SqliteStatement } from '@snowluma/sqlite';
+import { SqliteDatabase } from '@snowluma/sqlite';
 import path from 'path';
 
 import { createLogger, type Logger } from '@snowluma/common/logger';
@@ -142,13 +142,6 @@ export class IdentityService {
 
     // ─── Persistence + fetcher ───
     private readonly db: SqliteDatabase | null;
-    // Prepared-statement cache. Every `.prepare(sql)` call in this
-    // service re-parses the SQL — that's the SQLite anti-pattern
-    // RoadMap #5 is fixing. We memoize by the SQL string itself so the
-    // call sites stay readable (no need to enumerate 20+ named fields
-    // upfront); the Map lookup is O(1) hash + string-eq, which is
-    // negligible next to the SQL parse it replaces.
-    private readonly stmtCache_ = new Map<string, SqliteStatement>();
     private inTransaction = false;
     private fetcher: IdentityFetcher | null = null;
     private readonly log: Logger;
@@ -165,7 +158,7 @@ export class IdentityService {
     private lastSkippedWriteLogAt_ = 0;
     private persistenceSuspended_ = false;
     private closed_ = false;
-    private closing_: Promise<void> | null = null;
+    private closing_: { drained: Promise<void>; task: Promise<void> | null } | null = null;
     private flushing_: Promise<void> | null = null;
     private loaded_ = false;
     private replaying_ = false;
@@ -176,7 +169,7 @@ export class IdentityService {
     private readonly persistedMembersByUin = new Map<string, string>();
     readonly initialization: Promise<void>;
 
-    constructor(uin: string, dbPath: string | null, beforeLoad?: Promise<void>) {
+    constructor(uin: string, dbPath: string | null, beforeOpen?: Promise<void>) {
         this.uin_ = uin;
         const uinNum = Number.parseInt(uin, 10);
         this.log =
@@ -193,9 +186,8 @@ export class IdentityService {
 
         // Identity already has a bounded retry policy; do not occupy a native
         // worker waiting for a lock before handing control to that policy.
-        this.db = new SqliteDatabase(dbPath, { busyTimeout: 0 });
+        this.db = new SqliteDatabase(dbPath, { busyTimeout: 0, beforeOpen });
         this.initialization = this.db.serial(async () => {
-            await beforeLoad;
             await this.initSchema();
             await this.migrateSchema();
             await this.loadSnapshot();
@@ -217,25 +209,11 @@ export class IdentityService {
             });
     }
 
-    /** Cached `prepare(sql)`. First call per unique SQL parses; later
-     *  calls reuse the same `Statement` object. See `stmtCache_`. */
-    private pstmt(sql: string): SqliteStatement {
-        let cached = this.stmtCache_.get(sql);
-
-        if (cached !== undefined) {
-            return cached;
-        }
-
-        cached = this.db!.prepare(sql);
-        this.stmtCache_.set(sql, cached);
-        return cached;
-    }
-
-    static openForUin(uin: string, dataRoot = 'data', beforeLoad?: Promise<void>): IdentityService {
+    static openForUin(uin: string, dataRoot = 'data', beforeOpen?: Promise<void>): IdentityService {
         return new IdentityService(
             uin,
             path.join(dataRoot, uin, 'snowluma_identity.db'),
-            beforeLoad,
+            beforeOpen,
         );
     }
 
@@ -248,36 +226,40 @@ export class IdentityService {
             return Promise.resolve();
         }
 
-        if (this.closing_) {
-            return this.closing_;
+        const closing = (this.closing_ ??= { drained: this.prepareClose(), task: null });
+
+        if (closing.task) {
+            return closing.task;
         }
 
-        const closing = this.closePersistence();
-        this.closing_ = closing;
-        void closing.catch(() => {
-            this.closing_ = null;
-            this.schedulePersistenceRetry();
+        closing.task = this.closePersistence(closing.drained);
+        void closing.task.catch(() => {
+            closing.task = null;
         });
-        return closing;
+        return closing.task;
     }
 
-    private async closePersistence(): Promise<void> {
+    private async prepareClose(): Promise<void> {
+        if (this.retryTimer_) {
+            clearTimeout(this.retryTimer_);
+        }
+
+        this.retryTimer_ = null;
+        this.nextRetryAt_ = null;
+        await this.initialization;
+        await this.flushPendingWrites(false);
+    }
+
+    private async closePersistence(drained: Promise<void>): Promise<void> {
         try {
             try {
-                await this.initialization;
+                await drained;
             } catch (error) {
                 await this.db?.close();
                 this.closed_ = true;
                 throw error;
             }
 
-            if (this.retryTimer_) {
-                clearTimeout(this.retryTimer_);
-            }
-
-            this.retryTimer_ = null;
-            this.nextRetryAt_ = null;
-            await this.flushPendingWrites(false);
             const pending = this.pendingWrites_.length;
 
             if (pending) {
@@ -295,7 +277,6 @@ export class IdentityService {
             this.abandonedWrites_ += pending;
             this.pendingWrites_.length = 0;
             this.closed_ = true;
-            this.stmtCache_.clear();
         } catch (error) {
             this.lastError_ =
                 error instanceof Error ? (error.stack ?? error.message) : String(error);
@@ -722,7 +703,7 @@ export class IdentityService {
             'friends',
             async () =>
                 await this.transaction(async () => {
-                    await this.pstmt(
+                    await this.db!.prepare(
                         'UPDATE users SET is_friend = 0, updated_at = ? WHERE is_friend = 1',
                     ).run(nowSeconds());
 
@@ -763,7 +744,7 @@ export class IdentityService {
             'groups',
             async () =>
                 await this.transaction(async () => {
-                    await this.pstmt(
+                    await this.db!.prepare(
                         'UPDATE groups SET active = 0, updated_at = ? WHERE active = 1',
                     ).run(nowSeconds());
 
@@ -792,10 +773,9 @@ export class IdentityService {
 
         this.groups_.delete(groupId);
         this.runWrite('forget group', async () => {
-            await this.pstmt('UPDATE groups SET active = 0, updated_at = ? WHERE group_id = ?').run(
-                nowSeconds(),
-                groupId,
-            );
+            await this.db!.prepare(
+                'UPDATE groups SET active = 0, updated_at = ? WHERE group_id = ?',
+            ).run(nowSeconds(), groupId);
         });
     }
 
@@ -826,7 +806,7 @@ export class IdentityService {
             async () =>
                 await this.transaction(async () => {
                     await this.upsertGroup({ groupId, memberCount: persisted.length });
-                    await this.pstmt(
+                    await this.db!.prepare(
                         'UPDATE group_members SET active = 0, updated_at = ? WHERE group_id = ?',
                     ).run(nowSeconds(), groupId);
 
@@ -1066,7 +1046,7 @@ export class IdentityService {
             const updatedAt = nowSeconds();
             await this.transaction(async () => {
                 for (const row of rows) {
-                    await this.pstmt(
+                    await this.db!.prepare(
                         'UPDATE group_members SET active = 0, updated_at = ? WHERE id = ?',
                     ).run(updatedAt, row.id);
                 }
@@ -1236,7 +1216,7 @@ export class IdentityService {
     }
 
     private async loadSnapshot(): Promise<void> {
-        const users = await this.pstmt(
+        const users = await this.db!.prepare(
             'SELECT uid, uin FROM users WHERE uid IS NOT NULL AND uin IS NOT NULL',
         ).all();
 
@@ -1252,7 +1232,7 @@ export class IdentityService {
             this.persistedUidByUin.set(uin, uid);
         }
 
-        const members = await this.pstmt(
+        const members = await this.db!.prepare(
             'SELECT group_id, uid, uin FROM group_members WHERE uid IS NOT NULL AND uin IS NOT NULL ORDER BY active DESC, updated_at DESC',
         ).all();
 
@@ -1276,7 +1256,7 @@ export class IdentityService {
             }
         }
 
-        const friendRows = (await this.pstmt(
+        const friendRows = (await this.db!.prepare(
             `SELECT uid, uin, nickname, remark
        FROM users
        WHERE is_friend = 1 AND uin IS NOT NULL`,
@@ -1297,7 +1277,7 @@ export class IdentityService {
             this.rememberUidUin(friend.uid, friend.uin);
         }
 
-        const groups = (await this.pstmt(
+        const groups = (await this.db!.prepare(
             `SELECT group_id, group_name, remark, member_count, member_max
        FROM groups
        WHERE active = 1`,
@@ -1326,7 +1306,7 @@ export class IdentityService {
             return;
         }
 
-        const select = this.pstmt(
+        const select = this.db!.prepare(
             `SELECT group_id, uid, uin, nickname, card, role, level, title,
               join_time, last_sent_time, shut_up_time, is_robot
        FROM group_members
@@ -1383,10 +1363,10 @@ export class IdentityService {
 
         if (primary) {
             for (const duplicate of rows.slice(1)) {
-                await this.pstmt('DELETE FROM users WHERE id = ?').run(duplicate.id);
+                await this.db!.prepare('DELETE FROM users WHERE id = ?').run(duplicate.id);
             }
 
-            await this.pstmt(
+            await this.db!.prepare(
                 `UPDATE users
          SET uid = ?, uin = ?, nickname = ?, remark = ?, is_friend = ?, source = ?, updated_at = ?
          WHERE id = ?`,
@@ -1403,7 +1383,7 @@ export class IdentityService {
             return;
         }
 
-        await this.pstmt(
+        await this.db!.prepare(
             `INSERT INTO users (uid, uin, nickname, remark, is_friend, source, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ).run(
@@ -1422,7 +1402,7 @@ export class IdentityService {
             return;
         }
 
-        const existing = (await this.pstmt(
+        const existing = (await this.db!.prepare(
             'SELECT group_name, remark, member_count, member_max FROM groups WHERE group_id = ?',
         ).get(input.groupId)) as
             | {
@@ -1433,7 +1413,7 @@ export class IdentityService {
               }
             | undefined;
 
-        await this.pstmt(
+        await this.db!.prepare(
             `INSERT INTO groups (group_id, group_name, remark, member_count, member_max, active, updated_at)
        VALUES (?, ?, ?, ?, ?, 1, ?)
        ON CONFLICT(group_id) DO UPDATE SET
@@ -1494,10 +1474,10 @@ export class IdentityService {
 
         if (primary) {
             for (const duplicate of rows.slice(1)) {
-                await this.pstmt('DELETE FROM group_members WHERE id = ?').run(duplicate.id);
+                await this.db!.prepare('DELETE FROM group_members WHERE id = ?').run(duplicate.id);
             }
 
-            await this.pstmt(
+            await this.db!.prepare(
                 `UPDATE group_members
          SET uid = ?, uin = ?, nickname = ?, card = ?, role = ?, level = ?, title = ?,
              join_time = ?, last_sent_time = ?, shut_up_time = ?, is_robot = ?, active = ?, updated_at = ?
@@ -1521,7 +1501,7 @@ export class IdentityService {
             return;
         }
 
-        await this.pstmt(
+        await this.db!.prepare(
             `INSERT INTO group_members
        (group_id, uid, uin, nickname, card, role, level, title,
         join_time, last_sent_time, shut_up_time, is_robot, active, updated_at)
@@ -1550,19 +1530,19 @@ export class IdentityService {
         }
 
         if (uid && uin !== null) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uid = ? OR uin = ? ORDER BY id',
             ).all(uid, uin)) as unknown as UserRow[];
         }
 
         if (uid) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uid = ? ORDER BY id',
             ).all(uid)) as unknown as UserRow[];
         }
 
         if (uin !== null) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 'SELECT id, uid, uin, nickname, remark, is_friend, source FROM users WHERE uin = ? ORDER BY id',
             ).all(uin)) as unknown as UserRow[];
         }
@@ -1580,7 +1560,7 @@ export class IdentityService {
         }
 
         if (uid && uin !== null) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
@@ -1590,7 +1570,7 @@ export class IdentityService {
         }
 
         if (uid) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
@@ -1600,7 +1580,7 @@ export class IdentityService {
         }
 
         if (uin !== null) {
-            return (await this.pstmt(
+            return (await this.db!.prepare(
                 `SELECT id, group_id, uid, uin, nickname, card, role, level, title,
                 join_time, last_sent_time, shut_up_time, is_robot, active
          FROM group_members
@@ -1665,6 +1645,7 @@ export class IdentityService {
 
     /** Wait for accepted observations to reach disk (also used by shutdown). */
     async flush(): Promise<void> {
+        this.assertOpen('flush');
         await this.initialization;
         await this.flushPendingWrites(false);
 
