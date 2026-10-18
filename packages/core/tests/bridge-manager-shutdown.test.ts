@@ -115,6 +115,55 @@ describe('BridgeManager shutdown', () => {
         }
     });
 
+    it('reopening is not poisoned by an already-failed close', async () => {
+        const failing = deferred();
+        manager.onHookLogin(101, '10001', sender);
+        vi.spyOn(manager.getBridge('10001')!.identity, 'close').mockReturnValue(failing.promise);
+        manager.onPidDisconnected(101);
+        failing.reject(new Error('close failed'));
+        await nextTurn();
+
+        // The failed close stays in the bookkeeping (dispose still reports
+        // it), but the reopening gate must absorb the rejection instead of
+        // passing it down — a rejected gate would keep the identity DB of
+        // every future session for this UIN closed until process restart.
+        manager.onHookLogin(202, '10001', sender);
+        const beforeOpen = vi.mocked(IdentityService.openForUin).mock.calls.at(-1)![2]!;
+        await expect(beforeOpen).resolves.toBeUndefined();
+    });
+
+    it('reopening waits for all closes to settle even when one of them fails', async () => {
+        const failing = deferred();
+        const slow = deferred();
+        manager.onHookLogin(101, '10001', sender);
+        vi.spyOn(manager.getBridge('10001')!.identity, 'close').mockReturnValue(failing.promise);
+        manager.onPidDisconnected(101);
+        manager.onHookLogin(202, '10001', sender);
+        vi.spyOn(manager.getBridge('10001')!.identity, 'close').mockReturnValue(slow.promise);
+        manager.onPidDisconnected(202);
+
+        failing.reject(new Error('close failed'));
+        await nextTurn();
+
+        manager.onHookLogin(303, '10001', sender);
+        const beforeOpen = vi.mocked(IdentityService.openForUin).mock.calls.at(-1)![2]!;
+        let ready = false;
+        const opening = beforeOpen.then(() => {
+            ready = true;
+        });
+
+        try {
+            await nextTurn();
+            // Still waiting for the pending close...
+            expect(ready).toBe(false);
+        } finally {
+            slow.resolve();
+        }
+
+        // ...and the already-failed close must not reject the gate.
+        await opening;
+    });
+
     it('ignores late transport callbacks after shutdown starts', async () => {
         const shutdown = manager.dispose();
         manager.onHookLogin(101, '10001', sender);

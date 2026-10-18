@@ -434,7 +434,13 @@ export class BridgeManager implements BridgeSessionSource {
         }
 
         const closing = this.closingSessions_.get(uin);
-        const beforeOpen = closing ? Promise.all(closing).then(() => undefined) : undefined;
+        // allSettled, not all: a failed close stays in the bookkeeping (so
+        // dispose can still report it) but must not reject this gate — a
+        // rejected gate would keep the identity DB of every future session
+        // for this UIN closed until the process restarts.
+        const beforeOpen = closing
+            ? Promise.allSettled(closing).then(() => undefined)
+            : undefined;
         const bridge = new Bridge(IdentityService.openForUin(uin, 'data', beforeOpen));
         this.bridges.set(uin, bridge);
 
