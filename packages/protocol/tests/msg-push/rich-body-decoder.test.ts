@@ -218,6 +218,34 @@ describe('decodeRichBody / forward LightApp', () => {
         expect(out[0]!.type).toBe('json');
     });
 
+    it.each([false, true])(
+        'preserves the XML forward filename for nested lookup (compressed=%s, #529)',
+        (compressed) => {
+            const xml = Buffer.from(
+                '<msg serviceID="35" m_resid="inner-xml-res" m_fileName="inner-xml-key" />',
+            );
+            const body: MessageBody = {
+                richText: {
+                    elems: [
+                        {
+                            richMsg: {
+                                serviceId: 35,
+                                template1: Buffer.concat([
+                                    Buffer.from([compressed ? 1 : 0]),
+                                    compressed ? deflateSync(xml) : xml,
+                                ]),
+                            },
+                        },
+                    ],
+                },
+            };
+
+            expect(decodeRichBody(body, true)).toEqual([
+                { type: 'forward', resId: 'inner-xml-res', forwardUuid: 'inner-xml-key' },
+            ]);
+        },
+    );
+
     it('still decodes the legacy richMsg serviceID=35 path (backward compat with mobile QQ)', () => {
         // Older clients (and some bridges) still emit the m_resid XML
         // shape. The decoder must keep treating it as a forward element

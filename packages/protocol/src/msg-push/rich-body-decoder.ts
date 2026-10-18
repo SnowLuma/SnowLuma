@@ -137,9 +137,12 @@ function decodeRichMsgCard(
 
     if (svcId === 35) {
         const match = /\bm_resid="([^"]+)"/.exec(content);
+        // XML forwards link bundled inner messages by m_fileName, just as
+        // LightApp forwards use uniseq. Keep it for the outer payload lookup.
+        const fileName = /\bm_fileName="([^"]+)"/.exec(content)?.[1];
         return {
             element: match
-                ? { type: 'forward', resId: match[1] }
+                ? { type: 'forward', resId: match[1], forwardUuid: fileName }
                 : { type: 'xml', text: content, subType: svcId },
             error: null,
             inputBytes: data.length,
