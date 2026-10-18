@@ -8,6 +8,10 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./update-source": {
+      "types": "./src/update-source.ts",
+      "default": "./src/update-source.ts"
+    },
     "./semver": {
       "types": "./src/semver.ts",
       "default": "./src/semver.ts"

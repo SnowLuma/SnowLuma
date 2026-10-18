@@ -95,6 +95,7 @@ import { NotificationsPanel } from '@/components/settings/notifications-panel';
 import { GlobalConfigPanel } from '@/components/settings/global-config-panel';
 import { SystemPanel } from '@/components/settings/system-panel';
 import { UpdateInstaller } from '@/components/settings/update-installer';
+import { UpdateSources } from '@/components/settings/update-sources';
 import { StoragePanel } from '@/components/settings/storage-panel';
 import { DeveloperCrashProbe, developerCrashReducer } from '@/components/settings/developer-tools';
 
@@ -2000,6 +2001,12 @@ function UpdateGroup() {
                 </div>
             </SettingRow>
             {detail}
+            {updateInfo?.error && !disabledCheck && (
+                <p role="alert" className="px-5 py-3 text-xs text-destructive">
+                    {updateInfo.error}
+                </p>
+            )}
+            <UpdateSources />
             <UpdateInstaller version={updateInfo?.hasUpdate ? updateInfo.latest : null} />
         </Group>
     );

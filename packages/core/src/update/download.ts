@@ -1,43 +1,30 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { unzipSync } from 'fflate';
 import { x as extractTar } from 'tar';
 import { isRuntimeEntry, readManifest } from './files';
+import { assetName, fetchRelease } from './release';
+export { assetName } from './release';
+import { readUpdateSource, sourceUrls } from './sources';
+import type { UpdateSourceConfig } from '@snowluma/common/update-source';
 
 interface ReleaseAsset {
     url: string;
-    size: number;
+    size: number | null;
     digest: string;
 }
 
-export function assetName(version: string, target: string): string {
-    const platform = target.replace('win32', 'win');
-    return `SnowLuma-v${version}-${platform}-lite.${target.startsWith('win32') ? 'zip' : 'tar.gz'}`;
-}
-
-async function releaseAsset(version: string, target: string): Promise<ReleaseAsset> {
+async function releaseAsset(
+    version: string,
+    target: string,
+    source: UpdateSourceConfig,
+): Promise<ReleaseAsset> {
     const name = assetName(version, target);
-    const response = await fetch(
-        `https://api.github.com/repos/SnowLuma/SnowLuma/releases/tags/v${version}`,
-        {
-            headers: {
-                Accept: 'application/vnd.github+json',
-                'User-Agent': 'SnowLuma',
-                'X-GitHub-Api-Version': '2022-11-28',
-            },
-            signal: AbortSignal.timeout(15_000),
-        },
-    );
-
-    if (!response.ok) {
-        throw new Error(`获取更新失败: GitHub ${response.status}`);
-    }
-
-    const release: unknown = await response.json();
+    const { data: release, fromPage } = await fetchRelease(version, source);
 
     if (
         !release ||
@@ -58,9 +45,10 @@ async function releaseAsset(version: string, target: string): Promise<ReleaseAss
         !asset ||
         typeof asset !== 'object' ||
         !('size' in asset) ||
-        typeof asset.size !== 'number' ||
-        !Number.isSafeInteger(asset.size) ||
-        asset.size <= 0 ||
+        !(
+            (fromPage && asset.size === null) ||
+            (typeof asset.size === 'number' && Number.isSafeInteger(asset.size) && asset.size > 0)
+        ) ||
         !('digest' in asset) ||
         typeof asset.digest !== 'string' ||
         !/^sha256:[a-f0-9]{64}$/.test(asset.digest)
@@ -94,37 +82,98 @@ export async function downloadUpdate(
     directory: string,
     version: string,
     target: string,
+    source = readUpdateSource(),
 ): Promise<void> {
-    const asset = await releaseAsset(version, target);
-    const response = await fetch(asset.url, { signal: AbortSignal.timeout(10 * 60_000) });
-
-    if (!response.ok || !response.body) {
-        throw new Error(`下载更新失败: HTTP ${response.status}`);
-    }
-
+    const asset = await releaseAsset(version, target, source);
     const archive = path.join(directory, 'archive');
-    const hash = createHash('sha256');
-    let received = 0;
-    await pipeline(
-        Readable.fromWeb(response.body),
-        new Transform({
-            transform(chunk: Buffer, _encoding, callback) {
-                received += chunk.length;
+    const urls = sourceUrls(asset.url, source);
+    const failures: string[] = [];
 
-                if (received > asset.size) {
-                    callback(new Error('更新包大小不匹配'));
-                    return;
-                }
+    for (const [index, url] of urls.entries()) {
+        let created = false;
 
-                hash.update(chunk);
-                callback(null, chunk);
-            },
-        }),
-        createWriteStream(archive, { flags: 'wx' }),
-    );
+        try {
+            const headersTimeout = new AbortController();
+            const timer = setTimeout(() => headersTimeout.abort(), 8_000);
+            let response: Response;
 
-    if (received !== asset.size || `sha256:${hash.digest('hex')}` !== asset.digest) {
-        throw new Error('更新包校验失败');
+            try {
+                response = await fetch(url, {
+                    signal: AbortSignal.any([
+                        headersTimeout.signal,
+                        AbortSignal.timeout(10 * 60_000),
+                    ]),
+                });
+            } finally {
+                clearTimeout(timer);
+            }
+
+            if (!response.ok || !response.body) {
+                await response.body?.cancel();
+                throw new Error(`下载更新失败: HTTP ${response.status}`);
+            }
+
+            if (/text\/html/i.test(response.headers.get('content-type') ?? '')) {
+                await response.body.cancel();
+                throw new Error('下载源返回了 HTML 页面，而不是更新包');
+            }
+
+            const hash = createHash('sha256');
+            const length = response.headers.get('content-length');
+            const size =
+                asset.size ?? (length === null ? null : /^\d+$/.test(length) ? Number(length) : 0);
+
+            if (size !== null && (!Number.isSafeInteger(size) || size <= 0)) {
+                await response.body.cancel();
+                throw new Error('下载源返回了无效的更新包大小');
+            }
+
+            let received = 0;
+            const output = createWriteStream(archive, { flags: 'wx' });
+            output.once('open', () => {
+                created = true;
+            });
+            await pipeline(
+                Readable.fromWeb(response.body),
+                new Transform({
+                    transform(chunk: Buffer, _encoding, callback) {
+                        received += chunk.length;
+
+                        if (received > (size ?? 256 * 1024 * 1024)) {
+                            callback(new Error('更新包大小不匹配'));
+                            return;
+                        }
+
+                        hash.update(chunk);
+                        callback(null, chunk);
+                    },
+                }),
+                output,
+            );
+
+            if (
+                (size !== null && received !== size) ||
+                `sha256:${hash.digest('hex')}` !== asset.digest
+            ) {
+                throw new Error('更新包校验失败');
+            }
+
+            break;
+        } catch (error) {
+            if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
+                throw error;
+            }
+
+            failures.push(error instanceof Error ? error.message : String(error));
+
+            if (index === urls.length - 1) {
+                throw new Error([...new Set(failures)].join('；'));
+            }
+
+            if (created) {
+                await rm(archive);
+            }
+        }
     }
 
     const payload = path.join(directory, 'payload');

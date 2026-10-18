@@ -28,6 +28,9 @@ import type {
     UiConfig,
     UpdateInfo,
     UpdateStatus,
+    UpdateSourceConfig,
+    UpdateSourceProbe,
+    UpdateSourceSaveResult,
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-form';
 
@@ -277,6 +280,9 @@ export interface ApiClient {
         /** Advisory check for a newer stable release. Read-only — never downloads. */
         check(force?: boolean): Promise<UpdateInfo>;
         status(): Promise<UpdateStatus>;
+        sources(): Promise<{ config: UpdateSourceConfig }>;
+        saveSources(config: UpdateSourceConfig): Promise<UpdateSourceSaveResult>;
+        testSources(config: UpdateSourceConfig): Promise<{ results: UpdateSourceProbe[] }>;
         download(version: string): Promise<UpdateStatus>;
         restart(): Promise<UpdateStatus>;
     };

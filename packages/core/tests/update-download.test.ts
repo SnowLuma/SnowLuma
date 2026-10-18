@@ -5,9 +5,13 @@ import path from 'node:path';
 import { zipSync } from 'fflate';
 import { c as createTar } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { archivePath, assetName, downloadUpdate } from '../src/update/download';
+import { archivePath, assetName, downloadUpdate as download } from '../src/update/download';
 import { readManifest } from '../src/update/files';
 import { releaseFixture } from './helpers/update-fixture';
+
+const direct = { mode: 'direct', mirror: '', mirrors: [] } as const;
+const downloadUpdate = (directory: string, version: string, target: string) =>
+    download(directory, version, target, { ...direct, mirrors: [] });
 
 let root: string;
 beforeEach(async () => {
@@ -43,6 +47,105 @@ function mockRelease(bytes: Uint8Array, target: string, digest?: string) {
 }
 
 describe('release downloads', () => {
+    it.each(['403', 'html', 'corrupt', 'interrupted'])(
+        'cleans and retries a %s response through a mirror using HTML release checksums',
+        async (failure) => {
+            const manifest = await releaseFixture(path.join(root, 'source'), '2.0.0', 'win32-x64');
+            const bytes = zipSync({
+                'release.json': new TextEncoder().encode(JSON.stringify(manifest)),
+                'app.mjs': new TextEncoder().encode('verified payload'),
+            });
+            const name = assetName('2.0.0', 'win32-x64');
+            const digest = createHash('sha256').update(bytes).digest('hex');
+            const fetchMock = vi.fn<typeof fetch>(async (input) => {
+                const url = String(input);
+
+                if (url.includes('api.github.com')) {
+                    return new Response('rate limited', { status: 403 });
+                }
+
+                if (url.includes('/expanded_assets/')) {
+                    return new Response(
+                        `<li><a href="/SnowLuma/SnowLuma/releases/download/v2.0.0/${name}">asset</a><clipboard-copy value="sha256:${digest}"></clipboard-copy></li>`,
+                    );
+                }
+
+                if (url.startsWith('https://working.example/')) {
+                    // Mirrors may stream a verified archive without Content-Length.
+                    return new Response(new Uint8Array(bytes));
+                }
+
+                if (failure === '403') {
+                    return new Response('blocked', { status: 403 });
+                }
+
+                if (failure === 'html') {
+                    return new Response('<html>challenge</html>', {
+                        headers: { 'Content-Type': 'text/html' },
+                    });
+                }
+
+                if (failure === 'interrupted') {
+                    let sent = false;
+                    return new Response(
+                        new ReadableStream({
+                            pull(controller) {
+                                if (sent) {
+                                    controller.error(new Error('connection reset'));
+                                } else {
+                                    controller.enqueue(new Uint8Array([1, 2, 3]));
+                                    sent = true;
+                                }
+                            },
+                        }),
+                    );
+                }
+
+                return new Response('corrupt archive');
+            });
+            vi.stubGlobal('fetch', fetchMock);
+            await download(root, '2.0.0', 'win32-x64', {
+                mode: 'auto',
+                mirror: '',
+                mirrors: ['https://working.example'],
+            });
+            expect(await readFile(path.join(root, 'archive'))).toEqual(Buffer.from(bytes));
+            expect(await readFile(path.join(root, 'payload/app.mjs'), 'utf8')).toBe(
+                'verified payload',
+            );
+            expect(
+                fetchMock.mock.calls
+                    .filter(([url]) => String(url).includes('/download/'))
+                    .map(([url]) => String(url)),
+            ).toEqual([
+                `https://github.com/SnowLuma/SnowLuma/releases/download/v2.0.0/${name}`,
+                `https://working.example/https://github.com/SnowLuma/SnowLuma/releases/download/v2.0.0/${name}`,
+            ]);
+        },
+    );
+
+    it('does not try other download sources in pinned mode', async () => {
+        const bytes = new Uint8Array([1, 2, 3]);
+        const fetchMock = mockRelease(bytes, 'win32-x64');
+        const original = fetchMock.getMockImplementation()!;
+        fetchMock.mockImplementation(async (input) =>
+            String(input).includes('api.github.com')
+                ? original(input)
+                : new Response('blocked', { status: 403 }),
+        );
+        await expect(
+            download(root, '2.0.0', 'win32-x64', {
+                mode: 'mirror',
+                mirror: 'https://pinned.example',
+                mirrors: ['https://other.example'],
+            }),
+        ).rejects.toThrow('HTTP 403');
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+            'https://api.github.com/repos/SnowLuma/SnowLuma/releases/tags/v2.0.0',
+            `https://pinned.example/https://github.com/SnowLuma/SnowLuma/releases/download/v2.0.0/${assetName('2.0.0', 'win32-x64')}`,
+        ]);
+        expect(await readdir(root)).toEqual([]);
+    });
     it.each(['win32-x64', 'linux-x64', 'linux-arm64'])(
         'downloads and validates the %s lite package',
         async (target) => {

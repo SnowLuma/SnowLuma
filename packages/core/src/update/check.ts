@@ -2,10 +2,12 @@ import { APP_VERSION } from '@snowluma/common/version';
 import { compareVersions, parseVersion } from '@snowluma/common/semver';
 import { createLogger } from '@snowluma/common/logger';
 import { createSingleFlightCache } from '@snowluma/common/single-flight-cache';
+import type { UpdateSourceConfig } from '@snowluma/common/update-source';
+import { fetchRelease } from './release';
+import { readUpdateSource } from './sources';
 
 const log = createLogger('Update');
 
-const LATEST_RELEASE_URL = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h — comfortably under the rate limit
 const FETCH_TIMEOUT_MS = 8_000;
 const NOTES_MAX = 4_000; // cap the release-body we hand back to the client
@@ -29,13 +31,6 @@ export interface UpdateCheckResult {
     error?: string;
 }
 
-interface GithubRelease {
-    tag_name?: string;
-    html_url?: string;
-    body?: string;
-    published_at?: string;
-}
-
 function isEnabled(): boolean {
     const v = (process.env.SNOWLUMA_UPDATE_CHECK ?? '').trim().toLowerCase();
     return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
@@ -47,8 +42,10 @@ function isEnabled(): boolean {
 const updateCache = createSingleFlightCache<string, UpdateCheckResult>({
     ttlMs: CACHE_TTL_MS,
     shouldCache: (r) => !r.error,
-    load: async (current) => {
-        const result = await fetchLatest(current);
+    load: async (key) => {
+        // This key is constructed below from our version and normalized settings.
+        const [current, source] = JSON.parse(key) as [string, UpdateSourceConfig];
+        const result = await fetchLatest(current, source);
 
         if (result.error) {
             log.debug('update check failed: %s', result.error);
@@ -60,7 +57,10 @@ const updateCache = createSingleFlightCache<string, UpdateCheckResult>({
     },
 });
 
-async function fetchLatest(current: string): Promise<UpdateCheckResult> {
+async function fetchLatest(
+    current: string,
+    source: UpdateSourceConfig,
+): Promise<UpdateCheckResult> {
     const base: UpdateCheckResult = {
         current,
         latest: null,
@@ -74,21 +74,19 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
     try {
         // `/releases/latest` already excludes drafts and prereleases, so this is
         // stable-channel by construction.
-        const res = await fetch(LATEST_RELEASE_URL, {
-            headers: {
-                Accept: 'application/vnd.github+json',
-                'User-Agent': `SnowLuma/${current}`,
-                'X-GitHub-Api-Version': '2022-11-28',
-            },
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
+        const { data: rel } = await fetchRelease(
+            undefined,
+            source,
+            `SnowLuma/${current}`,
+            FETCH_TIMEOUT_MS,
+        );
 
-        if (!res.ok) {
-            return { ...base, error: `github ${res.status}` };
+        if (!rel || typeof rel !== 'object' || Array.isArray(rel)) {
+            return { ...base, error: 'invalid release info' };
         }
 
-        const rel = (await res.json()) as GithubRelease;
-        const tag = typeof rel.tag_name === 'string' ? rel.tag_name.trim() : '';
+        const tag =
+            'tag_name' in rel && typeof rel.tag_name === 'string' ? rel.tag_name.trim() : '';
 
         if (!tag) {
             return { ...base, error: 'no tag' };
@@ -104,9 +102,15 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
             current,
             latest,
             hasUpdate: compareVersions(latest, current) > 0,
-            htmlUrl: rel.html_url ?? null,
-            notes: rel.body ? rel.body.slice(0, NOTES_MAX) : null,
-            publishedAt: rel.published_at ?? null,
+            htmlUrl: 'html_url' in rel && typeof rel.html_url === 'string' ? rel.html_url : null,
+            notes:
+                'body' in rel && typeof rel.body === 'string' && rel.body
+                    ? rel.body.slice(0, NOTES_MAX)
+                    : null,
+            publishedAt:
+                'published_at' in rel && typeof rel.published_at === 'string'
+                    ? rel.published_at
+                    : null,
             checkedAt: Date.now(),
         };
     } catch (e) {
@@ -120,14 +124,26 @@ async function fetchLatest(current: string): Promise<UpdateCheckResult> {
  * failures come back as a result with `error` set and `hasUpdate: false`, and
  * are not cached so the next check retries.
  */
-export async function getUpdateInfo(force = false): Promise<UpdateCheckResult> {
+export async function getUpdateInfo(
+    force = false,
+    source?: UpdateSourceConfig,
+): Promise<UpdateCheckResult> {
     const current = APP_VERSION;
 
     if (!isEnabled()) {
         return { ...emptyResult(current), error: 'disabled' };
     }
 
-    return updateCache.get(current, { force });
+    try {
+        return await updateCache.get(JSON.stringify([current, source ?? readUpdateSource()]), {
+            force,
+        });
+    } catch (error) {
+        return {
+            ...emptyResult(current),
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
 }
 
 function emptyResult(current: string): UpdateCheckResult {

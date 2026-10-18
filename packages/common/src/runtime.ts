@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { isObject } from './coerce';
+import { normalizeUpdateSourceConfig, type UpdateSourceConfig } from './update-source';
 
 export interface RuntimeConfig {
+    updateSource?: UpdateSourceConfig;
     webuiPort?: number;
     /** When true, every newly-discovered QQ process gets auto-injected by
      * the HookManager. Also overridable at runtime via SNOWLUMA_HOOK_AUTOLOAD.
@@ -43,6 +45,9 @@ export const MAX_LOG_RETAIN_DAYS = Math.floor(Number.MAX_SAFE_INTEGER / (24 * 60
 export function normalizeRuntimeConfig(parsed: unknown): RuntimeConfig {
     const obj = isObject(parsed) ? parsed : {};
     return {
+        ...(obj.updateSource === undefined
+            ? {}
+            : { updateSource: normalizeUpdateSourceConfig(obj.updateSource) }),
         webuiPort: normalizePort(obj.webuiPort ?? DEFAULT_WEBUI_PORT, DEFAULT_WEBUI_PORT),
         hookAutoLoad: normalizeBool(obj.hookAutoLoad, false),
         webuiHost: normalizeHost(obj.webuiHost),
@@ -217,7 +222,8 @@ function sameRuntimeConfig(parsed: Record<string, unknown>, n: RuntimeConfig): b
         parsed.trustProxy === n.trustProxy &&
         parsed.logMaxTotalMb === n.logMaxTotalMb &&
         parsed.logRetainDays === n.logRetainDays &&
-        parsed.logPerUin === n.logPerUin
+        parsed.logPerUin === n.logPerUin &&
+        JSON.stringify(parsed.updateSource) === JSON.stringify(n.updateSource)
     );
 }
 

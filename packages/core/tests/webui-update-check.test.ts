@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getUpdateInfo } from '../src/update/check';
+import { getUpdateInfo as checkUpdate } from '../src/update/check';
+
+const getUpdateInfo = (force = false) =>
+    checkUpdate(force, { mode: 'direct', mirror: '', mirrors: [] });
 
 const LATEST_RELEASE_URL = 'https://api.github.com/repos/SnowLuma/SnowLuma/releases/latest';
 const NOTES_MAX = 4_000;
@@ -85,7 +88,7 @@ describe('getUpdateInfo', () => {
             htmlUrl: null,
             notes: null,
             publishedAt: null,
-            error: 'ECONNRESET',
+            error: expect.stringContaining('ECONNRESET'),
         });
 
         fetchMock.mockImplementation(async () => jsonResponse({ tag_name: 'v1.0.0' }));
@@ -93,7 +96,7 @@ describe('getUpdateInfo', () => {
         expect(ok.latest).toBe('1.0.0');
         expect(ok.hasUpdate).toBe(true);
         expect(ok.error).toBeUndefined();
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it.each(['', '1', 'true', 'yes', 'on', '  '] as const)(
@@ -190,7 +193,7 @@ describe('getUpdateInfo', () => {
             htmlUrl: null,
             notes: null,
             publishedAt: null,
-            error: 'github 403',
+            error: expect.stringContaining('GitHub 403'),
         });
     });
 
@@ -230,7 +233,7 @@ describe('getUpdateInfo', () => {
             throw new Error('getaddrinfo ENOTFOUND');
         });
         const result = await getUpdateInfo(true);
-        expect(result.error).toBe('getaddrinfo ENOTFOUND');
+        expect(result.error).toContain('getaddrinfo ENOTFOUND');
         expect(result.hasUpdate).toBe(false);
     });
 
@@ -239,7 +242,7 @@ describe('getUpdateInfo', () => {
             throw 'timeout';
         });
         const result = await getUpdateInfo(true);
-        expect(result.error).toBe('network error');
+        expect(result.error).toContain('timeout');
         expect(result.hasUpdate).toBe(false);
     });
 
@@ -257,7 +260,7 @@ describe('getUpdateInfo', () => {
             throw new Error('boom');
         });
         await expect(getUpdateInfo(true)).resolves.toMatchObject({
-            error: 'boom',
+            error: expect.stringContaining('boom'),
             hasUpdate: false,
         });
     });
@@ -298,12 +301,12 @@ describe('getUpdateInfo', () => {
             throw new Error('boom');
         });
         const bad = await getUpdateInfo(true);
-        expect(bad.error).toBe('boom');
+        expect(bad.error).toContain('boom');
 
         const cached = await getUpdateInfo();
         expect(cached).toBe(good);
         expect(cached.error).toBeUndefined();
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it('collapses concurrent checks onto one fetch', async () => {
@@ -331,5 +334,16 @@ describe('getUpdateInfo', () => {
             publishedAt: '2026-07-01T00:00:00Z',
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reuse the previous source configuration cache after a mirror change', async () => {
+        const source = { mode: 'auto', mirror: '', mirrors: ['https://first.example'] } as const;
+        const fetchMock = mockFetch(async () => jsonResponse({ tag_name: 'v3.0.0' }));
+        const first = await checkUpdate(false, { ...source, mirrors: [...source.mirrors] });
+        fetchMock.mockImplementation(async () => jsonResponse({ tag_name: 'v3.0.1' }));
+        const second = await checkUpdate(false, { ...source, mirrors: ['https://second.example'] });
+        expect(first.latest).toBe('3.0.0');
+        expect(second.latest).toBe('3.0.1');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 });

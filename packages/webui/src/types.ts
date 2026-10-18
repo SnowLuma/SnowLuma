@@ -1,6 +1,24 @@
 export const APP_NAME = 'SnowLuma';
 // Injected at build time by Vite from the monorepo root package.json.
 export { APP_VERSION } from '@snowluma/common/version';
+import type { UpdateSourceConfig } from '@snowluma/common/update-source';
+export type { UpdateSourceConfig } from '@snowluma/common/update-source';
+
+export interface UpdateSourceProbe {
+    mirror: string;
+    available: boolean;
+    latencyMs: number;
+    error?: string;
+}
+
+export interface UpdateSourceSaveResult {
+    config: UpdateSourceConfig;
+    saved: boolean;
+    applied: boolean;
+    online: boolean;
+    errors: string[];
+    message: string;
+}
 
 export type UpdateStatus = { current: string } & (
     | { phase: 'unavailable' | 'error'; message: string }
