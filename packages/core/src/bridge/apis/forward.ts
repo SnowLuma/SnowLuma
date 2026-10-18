@@ -36,6 +36,35 @@ function asBridge(ctx: BridgeContext): Bridge {
 // resolve a forward immediately after receiving the parent message.
 const forwardResCache = new Map<string, ForwardNodePayload[]>();
 
+/** Upper bound for `forwardResCache`. A long-running process resolves merged
+ *  forwards continuously (including one entry per inner node of every nested
+ *  forward), and each entry carries the full node metadata, so the cache must
+ *  stay bounded — mirrors `Bridge.UPLOADED_FILE_CACHE_MAX`. Insertion-ordered
+ *  Map makes "drop the oldest" exact. */
+const FORWARD_RES_CACHE_MAX = 512;
+
+/** Insert keeping `map` at `max` entries by dropping the oldest (Map
+ *  iteration is insertion-ordered). Re-setting an existing key refreshes its
+ *  position, matching LRU-by-recency semantics. */
+export function insertBounded<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
+    map.delete(key);
+    map.set(key, value);
+
+    while (map.size > max) {
+        const oldest = map.keys().next();
+
+        if (oldest.done) {
+            break;
+        }
+
+        map.delete(oldest.value);
+    }
+}
+
+function cacheForwardNodes(key: string, nodes: ForwardNodePayload[]): void {
+    insertBounded(forwardResCache, key, nodes, FORWARD_RES_CACHE_MAX);
+}
+
 const log = createLogger('Bridge.Forward');
 
 // Forward bodies are gzip-compressed by QQ. Bound decompression while zlib is
@@ -692,7 +721,7 @@ export class ForwardApi {
             throw new Error('upload forward message response missing res_id');
         }
 
-        forwardResCache.set(
+        cacheForwardNodes(
             resId,
             uploadReadyNodes.map((node) => ({
                 ...cloneNodeWithElements(node, node.elements.map(cacheableForwardElement)),
@@ -727,7 +756,7 @@ export class ForwardApi {
             // Inner nodes seeded by consumePiggybacks are cached un-enriched; enrich
             // on read (a no-op once names are present) and persist so later hits skip.
             if (await this.enrichSenders(nodes)) {
-                forwardResCache.set(resId, cloneNodes(nodes));
+                cacheForwardNodes(resId, cloneNodes(nodes));
             }
 
             return nodes;
@@ -830,7 +859,7 @@ export class ForwardApi {
         await this.enrichSenders(nodes);
 
         if (nodes.length > 0) {
-            forwardResCache.set(resId, cloneNodes(nodes));
+            cacheForwardNodes(resId, cloneNodes(nodes));
         }
 
         return nodes;
@@ -1052,7 +1081,7 @@ export class ForwardApi {
 
                     seen.add(uuid);
                     const innerNodes = this.decodeMsgBodiesToNodes(body);
-                    forwardResCache.set(innerResId, cloneNodes(innerNodes));
+                    cacheForwardNodes(innerResId, cloneNodes(innerNodes));
                     visit(innerNodes);
                 }
             }
