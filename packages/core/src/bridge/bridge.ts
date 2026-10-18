@@ -304,8 +304,12 @@ export class Bridge implements BridgeInterface {
         this.msgRandom_ = (this.msgRandom_ + 0x9e3779b9) >>> 0;
         // #528: registering every random we mint lets the self-sent echo parser
         // tell our own sends apart from messages typed by the operator.
-        this.pbSendMsgTracker_.rememberSelfRandom(this.msgRandom_);
-        return this.msgRandom_ & 0x7fffffff;
+        // Register the value that actually goes on the wire: QQ truncates the
+        // random to 31 bits, so a high-bit raw value would never match the
+        // echo and our own message would be reported twice.
+        const random = this.msgRandom_ & 0x7fffffff;
+        this.pbSendMsgTracker_.rememberSelfRandom(random);
+        return random;
     }
     async sendRawPacket(
         serviceCmd: string,

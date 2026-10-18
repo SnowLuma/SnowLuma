@@ -41,6 +41,15 @@ export enum PipeOp {
 }
 
 const PipeFlagWantReply = 1 << 0;
+/**
+ * Direction bit for `recvPacket` frames: the hook reports both sides of a
+ * transaction, and this flag marks the side the injected QQ client sent.
+ * Observed on the wire in hello frames (the DLL connecting to us is itself
+ * "from client"), so the encoding is part of the protocol; older hook builds
+ * simply never set it, which reads as "server -> client" — the only direction
+ * that existed before this flag.
+ */
+const PipeFlagFromClient = 1 << 1;
 const PipeFlagLoggedIn = 1 << 2;
 
 export interface QqHookLoginState {
@@ -55,6 +64,11 @@ export interface QqHookPacket {
     cmd: string;
     uin: string;
     body: Buffer;
+    /**
+     * True when the frame carries traffic the injected client sent (see
+     * `PipeFlagFromClient`). Absent bit means a server -> client packet.
+     */
+    fromClient: boolean;
 }
 
 export interface QqHookHello {
@@ -1379,6 +1393,7 @@ export class QqHookClient extends EventEmitter {
             cmd: frame.cmd,
             uin: frame.msg,
             body: Buffer.from(frame.body),
+            fromClient: (frame.flags & PipeFlagFromClient) !== 0,
         } satisfies QqHookPacket);
     }
 }

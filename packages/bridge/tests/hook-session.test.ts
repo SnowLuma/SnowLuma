@@ -934,6 +934,35 @@ describe('HookSession — packet forwarding', () => {
     // we can exercise the transformation with a plain vi.fn() sink, no
     // event-emitter machinery required.
 
+    it('preserves the fromClient direction flag instead of pinning it to false (#528)', async () => {
+        const onPacket = vi.fn();
+        const ctx = makeSession({ pipeLive: true, onPacket });
+        await ctx.session.load();
+        ctx.session.onPipeUp();
+        await flush();
+        ctx.currentClient().fireLogin('10001');
+
+        // The hook pipe reports both sides of a transaction and marks the
+        // client-sent side with a direction flag. Pinning fromClient to false
+        // here silently killed every parser keyed on outbound traffic (e.g.
+        // the PbSendMsg echo): requests were never stashed, so replies could
+        // never pair and no message_sent event was produced.
+        ctx.currentClient().firePacket({
+            fromClient: true,
+            seq: 42,
+            error: 0,
+            cmd: 'MessageSvc.PbSendMsg',
+            uin: '10001',
+            body: Buffer.from([0x01]),
+        });
+
+        expect(onPacket).toHaveBeenCalledOnce();
+        expect(onPacket.mock.calls[0]![0]).toMatchObject({
+            serviceCmd: 'MessageSvc.PbSendMsg',
+            fromClient: true,
+        });
+    });
+
     it('forwards parsed packets to onPacket sink with PacketInfo shape', async () => {
         const onPacket = vi.fn();
         const ctx = makeSession({ pipeLive: true, onPacket });
@@ -943,6 +972,7 @@ describe('HookSession — packet forwarding', () => {
         ctx.currentClient().fireLogin('10001');
 
         ctx.currentClient().firePacket({
+            fromClient: false,
             seq: 42,
             error: 0,
             cmd: 'trpc.msg.olpush.OlPushService.MsgPush',
@@ -973,6 +1003,7 @@ describe('HookSession — packet forwarding', () => {
         ctx.currentClient().fireLogin('10001');
 
         ctx.currentClient().firePacket({
+            fromClient: false,
             seq: 1,
             error: 0,
             cmd: 'foo',
@@ -992,6 +1023,7 @@ describe('HookSession — packet forwarding', () => {
         // No login fired yet.
 
         ctx.currentClient().firePacket({
+            fromClient: false,
             seq: 1,
             error: 0,
             cmd: 'foo',
@@ -1014,6 +1046,7 @@ describe('HookSession — packet forwarding', () => {
         // Force a bad uin via the packet AND null out session uin by simulating
         // a logout? Simpler: send a packet with uin '42' (numeric but <5 chars).
         ctx.currentClient().firePacket({
+            fromClient: false,
             seq: 1,
             error: 0,
             cmd: 'foo',
@@ -1033,6 +1066,7 @@ describe('HookSession — packet forwarding', () => {
 
         // Should not throw / crash.
         ctx.currentClient().firePacket({
+            fromClient: false,
             seq: 1,
             error: 0,
             cmd: 'foo',
@@ -1309,8 +1343,9 @@ describe('HookSession — end-to-end receive health (#233)', () => {
         cmd: string,
         uin = '10001',
         seq = 1,
+        fromClient = false,
     ): void {
-        ctx.currentClient().firePacket({ seq, error: 0, cmd, uin, body: Buffer.alloc(0) });
+        ctx.currentClient().firePacket({ seq, error: 0, cmd, uin, body: Buffer.alloc(0), fromClient });
     }
 
     it('reports native outbound loss as unhealthy and recovers on the next successful request', async () => {

@@ -118,6 +118,22 @@ describe('parsePbSendMsg (self-sent echo, #528)', () => {
         expect(events[0].sequenceAuthoritative).toBe(true);
     });
 
+    it('dedups on the 31-bit random that actually goes on the wire (#528)', () => {
+        // `Bridge.nextMessageRandom()` mints a raw 32-bit value but QQ
+        // truncates the random to 31 bits before it is sent, so the echo
+        // parser only ever sees the masked value. Registering the raw value
+        // left every high-bit send invisible to the dedup — once request
+        // capture is wired, those sends would be reported twice.
+        const tracker = new PbSendMsgEchoTracker();
+        const raw = 0x8000_0001;
+        const onWire = raw & 0x7fffffff;
+
+        tracker.rememberSelfRandom(onWire);
+
+        expect(tracker.isSelfRandom(onWire)).toBe(true);
+        expect(tracker.isSelfRandom(raw)).toBe(false);
+    });
+
     it('does NOT emit for a send SnowLuma itself performed (no double report)', () => {
         const tracker = new PbSendMsgEchoTracker();
         const id = identity();

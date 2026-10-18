@@ -979,13 +979,17 @@ export class HookSession extends EventEmitter {
         // shape. Used to live in the deleted NtqqHandler.onHookPacket; field
         // renaming was that module's entire purpose, so it lives at the source
         // now (no need for a single-listener event-emitter in between).
+        // `fromClient` comes from the pipe frame's direction flag rather than
+        // being pinned here: the hook reports both sides of a transaction, and
+        // parsers keyed on the outbound side (e.g. PbSendMsg echo) only work
+        // if that flag survives this hop.
         this.onPacket({
             pid: this.pid,
             uin,
             serviceCmd: packet.cmd,
             seqId: packet.seq,
             retCode: packet.error,
-            fromClient: false,
+            fromClient: packet.fromClient,
             body: Buffer.from(packet.body),
         });
     }
