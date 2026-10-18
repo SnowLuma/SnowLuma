@@ -9,6 +9,7 @@
 // SMTP send, the clock) are injected so the class is fully unit-testable; the
 // real wiring lives in `createNotificationManager()` at the bottom.
 import { positiveIntEnv } from '@snowluma/common/env';
+import type { HookProcessInfo } from '@snowluma/bridge/types';
 import { createLogger } from '@snowluma/common/logger';
 import { loadOneBotConfig } from '@snowluma/onebot/config';
 import type { BridgeManager } from '../bridge/manager';
@@ -27,9 +28,8 @@ const log = createLogger('Notifications');
 
 const DEFAULT_HISTORY_LIMIT = 100;
 const DEFAULT_POST_TIMEOUT_MS = 10_000;
-const FALLBACK_DEBOUNCE_SECONDS = 30;
 
-/** One delivery attempt; kept only in memory (the plan forbids persistence). */
+/** One delivery attempt, retained in bounded in-memory history. */
 export interface DeliveryRecord {
     time: number;
     uin: string;
@@ -59,37 +59,38 @@ export interface MailPayload {
 }
 
 /**
- * Process facts attached to a notification. The `offline` event alone cannot
- * tell a receiver whether the account merely dropped its session (the client
- * is still running and can be logged back in) or the QQ process is gone
- * altogether — and an external supervisor needs that distinction to decide
- * between re-login and restart. All fields are strings-in-waiting for the
- * template map; `undefined` renders empty.
+ * Optional hook process snapshot attached to a notification. Missing facts
+ * mean unknown, not proof that QQ exited. Hook status describes connectivity;
+ * it does not by itself identify the reason an account went offline.
+ * Undefined fields render empty in templates.
  */
-export interface NotificationProcessFacts {
-    /** One of `HookProcessStatus`: `available` / `loading` / `connecting` / `loaded` / `online` / `error` / `disconnected`. */
-    status?: string;
-    pid?: number;
-    error?: string;
-}
+export type NotificationProcessFacts = Partial<Pick<HookProcessInfo, 'status' | 'pid' | 'error'>>;
 
 export interface NotificationManagerDeps {
     /** Global channel store (channels + debounceSeconds). */
     loadConfig: () => NotificationsConfig;
     /** The channel ids a UIN has opted into. */
     loadChannelIds: (uin: string) => string[];
-    /** Webhook delivery — never throws; failures come back as `{ ok: false }`. */
+    /** Webhook delivery. Rejections are recorded as failed attempts. */
     post: (url: string, body: string, headers?: Record<string, string>) => Promise<PostResult>;
     /** SMTP delivery — optional so webhook-only tests stay lean. */
     sendMail?: (mail: MailPayload) => Promise<PostResult>;
     now: () => number;
     historyLimit?: number;
     /**
-     * Optional: look up the process behind a UIN at notify time. Omitted
-     * (or resolving to `undefined`) means "no process to report" — the fact
+     * Optional: look up the lifecycle event's PID and UIN at dispatch time. Omitted
+     * (or resolving to `undefined`) means "process unknown" — the fact
      * variables then render empty rather than leaving `{status}` in the body.
      */
-    resolveProcess?: (uin: string) => Promise<NotificationProcessFacts | undefined>;
+    resolveProcess?: (
+        uin: string,
+        pid: number | null,
+    ) => Promise<NotificationProcessFacts | undefined>;
+}
+
+interface AccountNotificationContext {
+    nickname: string;
+    pid: number | null;
 }
 
 function errMsg(err: unknown): string {
@@ -112,8 +113,9 @@ export class NotificationManager {
     private readonly deps: NotificationManagerDeps;
     private readonly machine = new DebounceMachine();
     private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-    private readonly nicknames = new Map<string, string>();
+    private readonly accounts = new Map<string, AccountNotificationContext>();
     private readonly history: DeliveryRecord[] = [];
+    private readonly deliveries = new Map<string, Promise<void>>();
     private readonly historyLimit: number;
     private disposed = false;
 
@@ -126,76 +128,65 @@ export class NotificationManager {
      *  OneBotManager so the nickname fallback is already populated. */
     bind(bridgeManager: BridgeManager): void {
         bridgeManager.addSessionStartedListener((uin, bridge) =>
-            this.handleOnline(uin, bridge.identity.nickname),
+            this.handleOnline(uin, bridge.identity.nickname, bridge.activePid),
         );
-        bridgeManager.addSessionClosedListener((uin, bridge) =>
-            this.handleOffline(uin, bridge.identity.nickname),
+        bridgeManager.addSessionClosedListener((uin, bridge, pid) =>
+            this.handleOffline(uin, bridge.identity.nickname, pid),
         );
     }
 
-    handleOnline(uin: string, nickname?: string): void {
+    handleOnline(uin: string, nickname?: string, pid: number | null = null): void {
         if (this.disposed) {
             return;
         }
 
-        if (nickname) {
-            this.nicknames.set(uin, nickname);
-        }
+        this.accounts.set(uin, {
+            nickname: nickname || this.accounts.get(uin)?.nickname || uin,
+            pid,
+        });
 
         this.apply(uin, this.machine.onOnline(uin));
     }
 
-    handleOffline(uin: string, nickname?: string): void {
+    handleOffline(uin: string, nickname?: string, pid: number | null = null): void {
         if (this.disposed) {
             return;
         }
 
-        if (nickname) {
-            this.nicknames.set(uin, nickname);
-        }
+        let debounceSeconds: number;
 
-        this.apply(uin, this.machine.onOffline(uin, this.debounceSeconds()));
-    }
-
-    private debounceSeconds(): number {
         try {
-            return this.deps.loadConfig().debounceSeconds;
-        } catch {
-            return FALLBACK_DEBOUNCE_SECONDS;
+            debounceSeconds = this.deps.loadConfig().debounceSeconds;
+        } catch (err) {
+            log.warn('offline(%s) skipped — config load failed: %s', uin, errMsg(err));
+            return;
         }
+
+        this.accounts.set(uin, {
+            nickname: nickname || this.accounts.get(uin)?.nickname || uin,
+            pid,
+        });
+
+        this.apply(uin, this.machine.onOffline(uin, debounceSeconds));
     }
 
     private apply(uin: string, decision: DebounceDecision): void {
         switch (decision.kind) {
             case 'schedule': {
-                const existing = this.timers.get(uin);
-
-                if (existing) {
-                    clearTimeout(existing);
-                }
-
                 const timer = setTimeout(() => {
                     this.timers.delete(uin);
                     this.apply(uin, this.machine.onTimerElapsed(uin));
                 }, decision.delayMs);
 
                 // Don't let a pending notification timer keep the process alive.
-                if (typeof (timer as { unref?: () => void }).unref === 'function') {
-                    (timer as { unref: () => void }).unref();
-                }
-
+                timer.unref();
                 this.timers.set(uin, timer);
                 break;
             }
 
             case 'cancel': {
-                const timer = this.timers.get(uin);
-
-                if (timer) {
-                    clearTimeout(timer);
-                    this.timers.delete(uin);
-                }
-
+                clearTimeout(this.timers.get(uin));
+                this.timers.delete(uin);
                 break;
             }
 
@@ -207,9 +198,36 @@ export class NotificationManager {
         }
     }
 
-    /** Render + deliver a transition to every opted-in, enabled channel and record
-     *  the outcome. Never throws (a bad channel can't break the others). */
-    async notify(uin: string, event: NotificationEvent): Promise<void> {
+    /** Queue one transition; channel failures are recorded independently. */
+    notify(uin: string, event: NotificationEvent): Promise<void> {
+        if (this.disposed) {
+            return Promise.resolve();
+        }
+
+        const account = this.accounts.get(uin) ?? { nickname: uin, pid: null };
+        const previous = this.deliveries.get(uin) ?? Promise.resolve();
+        // Both enrichment and every channel delivery belong to this transition.
+        // A slow lookup/send must not let recovery overtake offline for one UIN.
+        const delivery = previous
+            .then(() => this.notifyNow(uin, event, account))
+            .finally(() => {
+                if (this.deliveries.get(uin) === delivery) {
+                    this.deliveries.delete(uin);
+                }
+            });
+        this.deliveries.set(uin, delivery);
+        return delivery;
+    }
+
+    private async notifyNow(
+        uin: string,
+        event: NotificationEvent,
+        account: AccountNotificationContext,
+    ): Promise<void> {
+        if (this.disposed) {
+            return;
+        }
+
         let channels: NotificationChannel[];
 
         try {
@@ -224,11 +242,17 @@ export class NotificationManager {
             return;
         }
 
-        const nickname = this.nicknames.get(uin) || uin;
-        const facts = await this.resolveFacts(uin);
+        let facts: NotificationProcessFacts | undefined;
+
+        try {
+            facts = await this.deps.resolveProcess?.(uin, account.pid);
+        } catch (err) {
+            log.warn('resolveProcess(%s, %s) failed: %s', uin, account.pid, errMsg(err));
+        }
+
         const vars: Record<string, string> = {
             uin,
-            nickname,
+            nickname: account.nickname,
             event,
             time: new Date(this.deps.now()).toISOString(),
             status: facts?.status ?? '',
@@ -237,6 +261,10 @@ export class NotificationManager {
         };
 
         for (const ch of channels) {
+            if (this.disposed) {
+                return;
+            }
+
             const result = await this.deliver(ch, vars);
             this.record({
                 time: this.deps.now(),
@@ -260,22 +288,6 @@ export class NotificationManager {
                     result.error ?? `HTTP ${result.status ?? '?'}`,
                 );
             }
-        }
-    }
-
-    /** Enrichment only: a failing lookup degrades to "unknown", never blocks
-     *  or throws into `notify()` — the transition is what the user asked about,
-     *  the facts are a bonus. */
-    private async resolveFacts(uin: string): Promise<NotificationProcessFacts | undefined> {
-        if (!this.deps.resolveProcess) {
-            return undefined;
-        }
-
-        try {
-            return await this.deps.resolveProcess(uin);
-        } catch (err) {
-            log.warn('resolveProcess(%s) failed: %s', uin, errMsg(err));
-            return undefined;
         }
     }
 
@@ -306,7 +318,6 @@ export class NotificationManager {
 
             return await this.deps.post(ch.url, renderTemplate(ch.bodyTemplate, vars), ch.headers);
         } catch (err) {
-            // Injected collaborators are contracted not to throw, but guard anyway.
             return { ok: false, error: errMsg(err) };
         }
     }

@@ -91,10 +91,12 @@ async function main() {
 
     // Global notification subsystem (account up/down → webhook). Bound AFTER
     // OneBotManager so the nickname fallback is already populated when it observes.
-    // The process facts ride along so a supervisor on the other end can tell a
-    // dropped session (log back in) from a vanished process (restart the client).
-    const notificationManager = createNotificationManager(async (uin) => {
-        const found = (await hookManager.listProcesses()).find((p) => p.uin === uin);
+    // Lifecycle events identify their PID; an older process with the same UIN
+    // must not supply facts for a recovered account.
+    const notificationManager = createNotificationManager(async (uin, pid) => {
+        const found = (await hookManager.listProcesses()).find(
+            (p) => p.pid === pid && p.uin === uin,
+        );
         return found ? { status: found.status, pid: found.pid, error: found.error } : undefined;
     });
     notificationManager.bind(bridgeManager);

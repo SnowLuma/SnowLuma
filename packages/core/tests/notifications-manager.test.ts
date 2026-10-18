@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import {
     NotificationManager,
     createDefaultPost,
     selectChannels,
     type MailPayload,
     type NotificationManagerDeps,
+    type NotificationProcessFacts,
     type PostResult,
 } from '../src/notifications/manager';
 import type { NotificationChannel, NotificationsConfig } from '../src/notifications/config';
@@ -159,6 +161,90 @@ describe('NotificationManager — dispatch + history', () => {
         expect(recent).toHaveLength(2);
         expect(recent[0]).toMatchObject({ event: 'online', ok: false, status: 500 });
         expect(recent[1]).toMatchObject({ event: 'offline', ok: true, status: 200 });
+    });
+
+    it('keeps offline before recovery when the offline process lookup is delayed', async () => {
+        let resolve!: (facts: NotificationProcessFacts) => void;
+        const delayed = new Promise<NotificationProcessFacts>((done) => {
+            resolve = done;
+        });
+        const resolveProcess = vi
+            .fn()
+            .mockReturnValueOnce(delayed)
+            .mockResolvedValue({ status: 'online', pid: 4242 });
+        const { posts, mgr } = setup({ resolveProcess });
+        const offline = mgr.notify('123', 'offline');
+        const online = mgr.notify('123', 'online');
+        await new Promise<void>((done) => setImmediate(done));
+        const whileResolving = [...posts];
+        resolve({ status: 'disconnected', pid: 4242 });
+        await Promise.all([offline, online]);
+        expect(whileResolving).toEqual([]);
+        expect(posts.map((post) => post.body)).toEqual(['offline:123:123', 'online:123:123']);
+    });
+
+    it('finishes every channel before sending the recovery, even when a delivery fails', async () => {
+        let reject!: (error: Error) => void;
+        const delayed = new Promise<PostResult>((_resolve, fail) => {
+            reject = fail;
+        });
+        const deliveries: string[] = [];
+        const { mgr } = setup({
+            loadConfig: () => ({
+                version: 1,
+                debounceSeconds: 0,
+                channels: [ch(), ch({ id: 'c2' })],
+            }),
+            loadChannelIds: () => ['c1', 'c2'],
+            post: async (_url, body) => {
+                deliveries.push(body);
+                return deliveries.length === 1 ? delayed : { ok: true };
+            },
+        });
+        const offline = mgr.notify('123', 'offline');
+        const online = mgr.notify('123', 'online');
+        await new Promise<void>((done) => setImmediate(done));
+        reject(new Error('delivery failed'));
+        await Promise.all([offline, online]);
+        expect(deliveries).toEqual([
+            'offline:123:123',
+            'offline:123:123',
+            'online:123:123',
+            'online:123:123',
+        ]);
+        expect(mgr.getRecent().filter((record) => !record.ok)).toHaveLength(1);
+    });
+
+    it('does not block another account behind a slow process lookup', async () => {
+        let resolve!: (facts: undefined) => void;
+        const delayed = new Promise<undefined>((done) => {
+            resolve = done;
+        });
+        const { posts, mgr } = setup({
+            resolveProcess: (uin) => (uin === '123' ? delayed : Promise.resolve(undefined)),
+        });
+        const slow = mgr.notify('123', 'offline');
+        await mgr.notify('456', 'offline');
+        const whileResolving = [...posts];
+        resolve(undefined);
+        await slow;
+        expect(whileResolving.map((post) => post.body)).toEqual(['offline:456:456']);
+        expect(posts.map((post) => post.body)).toEqual(['offline:456:456', 'offline:123:123']);
+    });
+
+    it('drops queued notifications on disposal and does not deliver after a pending lookup', async () => {
+        let resolve!: (facts: undefined) => void;
+        const delayed = new Promise<undefined>((done) => {
+            resolve = done;
+        });
+        const { posts, mgr } = setup({ resolveProcess: () => delayed });
+        const offline = mgr.notify('123', 'offline');
+        const online = mgr.notify('123', 'online');
+        await new Promise<void>((done) => setImmediate(done));
+        mgr.dispose();
+        resolve(undefined);
+        await Promise.all([offline, online]);
+        expect(posts).toEqual([]);
     });
 
     it('skips channels the UIN did not opt into', async () => {
@@ -351,9 +437,7 @@ describe('NotificationManager — debounce integration (fake timers)', () => {
         mgr.handleOffline('123', 'Bob'); // arm 30s timer
         await vi.advanceTimersByTimeAsync(10_000);
         mgr.handleOnline('123', 'Bob'); // self-heal → cancel timer
-        // The machine's state guard alone would suppress the misfire; assert the
-        // manager ALSO cleared the timer (defense-in-depth a pure test can't see).
-        expect((mgr as unknown as { timers: Map<string, unknown> }).timers.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
         await vi.advanceTimersByTimeAsync(60_000);
         expect(events).toEqual([]);
     });
@@ -373,6 +457,50 @@ describe('NotificationManager — debounce integration (fake timers)', () => {
         mgr.handleOffline('123', 'Bob');
         await vi.advanceTimersByTimeAsync(0);
         expect(events).toEqual(['offline']);
+    });
+
+    it('reports config failure without inventing a debounce window or a recovery event', async () => {
+        const loadConfig = vi.fn<NotificationManagerDeps['loadConfig']>().mockImplementation(() => {
+            throw new Error('config unreadable');
+        });
+        const post = vi.fn<NotificationManagerDeps['post']>().mockResolvedValue({ ok: true });
+        const mgr = new NotificationManager({
+            loadConfig,
+            loadChannelIds: () => ['c1'],
+            post,
+            now: () => 1000,
+        });
+        const logs: LogEntry[] = [];
+        const unsubscribe = subscribeLogs((entry) => logs.push(entry));
+
+        try {
+            mgr.handleOffline('123', 'Bob');
+            expect(vi.getTimerCount()).toBe(0);
+            expect(logs).toContainEqual(
+                expect.objectContaining({
+                    scope: 'Notifications',
+                    level: 'warn',
+                    message: 'offline(123) skipped — config load failed: config unreadable',
+                }),
+            );
+
+            loadConfig.mockReturnValue({ version: 1, debounceSeconds: 5, channels: [ch()] });
+            await vi.advanceTimersByTimeAsync(30_000);
+            mgr.handleOnline('123', 'Bob');
+            await vi.advanceTimersByTimeAsync(0);
+            expect(post).not.toHaveBeenCalled();
+
+            mgr.handleOffline('123', 'Bob');
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(post).toHaveBeenCalledExactlyOnceWith(
+                'https://hook.example/c1',
+                'offline:123:Bob',
+                undefined,
+            );
+        } finally {
+            unsubscribe();
+            mgr.dispose();
+        }
     });
 
     it('ignores online/offline after dispose so process exit is not a runtime drop', async () => {

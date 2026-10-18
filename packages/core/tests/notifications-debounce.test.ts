@@ -62,10 +62,14 @@ describe('DebounceMachine — online↔offline debounce (Uptime-Kuma semantics)'
         expect(m.onOnline('a')).toEqual({ kind: 'emit', event: 'online' });
     });
 
-    it('forget() resets a UIN to baseline', () => {
+    it('starts a new debounce cycle after recovery without retaining the old timer state', () => {
         const m = new DebounceMachine();
-        m.onOffline('u', 0); // fired offline
-        m.forget('u');
-        expect(m.onOnline('u')).toEqual({ kind: 'none' }); // state cleared → no recovery
+        m.onOffline('u', 30);
+        m.onTimerElapsed('u');
+        m.onOnline('u');
+        expect(m.onTimerElapsed('u')).toEqual({ kind: 'none' });
+        expect(m.onOffline('u', 60)).toEqual({ kind: 'schedule', delayMs: 60_000 });
+        expect(m.onOnline('u')).toEqual({ kind: 'cancel' });
+        expect(m.onOnline('u')).toEqual({ kind: 'none' });
     });
 });

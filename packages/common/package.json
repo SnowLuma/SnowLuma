@@ -24,6 +24,10 @@
       "types": "./src/env.ts",
       "default": "./src/env.ts"
     },
+    "./notification-templates": {
+      "types": "./src/notification-templates.ts",
+      "default": "./src/notification-templates.ts"
+    },
     "./single-flight-cache": {
       "types": "./src/single-flight-cache.ts",
       "default": "./src/single-flight-cache.ts"

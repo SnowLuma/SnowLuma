@@ -3,10 +3,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-    DEFAULT_BODY_TEMPLATE,
+    DEFAULT_WEBHOOK_BODY,
+    DEFAULT_EMAIL_BODY,
+    DEFAULT_EMAIL_SUBJECT,
+} from '@snowluma/common/notification-templates';
+import {
     DEFAULT_DEBOUNCE_SECONDS,
-    DEFAULT_EMAIL_BODY_TEMPLATE,
-    DEFAULT_SUBJECT_TEMPLATE,
     defaultNotificationsConfig,
     normalizeNotificationsConfig,
     renderTemplate,
@@ -145,7 +147,7 @@ describe('normalizeNotificationsConfig — total normalize', () => {
         expect(channels[0].enabled).toBe(true);
         expect(channels[0].name).toBe('c1');
         expect(channels[0].type).toBe('webhook');
-        expect(channels[0].bodyTemplate).toBe(DEFAULT_BODY_TEMPLATE);
+        expect(channels[0].bodyTemplate).toBe(DEFAULT_WEBHOOK_BODY);
         expect(channels[0].headers).toBeUndefined();
     });
 
@@ -198,14 +200,14 @@ describe('normalizeNotificationsConfig — total normalize', () => {
                 name: 'ops-mail',
                 type: 'email',
                 url: '',
-                bodyTemplate: DEFAULT_EMAIL_BODY_TEMPLATE,
+                bodyTemplate: DEFAULT_EMAIL_BODY,
                 enabled: true,
                 smtpHost: 'smtp.qq.com',
                 smtpPort: 465,
                 smtpSecure: true,
                 from: 'SnowLuma <bot@qq.com>',
                 to: 'a@example.com, b@example.com',
-                subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
+                subjectTemplate: DEFAULT_EMAIL_SUBJECT,
             },
         ]);
     });

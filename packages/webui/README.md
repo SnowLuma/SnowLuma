@@ -39,6 +39,21 @@ request headers. The backend still accepts `Authorization: Bearer <token>` for
 existing clients when the dedicated header is absent. Both layers still require
 their own valid credentials.
 
+## Account notification templates
+
+Webhook bodies and email subjects/bodies support `{uin}`, `{nickname}`, `{event}`
+(`offline` or `online`), `{time}`, `{status}` (Hook process state), `{pid}`, and
+`{error}` (Hook process error). New webhook and email channels include process
+status in their default body; existing saved templates are preserved.
+
+Process facts are resolved when the notification is dispatched, after any offline
+debounce. Each transition carries its process PID, including the final PID detached
+when an account goes offline. Facts are looked up for that PID and UIN without
+substituting another process. Missing facts render empty and mean unknown, not
+proof that QQ exited. Hook status alone does not identify the cause of a QQ login
+failure. Notifications for one account are delivered in transition order; a slow
+account does not delay other accounts.
+
 ## Local development
 
 On Windows, the native API logs the process token and EXE integrity label once

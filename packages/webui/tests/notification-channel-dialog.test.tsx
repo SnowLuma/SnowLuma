@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_EMAIL_BODY, DEFAULT_WEBHOOK_BODY } from '@snowluma/common/notification-templates';
 import {
-    DEFAULT_EMAIL_BODY,
-    DEFAULT_WEBHOOK_BODY,
     NotificationChannelDialog,
+    applyType,
+    toChannel,
 } from '../src/components/settings/notification-channel-dialog';
 
 vi.mock('@/contexts/ThemeContext', () => ({
@@ -53,7 +54,9 @@ describe('NotificationChannelDialog', () => {
         expect(markup).toContain('Webhook URL');
         expect(markup).toContain('请求头');
         expect(markup).not.toContain('SMTP 主机');
-        expect(markup).toContain('向该 Webhook POST');
+        expect(markup).toContain('{status}');
+        expect(markup).toContain('{pid}');
+        expect(markup).toContain('{error}');
     });
 
     it('shows SMTP fields for an email channel', () => {
@@ -86,6 +89,34 @@ describe('NotificationChannelDialog', () => {
         expect(markup).toContain('主题模板');
         expect(markup).toContain('隐式 TLS');
         expect(markup).not.toContain('Webhook URL');
-        expect(markup).toContain('向该邮箱发送');
+        expect(markup).toContain('{status}');
+        expect(markup).toContain('{pid}');
+        expect(markup).toContain('{error}');
+    });
+
+    it('includes process status when saving a new webhook or switching it to email', () => {
+        const webhook = {
+            id: 'new-channel',
+            name: 'New',
+            type: 'webhook' as const,
+            url: 'https://example.com/webhook',
+            enabled: true,
+            bodyTemplate: DEFAULT_WEBHOOK_BODY,
+        };
+        expect(toChannel(webhook, []).bodyTemplate).toContain('{status}');
+        expect(toChannel(applyType(webhook, 'email'), []).bodyTemplate).toContain('{status}');
+    });
+
+    it('preserves an existing custom template', () => {
+        const existing = {
+            id: 'existing',
+            name: 'Existing',
+            type: 'webhook' as const,
+            url: 'https://example.com/webhook',
+            enabled: true,
+            bodyTemplate: '{event}:{uin}',
+        };
+        expect(toChannel(existing, []).bodyTemplate).toBe('{event}:{uin}');
+        expect(toChannel(applyType(existing, 'email'), []).bodyTemplate).toBe('{event}:{uin}');
     });
 });
