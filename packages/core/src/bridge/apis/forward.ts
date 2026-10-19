@@ -36,33 +36,78 @@ function asBridge(ctx: BridgeContext): Bridge {
 // resolve a forward immediately after receiving the parent message.
 const forwardResCache = new Map<string, ForwardNodePayload[]>();
 
-/** Upper bound for `forwardResCache`. A long-running process resolves merged
- *  forwards continuously (including one entry per inner node of every nested
- *  forward), and each entry carries the full node metadata, so the cache must
- *  stay bounded — mirrors `Bridge.UPLOADED_FILE_CACHE_MAX`. Insertion-ordered
- *  Map makes "drop the oldest" exact. */
+/** inner resId → the outer resId whose piggyback payload carried it.
+ *  Inner layers can only be obtained from the outer fetch's piggyback set,
+ *  so they are not independently downloadable: an inner entry must never
+ *  outlive (or be evicted apart from) its owner, or reading it again would
+ *  hit the wire and come back with an empty payload. */
+const forwardInnerOwner = new Map<string, string>();
+
+/** Upper bound counted in *outer* entries only. Inner entries are bounded
+ *  implicitly: they are only dropped together with their owner, and each
+ *  owner carries a finite (usually tiny) piggyback set. */
 const FORWARD_RES_CACHE_MAX = 512;
 
-/** Insert keeping `map` at `max` entries by dropping the oldest (Map
- *  iteration is insertion-ordered). Re-setting an existing key refreshes its
- *  position, matching LRU-by-recency semantics. */
-export function insertBounded<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
-    map.delete(key);
-    map.set(key, value);
+/** Drop the oldest outer entries (and their inner layers) until the outer
+ *  count is back within bounds. Re-inserting a key refreshes its position,
+ *  matching LRU-by-recency semantics. Exported for tests. */
+export function trimForwardResCache(): void {
+    let outer = 0;
 
-    while (map.size > max) {
-        const oldest = map.keys().next();
+    for (const key of forwardResCache.keys()) {
+        if (!forwardInnerOwner.has(key)) {
+            outer++;
+        }
+    }
 
-        if (oldest.done) {
+    while (outer > FORWARD_RES_CACHE_MAX) {
+        let victim: string | undefined;
+
+        for (const key of forwardResCache.keys()) {
+            if (!forwardInnerOwner.has(key)) {
+                victim = key;
+                break;
+            }
+        }
+
+        if (!victim) {
             break;
         }
 
-        map.delete(oldest.value);
+        forwardResCache.delete(victim);
+        outer--;
+
+        for (const [inner, owner] of forwardInnerOwner) {
+            if (owner === victim) {
+                forwardInnerOwner.delete(inner);
+                forwardResCache.delete(inner);
+            }
+        }
     }
 }
 
-function cacheForwardNodes(key: string, nodes: ForwardNodePayload[]): void {
-    insertBounded(forwardResCache, key, nodes, FORWARD_RES_CACHE_MAX);
+function cacheForwardNodes(
+    key: string,
+    nodes: ForwardNodePayload[],
+    ownerResId?: string,
+): void {
+    forwardResCache.delete(key);
+    forwardResCache.set(key, nodes);
+
+    if (ownerResId) {
+        forwardInnerOwner.set(key, ownerResId);
+    } else {
+        forwardInnerOwner.delete(key);
+    }
+
+    trimForwardResCache();
+}
+
+/** Test-only: drop every cached entry so eviction tests start from a known
+ *  state (the cache is module-scoped and shared across a test file). */
+export function resetForwardResCache(): void {
+    forwardResCache.clear();
+    forwardInnerOwner.clear();
 }
 
 const log = createLogger('Bridge.Forward');
@@ -850,7 +895,7 @@ export class ForwardApi {
         // the cache by the inner resId so a follow-up `fetch(innerResId)`
         // hits the cache instead of the wire.
         if (piggybackByUuid.size > 0) {
-            this.consumePiggybacks(nodes, piggybackByUuid);
+            this.consumePiggybacks(nodes, piggybackByUuid, resId);
         }
 
         // Fill sender nickname/card for nodes the SsoRecvLongMsg payload left empty
@@ -1056,6 +1101,7 @@ export class ForwardApi {
     private consumePiggybacks(
         nodes: ForwardNodePayload[],
         piggybackByUuid: Map<string, PushMsgBody[]>,
+        ownerResId: string,
     ): void {
         const seen = new Set<string>();
 
@@ -1081,7 +1127,7 @@ export class ForwardApi {
 
                     seen.add(uuid);
                     const innerNodes = this.decodeMsgBodiesToNodes(body);
-                    cacheForwardNodes(innerResId, cloneNodes(innerNodes));
+                    cacheForwardNodes(innerResId, cloneNodes(innerNodes), ownerResId);
                     visit(innerNodes);
                 }
             }
