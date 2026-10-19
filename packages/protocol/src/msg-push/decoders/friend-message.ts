@@ -3,36 +3,53 @@ import type { FriendMessage } from '../../events';
 import type { MsgPushDecoder } from '../registry';
 import { decodeRichBody } from '../rich-body-decoder';
 
-/**
- * A private "qun.invite" ark card (someone DMs the bot a group-invite card)
- * carries the only sequence the server accepts when the bot later approves the
- * invite via 0x10c8 — the `msgseq` embedded in its `mqqapi://group/invite_join`
- * jumpUrl, applied with eventType=2 / filtered=false. The MSF invite push
- * (PkgType 87) never carries it. Parse it out so `set_group_add_request` can
- * use it. See issue #125.
- */
+/** Read the approval tuple from a QQ group-invitation card. */
 function parseGroupInviteCard(jsonText: string): { groupUin: number; sequence: number } | null {
-    if (!jsonText.includes('group/invite_join')) {
+    const card: unknown = JSON.parse(jsonText);
+
+    if (
+        !card ||
+        typeof card !== 'object' ||
+        !('app' in card) ||
+        (card.app !== 'com.tencent.qun.invite' && card.app !== 'com.tencent.tuwen.lua')
+    ) {
         return null;
     }
 
-    const m = jsonText.match(/mqqapi:\/\/group\/invite_join[^"\\\s]*/);
-
-    if (!m) {
+    if (
+        !('meta' in card) ||
+        !card.meta ||
+        typeof card.meta !== 'object' ||
+        !('news' in card.meta) ||
+        !card.meta.news ||
+        typeof card.meta.news !== 'object' ||
+        !('jumpUrl' in card.meta.news) ||
+        typeof card.meta.news.jumpUrl !== 'string'
+    ) {
         return null;
     }
 
-    const query = m[0].split('?')[1] ?? '';
-    const params = new URLSearchParams(query);
-    const groupUin = Number(params.get('groupcode') ?? 0);
-    const sequence = Number(params.get('msgseq') ?? 0);
+    const url = URL.parse(card.meta.news.jumpUrl);
 
-    if (!Number.isSafeInteger(groupUin) || !Number.isSafeInteger(sequence)) {
+    if (
+        !url ||
+        url.protocol !== 'mqqapi:' ||
+        url.hostname !== 'group' ||
+        url.pathname !== '/invite_join'
+    ) {
         return null;
     }
 
-    if (groupUin <= 0 || sequence <= 0) {
-        return null;
+    const groupUin = Number(url.searchParams.get('groupcode'));
+    const sequence = Number(url.searchParams.get('msgseq'));
+
+    if (
+        !Number.isSafeInteger(groupUin) ||
+        groupUin <= 0 ||
+        !Number.isSafeInteger(sequence) ||
+        sequence <= 0
+    ) {
+        throw new Error('group invitation card has an invalid approval tuple');
     }
 
     return { groupUin, sequence };

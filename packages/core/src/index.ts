@@ -1,5 +1,4 @@
 import { getRuntimeIntegrity, HookManager } from '@snowluma/bridge';
-import { APP_VERSION } from '@snowluma/common/version';
 import { configureFileTransport } from '@snowluma/common/log-file-transport';
 import { closeLogger, createLogger } from '@snowluma/common/logger';
 import {
@@ -23,7 +22,6 @@ import { createNotificationManager } from './notifications/manager';
 import { createStateWiring } from './webui/state-wiring';
 import { initWebUI } from './webui/server';
 import { bindSystemFaceCatalog } from './sys-face-catalog';
-import { startNativeStageSync, tempStagePath } from './native-stage-sync';
 import { logRuntimeIntegrity } from './runtime-integrity-log';
 import { RESTART_EXIT_CODE, runApplication } from './update/startup';
 
@@ -60,11 +58,6 @@ async function main() {
     });
     log.info('SnowLuma starting');
     logRuntimeIntegrity(await getRuntimeIntegrity());
-    const stopNativeStageSync = startNativeStageSync({
-        version: APP_VERSION,
-        dataDir: 'data',
-        tempPath: tempStagePath(),
-    });
 
     // One-shot: lift a legacy per-UIN musicSignUrl into the global store before
     // any session (and thus any per-UIN config rewrite) can drop it.
@@ -190,16 +183,6 @@ async function main() {
             log.error(
                 'state wiring shutdown failed: %s',
                 error instanceof Error ? (error.stack ?? error.message) : String(error),
-            );
-        }
-
-        try {
-            stopNativeStageSync.stop();
-        } catch (error) {
-            exitCode = 1;
-            log.error(
-                'stage sync shutdown failed: %s',
-                error instanceof Error ? error.message : String(error),
             );
         }
 

@@ -754,9 +754,8 @@ describe('apis/contacts / invite-card pending application', () => {
         const api = new ContactsApi({ identity: { uin: '10001' } } as any);
         expect(api.getGroupInviteCardSequence(12345)).toBeUndefined();
 
-        api.rememberGroupInviteCardSequence(12345, 778899);
-        api.rememberGroupInviteCardSequence(0, 1);
-        api.rememberGroupInviteCardSequence(1, 0);
+        expect(api.rememberGroupInviteCardSequence(12345, 778899)).toBe(true);
+        expect(api.rememberGroupInviteCardSequence(12345, 778899)).toBe(false);
 
         expect(api.getGroupInviteCardSequence(12345)).toBe(778899);
         expect(api.findGroupInviteCardGroupBySequence(778899)).toBe(12345);

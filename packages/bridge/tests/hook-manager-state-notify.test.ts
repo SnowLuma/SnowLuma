@@ -24,6 +24,8 @@ interface Harness {
     setLivePipes: (next: number[]) => void;
     onSessionsChanged: ReturnType<typeof vi.fn>;
     clientFactory: ReturnType<typeof vi.fn>;
+    notifyAccountChange: () => void;
+    watchAccounts: ReturnType<typeof vi.fn>;
 }
 
 function makeManager(
@@ -31,7 +33,6 @@ function makeManager(
         processes?: number[];
         livePipes?: number[];
         detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
-        accountReprobeIntervalMs?: number;
     } = {},
 ): Harness {
     let pids = opts.processes ?? [];
@@ -64,6 +65,13 @@ function makeManager(
         onPidReceiveHealthChanged: vi.fn(),
     } as unknown as BridgeManagerSink & { onPidReceiveHealthChanged: ReturnType<typeof vi.fn> };
     const onSessionsChanged = vi.fn();
+
+    let accountChanged = () => {};
+
+    const watchAccounts = vi.fn((_pids: readonly number[], onChange: () => void) => {
+        accountChanged = onChange;
+        return vi.fn();
+    });
     const manager = new HookManager({
         bridgeManager,
         pipeWatcher,
@@ -77,7 +85,7 @@ function makeManager(
         makeClient: clientFactory,
         listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         detectAccounts: opts.detectAccounts ?? (async () => []),
-        accountReprobeIntervalMs: opts.accountReprobeIntervalMs,
+        watchAccounts,
         onSessionsChanged,
     });
     return {
@@ -86,6 +94,8 @@ function makeManager(
         bridgeManager,
         onSessionsChanged,
         clientFactory,
+        notifyAccountChange: () => accountChanged(),
+        watchAccounts,
         setProcesses: (next) => {
             pids = next;
         },
@@ -198,6 +208,7 @@ describe('HookManager.onSessionsChanged', () => {
             }),
             listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
             detectAccounts: async () => [],
+            watchAccounts: () => () => {},
             // onSessionsChanged deliberately omitted
         });
         await pipeWatcher.start();
@@ -210,7 +221,111 @@ describe('HookManager.onSessionsChanged', () => {
     });
 });
 
-describe('HookManager periodic account re-probe', () => {
+describe('HookManager account re-probe', () => {
+    it('reuses the account snapshot across ticks and REST reads while all sessions are online (#549)', async () => {
+        const detectAccounts = vi.fn(async (): Promise<AccountLoginState[]> => [
+            { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+            { uin: '10002', uid: 'u_b', nickname: 'Bob', pid: 5151 },
+        ]);
+        const ctx = makeManager({
+            processes: [4242, 5151],
+            livePipes: [4242, 5151],
+            detectAccounts,
+        });
+        const now = vi.spyOn(Date, 'now');
+
+        try {
+            await ctx.pipeWatcher.start();
+            await flush();
+
+            for (const [index, uin] of ['10001', '10002'].entries()) {
+                const client = ctx.clientFactory.mock.results[index]!.value as EventEmitter;
+                client.emit('loginState', { loggedIn: true, uin, uinNumber: BigInt(uin) });
+            }
+
+            const initial = await ctx.manager.listProcesses();
+            expect(initial.map((info) => info.status)).toEqual(['online', 'online']);
+            const baseline = detectAccounts.mock.calls.length;
+            ctx.onSessionsChanged.mockClear();
+            const startedAt = Date.now();
+
+            for (let tick = 1; tick <= 10; tick++) {
+                now.mockReturnValue(startedAt + tick * 6000);
+                await ctx.pipeWatcher.tickNow();
+                expect(await ctx.manager.listProcesses()).toEqual(initial);
+            }
+
+            expect(detectAccounts).toHaveBeenCalledTimes(baseline);
+            expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+        } finally {
+            now.mockRestore();
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
+    });
+
+    it.each(['loadProcess', 'unloadProcess', 'refreshProcess'] as const)(
+        'refreshes account labels on %s even within the probe interval',
+        async (operation) => {
+            let nickname = 'Alice';
+            const ctx = makeManager({
+                processes: [4242],
+                detectAccounts: async () => [{ uin: '10001', uid: 'u_a', nickname, pid: 4242 }],
+            });
+
+            try {
+                expect((await ctx.manager.listProcesses())[0]!.account?.nickname).toBe('Alice');
+                nickname = 'Updated';
+                expect((await ctx.manager[operation](4242)).account?.nickname).toBe('Updated');
+            } finally {
+                ctx.manager.dispose();
+                ctx.pipeWatcher.dispose();
+            }
+        },
+    );
+
+    it('discards an in-flight account result when an online process switches accounts', async () => {
+        const stale = Promise.withResolvers<AccountLoginState[]>();
+        const fresh = Promise.withResolvers<AccountLoginState[]>();
+        const detectAccounts = vi.fn(async (): Promise<AccountLoginState[]> => [
+            { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+        ]);
+        const ctx = makeManager({
+            processes: [4242],
+            livePipes: [4242],
+            detectAccounts,
+        });
+
+        try {
+            await ctx.pipeWatcher.start();
+            await flush();
+            const client = ctx.clientFactory.mock.results[0]!.value as EventEmitter;
+            client.emit('loginState', { loggedIn: true, uin: '10001', uinNumber: 10001n });
+            await ctx.manager.listProcesses();
+            detectAccounts.mockImplementationOnce(() => stale.promise);
+            detectAccounts.mockImplementationOnce(() => fresh.promise);
+            const refreshing = ctx.manager.refreshProcess(4242);
+            await flush();
+            const baseline = detectAccounts.mock.calls.length;
+            client.emit('loginState', { loggedIn: true, uin: '10002', uinNumber: 10002n });
+            const snapshot = ctx.manager.listProcesses();
+            await flush();
+            ctx.onSessionsChanged.mockClear();
+            stale.resolve([{ uin: '10003', uid: 'u_c', nickname: 'Stale', pid: 4242 }]);
+            await flush();
+            expect(ctx.onSessionsChanged).not.toHaveBeenCalled();
+            expect(detectAccounts).toHaveBeenCalledTimes(baseline + 1);
+            fresh.resolve([{ uin: '10002', uid: 'u_b', nickname: 'Bob', pid: 4242 }]);
+            expect((await snapshot)[0]!.account).toEqual({ uin: '10002', nickname: 'Bob' });
+            expect((await refreshing).account).toEqual({ uin: '10002', nickname: 'Bob' });
+        } finally {
+            stale.resolve([]);
+            fresh.resolve([]);
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
+    });
+
     it('shares one account probe between watcher ticks and concurrent snapshots', async () => {
         const probe = Promise.withResolvers<AccountLoginState[]>();
         const detectAccounts = vi.fn(() => probe.promise);
@@ -234,6 +349,86 @@ describe('HookManager periodic account re-probe', () => {
         }
     });
 
+    it.each(['pipe-down', 'client-close', 'logout'] as const)(
+        're-probes after %s and observes later login data changes',
+        async (event) => {
+            let accounts: AccountLoginState[] = [
+                { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+            ];
+            const detectAccounts = vi.fn(async () => accounts);
+            const ctx = makeManager({
+                processes: [4242],
+                livePipes: [4242],
+                detectAccounts,
+            });
+            const now = vi.spyOn(Date, 'now');
+
+            try {
+                await ctx.pipeWatcher.start();
+                await flush();
+                const client = ctx.clientFactory.mock.results[0]!.value as EventEmitter;
+                client.emit('loginState', { loggedIn: true, uin: '10001', uinNumber: 10001n });
+                await ctx.manager.listProcesses();
+                accounts = [];
+
+                if (event === 'pipe-down') {
+                    ctx.setLivePipes([]);
+                    await ctx.pipeWatcher.tickNow();
+                } else if (event === 'client-close') {
+                    client.emit('close');
+                } else {
+                    client.emit('loginState', { loggedIn: false, uin: '0', uinNumber: 0n });
+                }
+
+                await flush();
+                expect((await ctx.manager.listProcesses())[0]!.account).toBeNull();
+                accounts = [{ uin: '10002', uid: 'u_b', nickname: 'Bob', pid: 4242 }];
+                now.mockReturnValue(Date.now() + 6000);
+                ctx.notifyAccountChange();
+                await ctx.pipeWatcher.tickNow();
+                expect((await ctx.manager.listProcesses())[0]!.account?.uin).toBe('10002');
+            } finally {
+                now.mockRestore();
+                ctx.manager.dispose();
+                ctx.pipeWatcher.dispose();
+            }
+        },
+    );
+
+    it('re-probes when another process appears and when it exits', async () => {
+        let nickname = 'Alice';
+        const detectAccounts = vi.fn(async (): Promise<AccountLoginState[]> => [
+            { uin: '10001', uid: 'u_a', nickname, pid: 4242 },
+            { uin: '10002', uid: 'u_b', nickname: 'Bob', pid: 5151 },
+        ]);
+        const ctx = makeManager({ processes: [4242], livePipes: [4242], detectAccounts });
+
+        try {
+            await ctx.pipeWatcher.start();
+            await flush();
+            const client = ctx.clientFactory.mock.results[0]!.value as EventEmitter;
+            client.emit('loginState', { loggedIn: true, uin: '10001', uinNumber: 10001n });
+            await ctx.manager.listProcesses();
+            nickname = 'Updated';
+            ctx.setProcesses([4242, 5151]);
+            await ctx.pipeWatcher.tickNow();
+            expect((await ctx.manager.listProcesses()).map((info) => info.account)).toEqual([
+                { uin: '10001', nickname: 'Updated' },
+                { uin: '10002', nickname: 'Bob' },
+            ]);
+            nickname = 'Final';
+            ctx.setProcesses([4242]);
+            await ctx.pipeWatcher.tickNow();
+            await flush();
+            const list = await ctx.manager.listProcesses();
+            expect(list).toHaveLength(1);
+            expect(list[0]!.account?.nickname).toBe('Final');
+        } finally {
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
+    });
+
     it('keeps all process labels when an operation reads just one process', async () => {
         const accounts: AccountLoginState[] = [
             { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
@@ -246,8 +441,8 @@ describe('HookManager periodic account re-probe', () => {
 
         try {
             await ctx.manager.listProcesses();
-            const baseline = detectAccounts.mock.calls.length;
             expect((await ctx.manager.refreshProcess(4242)).account?.uin).toBe('10001');
+            const baseline = detectAccounts.mock.calls.length;
             ctx.onSessionsChanged.mockClear();
             await ctx.pipeWatcher.tickNow();
             await flush();
@@ -282,17 +477,13 @@ describe('HookManager periodic account re-probe', () => {
         }
     });
 
-    // A login can happen with no hook edge at all (QQ signs in after SnowLuma
-    // started, or before the hook was injected), so no session status changes
-    // and nothing pushes a fresh processes snapshot. These cover the watcher
-    // pass that re-reads the account labels and invalidates when they move.
+    // Login database changes can reveal login before the hook is loaded.
 
     it('publishes when a process gains an account label', async () => {
         let accounts: AccountLoginState[] = [{ uin: '1', uid: 'u1', nickname: 'A', pid: null }];
         const ctx = makeManager({
             processes: [4242],
             detectAccounts: async () => accounts,
-            accountReprobeIntervalMs: 0,
         });
         await ctx.pipeWatcher.start();
         await flush();
@@ -300,7 +491,7 @@ describe('HookManager periodic account re-probe', () => {
 
         // QQ finished signing in: the account's nt_msg.db is now held by 4242.
         accounts = [{ uin: '1', uid: 'u1', nickname: 'A', pid: 4242 }];
-        await ctx.pipeWatcher.tickNow();
+        ctx.notifyAccountChange();
         await flush();
         await flush();
 
@@ -317,14 +508,12 @@ describe('HookManager periodic account re-probe', () => {
         const ctx = makeManager({
             processes: [4242],
             detectAccounts,
-            accountReprobeIntervalMs: 0,
         });
         await ctx.pipeWatcher.start();
         await flush();
         ctx.onSessionsChanged.mockClear();
 
-        await ctx.pipeWatcher.tickNow();
-        await ctx.pipeWatcher.tickNow();
+        ctx.notifyAccountChange();
         await flush();
         await flush();
 
@@ -340,7 +529,6 @@ describe('HookManager periodic account re-probe', () => {
         const ctx = makeManager({
             processes: [4242],
             detectAccounts: async () => accounts,
-            accountReprobeIntervalMs: 0,
         });
         await ctx.pipeWatcher.start();
         await flush();
@@ -352,7 +540,7 @@ describe('HookManager periodic account re-probe', () => {
             { uin: '1', uid: 'u1', nickname: 'A', pid: null },
             { uin: '2', uid: 'u2', nickname: 'B', pid: null },
         ];
-        await ctx.pipeWatcher.tickNow();
+        ctx.notifyAccountChange();
         await flush();
         await flush();
 
@@ -361,24 +549,89 @@ describe('HookManager periodic account re-probe', () => {
         ctx.manager.dispose();
     });
 
-    it('throttles the probe to the configured interval', async () => {
+    it('does not poll unlabelled, unloaded processes even after the old interval expires', async () => {
         const detectAccounts = vi.fn(async () => [] as AccountLoginState[]);
         const ctx = makeManager({
             processes: [4242],
             detectAccounts,
-            accountReprobeIntervalMs: 60_000,
         });
-        await ctx.pipeWatcher.start();
-        await flush();
-        const baseline = detectAccounts.mock.calls.length;
+        const now = vi.spyOn(Date, 'now');
 
-        await ctx.pipeWatcher.tickNow();
-        await ctx.pipeWatcher.tickNow();
-        await flush();
+        try {
+            await ctx.manager.listProcesses();
+            const baseline = detectAccounts.mock.calls.length;
+            const startedAt = Date.now();
 
-        expect(detectAccounts.mock.calls.length).toBe(baseline);
+            for (let tick = 1; tick <= 10; tick++) {
+                now.mockReturnValue(startedAt + tick * 6000);
+                await ctx.pipeWatcher.tickNow();
+                expect((await ctx.manager.listProcesses())[0]!.account).toBeNull();
+            }
 
-        ctx.manager.dispose();
+            expect(detectAccounts).toHaveBeenCalledTimes(baseline);
+        } finally {
+            now.mockRestore();
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
+    });
+
+    it('does not re-probe a mixed set of online and unloaded processes', async () => {
+        const detectAccounts = vi.fn(async (): Promise<AccountLoginState[]> => [
+            { uin: '10001', uid: 'u_a', nickname: 'Alice', pid: 4242 },
+        ]);
+        const ctx = makeManager({
+            processes: [4242, 5151],
+            livePipes: [4242],
+            detectAccounts,
+        });
+        const now = vi.spyOn(Date, 'now');
+
+        try {
+            await ctx.pipeWatcher.start();
+            await flush();
+            const client = ctx.clientFactory.mock.results[0]!.value as EventEmitter;
+            client.emit('loginState', { loggedIn: true, uin: '10001', uinNumber: 10001n });
+            expect((await ctx.manager.listProcesses()).map((info) => info.status)).toEqual([
+                'online',
+                'available',
+            ]);
+            const baseline = detectAccounts.mock.calls.length;
+            now.mockReturnValue(Date.now() + 60_000);
+            await ctx.pipeWatcher.tickNow();
+            await ctx.manager.listProcesses();
+            expect(detectAccounts).toHaveBeenCalledTimes(baseline);
+        } finally {
+            now.mockRestore();
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
+    });
+
+    it('releases file subscriptions when the process set changes and the manager stops', async () => {
+        const ctx = makeManager({ processes: [4242] });
+
+        try {
+            await ctx.pipeWatcher.start();
+            expect(ctx.watchAccounts).toHaveBeenLastCalledWith([4242], expect.any(Function));
+            const firstStop = ctx.watchAccounts.mock.results.at(-1)!.value;
+            ctx.setProcesses([4242, 5151]);
+            await ctx.pipeWatcher.tickNow();
+            expect(firstStop).toHaveBeenCalledOnce();
+            expect(ctx.watchAccounts).toHaveBeenLastCalledWith([4242, 5151], expect.any(Function));
+            const secondStop = ctx.watchAccounts.mock.results.at(-1)!.value;
+            ctx.setProcesses([5151]);
+            await ctx.pipeWatcher.tickNow();
+            await flush();
+            expect(secondStop).toHaveBeenCalledOnce();
+            expect(ctx.watchAccounts).toHaveBeenLastCalledWith([5151], expect.any(Function));
+            const finalStop = ctx.watchAccounts.mock.results.at(-1)!.value;
+            ctx.manager.dispose();
+            expect(finalStop).toHaveBeenCalledOnce();
+        } finally {
+            ctx.manager.dispose();
+            ctx.pipeWatcher.dispose();
+        }
     });
 
     it('keeps working when detection fails, and reports the failure once', async () => {
@@ -387,7 +640,6 @@ describe('HookManager periodic account re-probe', () => {
             detectAccounts: async () => {
                 throw new Error('login.db unreadable');
             },
-            accountReprobeIntervalMs: 0,
         });
         await ctx.pipeWatcher.start();
         await flush();

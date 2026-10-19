@@ -581,11 +581,48 @@ export class ContactsApi {
         return requests;
     }
 
-    /** Live observation write. IncomingPacketPipeline and tests only. */
-    rememberGroupInviteCardSequence(groupUin: number, sequence: number): void {
-        if (groupUin > 0 && sequence > 0) {
-            this.groupInviteCardSeqs_.set(groupUin, sequence);
+    async resolveGroupJoinRequest(
+        groupId: number,
+        uid: string,
+        subType: 'add' | 'invite',
+        invitedUid?: string,
+    ): Promise<GroupRequestInfo | null> {
+        const [main, filtered] = await Promise.allSettled([
+            this.fetchGroupRequestsByUid(false),
+            this.fetchGroupRequestsByUid(true),
+        ]);
+
+        if (main.status === 'rejected') {
+            throw main.reason;
         }
+
+        if (filtered.status === 'rejected') {
+            throw filtered.reason;
+        }
+
+        return (
+            [...main.value, ...filtered.value].find((request) => {
+                if (request.groupId !== groupId || request.state !== 1) {
+                    return false;
+                }
+
+                return subType === 'add'
+                    ? request.eventType === 1 && request.targetUid === uid
+                    : (request.eventType === 2 || request.eventType === 22) &&
+                          request.invitorUid === uid &&
+                          request.targetUid === invitedUid;
+            }) ?? null
+        );
+    }
+
+    /** Returns whether this live card introduces a new approval sequence. */
+    rememberGroupInviteCardSequence(groupUin: number, sequence: number): boolean {
+        if (this.groupInviteCardSeqs_.get(groupUin) === sequence) {
+            return false;
+        }
+
+        this.groupInviteCardSeqs_.set(groupUin, sequence);
+        return true;
     }
 
     /** The approval msgseq captured from a private "qun.invite" card for this

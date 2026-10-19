@@ -155,6 +155,8 @@ function makePipeline(identity: IdentityService): IncomingPacketPipeline {
         events,
         fetchGroupList: async () => {},
         fetchGroupMemberList: async () => {},
+        resolveGroupJoinRequest: async () => null,
+        rememberGroupInviteCardSequence: () => true,
     });
     pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
     return pipeline;

@@ -36,7 +36,6 @@ function fakeInstance(
         quiesce,
         dispose,
         emitBotStatus: vi.fn(async () => undefined),
-        startGroupRequestPolling: vi.fn(),
         getConnectionStatuses: () => statuses,
     } as unknown as OneBotInstance;
 }
@@ -270,7 +269,7 @@ describe('OneBotManager database preparation', () => {
             expect(beginMigration).toHaveBeenCalledOnce();
             expect(manager.getInstance('10001')).not.toBeNull();
             await vi.waitFor(() => {
-                expect(instance.startGroupRequestPolling).toHaveBeenCalledOnce();
+                expect(instance.emitBotStatus).toHaveBeenCalledWith('online');
             });
         } finally {
             await manager.dispose();
@@ -766,7 +765,6 @@ describe('OneBotManager lifecycle failure accounting', () => {
             ...fakeInstance('10001', async () => undefined),
             waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
             startLoginHistorySync: vi.fn(),
-            startGroupRequestPolling: vi.fn(),
         } as unknown as OneBotInstance;
         let created = false;
         const manager = new OneBotManager({
@@ -827,7 +825,6 @@ describe('OneBotManager lifecycle failure accounting', () => {
             ...fakeInstance('10001', async () => undefined),
             waitUntilNetworkReady: vi.fn(async () => ({ applied: true, statuses: [], errors: [] })),
             startLoginHistorySync: vi.fn(),
-            startGroupRequestPolling: vi.fn(),
         } as unknown as OneBotInstance;
         const manager = new OneBotManager({
             sessionReleaseDeadlineMs: 60_000,

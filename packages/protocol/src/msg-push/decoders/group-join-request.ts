@@ -21,7 +21,7 @@ export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
         fromUid: join.targetUid ?? '',
         subType: 'add',
         message: '',
-        flag: 'add:' + (join.groupUin ?? 0) + ':' + (join.targetUid ?? ''),
+        flag: '',
     };
     return [ev];
 };
@@ -29,7 +29,7 @@ export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
 export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
     const invitation = protobuf_decode<GroupInvitation>(ctx.content);
 
-    if (!invitation?.info?.inner) {
+    if (invitation?.cmd !== 87 || !invitation.info?.inner) {
         return [];
     }
 
@@ -45,7 +45,7 @@ export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
         invitedUid: inner.targetUid ?? '',
         subType: 'invite',
         message: '',
-        flag: 'invite:' + (inner.groupUin ?? 0) + ':' + (inner.invitorUid ?? ''),
+        flag: '',
     };
     return [ev];
 };
@@ -67,7 +67,7 @@ export const decodeGroupInvite: MsgPushDecoder = (ctx) => {
         invitedUin: ctx.selfUin,
         subType: 'invite',
         message: '',
-        flag: 'invite:' + (invite.groupUin ?? 0) + ':' + (invite.invitorUid ?? ''),
+        flag: '',
     };
     return [ev];
 };

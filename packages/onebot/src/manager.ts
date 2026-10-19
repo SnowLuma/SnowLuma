@@ -560,8 +560,6 @@ export class OneBotManager {
                     );
                 }
 
-                instance.startGroupRequestPolling();
-
                 if (this.disposed || this.instances.get(uin) !== instance) {
                     return;
                 }

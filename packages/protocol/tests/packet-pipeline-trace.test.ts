@@ -121,7 +121,26 @@ function makePipeline(
         events,
         fetchGroupList: opts.fetchGroupList ?? vi.fn(async () => {}),
         fetchGroupMemberList: opts.fetchGroupMemberList ?? vi.fn(async () => {}),
-        resolveGroupJoinRequest: vi.fn(async () => null),
+        resolveGroupJoinRequest: vi.fn(async () => ({
+            groupId: 123,
+            groupName: '',
+            targetUid: 'u_stranger',
+            targetUin: 0,
+            targetName: '',
+            invitorUid: '',
+            invitorUin: 0,
+            invitorName: '',
+            operatorUid: '',
+            operatorUin: 0,
+            operatorName: '',
+            sequence: 42,
+            state: 1,
+            notifyType: 7,
+            eventType: 1,
+            comment: '',
+            filtered: false,
+        })),
+        rememberGroupInviteCardSequence: vi.fn(() => true),
     });
     const dispatched: Array<{ event: QQEventVariant; req: number | undefined }> = [];
     events.onAny((event) => {

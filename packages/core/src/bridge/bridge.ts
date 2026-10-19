@@ -61,72 +61,10 @@ export class Bridge implements BridgeInterface {
             fetchGroupMemberList: async (groupId) => {
                 await this.apis.contacts.fetchGroupMemberList(groupId);
             },
-            resolveGroupJoinRequest: async (groupId, uid, subType) => {
-                const [main, filtered] = await Promise.allSettled([
-                    this.apis.contacts.fetchGroupRequestsByUid(false),
-                    this.apis.contacts.fetchGroupRequestsByUid(true),
-                ]);
-
-                if (main.status === 'rejected') {
-                    log.warn(
-                        'group-request enrichment main inbox failed: group=%d uid=%s err=%s',
-                        groupId,
-                        uid,
-                        main.reason instanceof Error ? main.reason.message : String(main.reason),
-                    );
-                }
-
-                if (filtered.status === 'rejected') {
-                    log.warn(
-                        'group-request enrichment filtered inbox failed: group=%d uid=%s err=%s',
-                        groupId,
-                        uid,
-                        filtered.reason instanceof Error
-                            ? filtered.reason.message
-                            : String(filtered.reason),
-                    );
-                }
-
-                if (main.status === 'rejected' && filtered.status === 'rejected') {
-                    throw new Error('failed to fetch group requests from both inboxes');
-                }
-
-                const requests = [
-                    ...(main.status === 'fulfilled' ? main.value : []),
-                    ...(filtered.status === 'fulfilled' ? filtered.value : []),
-                ];
-                const matches = requests.filter((r) => {
-                    if (r.groupId !== groupId) {
-                        return false;
-                    }
-
-                    return subType === 'invite' ? r.invitorUid === uid : r.targetUid === uid;
-                });
-
-                if (subType === 'invite') {
-                    return matches.find((r) => r.notifyType === 1) ?? matches[0] ?? null;
-                }
-
-                return matches.find((r) => r.notifyType === 7) ?? matches[0] ?? null;
-            },
-            resolveGroupInviteCardSequence: async (groupId) => {
-                const deadline = Date.now() + 1_000;
-
-                do {
-                    const sequence = this.apis.contacts.getGroupInviteCardSequence(groupId);
-
-                    if (sequence) {
-                        return sequence;
-                    }
-
-                    await new Promise((resolve) => setTimeout(resolve, 25));
-                } while (Date.now() < deadline);
-
-                return null;
-            },
-            rememberGroupInviteCardSequence: (groupUin, sequence) => {
-                this.apis.contacts.rememberGroupInviteCardSequence(groupUin, sequence);
-            },
+            resolveGroupJoinRequest: (groupId, uid, subType, invitedUid) =>
+                this.apis.contacts.resolveGroupJoinRequest(groupId, uid, subType, invitedUid),
+            rememberGroupInviteCardSequence: (groupUin, sequence) =>
+                this.apis.contacts.rememberGroupInviteCardSequence(groupUin, sequence),
         });
         this.pipeline.registerCmd(MSG_PUSH_CMD, (pkt, identity) =>
             parseMsgPushOrThrow(pkt, identity, this.sysMsgDedup_),

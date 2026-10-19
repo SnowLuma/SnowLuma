@@ -45,29 +45,15 @@ export interface PacketPipelineDeps {
     /** One group's member-list fetch (adapter TTL applies). Roster
      *  side-effect only; the pipeline does not pass `force`. */
     fetchGroupMemberList(groupId: number): Promise<void>;
-    /**
-     * Resolve the verify message ("postscript") + server sequence number
-     * for a pending group-join / group-invite. The OIDB push only
-     * carries the requester's UID + group uin — the actual verify text
-     * the user typed ("你们好" etc.) lives on the pending-request queue
-     * fetched via OIDB 0x10C0. NapCat surfaces this as
-     * `notify.postscript` from `nodeIKernelGroupService.getGroupNotifies`;
-     * we mirror that with an `fetchGroupRequests` lookup matched on
-     * `(groupId, uid, subType)`. Returns null when no matching pending
-     * request exists (e.g. it was already handled by another client).
-     */
+    /** Resolve a pending request's comment and approval tuple after a push. */
     resolveGroupJoinRequest(
         groupId: number,
         uid: string,
         subType: 'add' | 'invite',
+        invitedUid?: string,
     ): Promise<GroupRequestInfo | null>;
-    /** Resolve a private invite-card msgseq. Implementations may briefly wait
-     *  for the paired C2C Ark card, as the PkgType 87 push omits this value. */
-    resolveGroupInviteCardSequence?(groupId: number): Promise<number | null>;
-    /** Live-only write of a parsed private invite-card msgseq onto the
-     *  pending-application store. Optional: tests that do not care about
-     *  cards may omit it; production Bridge always binds ContactsApi. */
-    rememberGroupInviteCardSequence?(groupUin: number, sequence: number): void;
+    /** Remember a live card; false means its approval sequence was already seen. */
+    rememberGroupInviteCardSequence(groupUin: number, sequence: number): boolean;
 }
 
 export class IncomingPacketPipeline {
@@ -178,7 +164,7 @@ export class IncomingPacketPipeline {
                                 );
                             });
                         enrichmentTasks.push(task);
-                    } else if (this.needsGroupInviteEnrich(event)) {
+                    } else if (event.kind === 'group_invite') {
                         this.traceEnrichmentStarted(pkt, event, 'group_invite');
                         const task = this.dispatchGroupInvite(pkt, event)
                             .then((count) => {
@@ -363,12 +349,50 @@ export class IncomingPacketPipeline {
         this.finishDispatch(event);
         this.traceDispatch(pkt, event.kind, mode);
 
-        if (!this.emitGroupCardChange(event, cardBefore)) {
-            return 1;
+        let dispatched = 1;
+
+        if (this.emitGroupCardChange(event, cardBefore)) {
+            this.traceDispatch(pkt, 'group_card_change', 'derived');
+            dispatched++;
         }
 
-        this.traceDispatch(pkt, 'group_card_change', 'derived');
-        return 2;
+        if (this.emitGroupInviteCard(event)) {
+            this.traceDispatch(pkt, 'group_invite', 'derived');
+            dispatched++;
+        }
+
+        return dispatched;
+    }
+
+    private emitGroupInviteCard(event: QQEventVariant): boolean {
+        if (event.kind !== 'friend_message' || event.senderUin === event.selfUin) {
+            return false;
+        }
+
+        const groupId = event.inviteCardGroupUin;
+        const sequence = event.inviteCardSequence;
+
+        if (
+            !groupId ||
+            !sequence ||
+            !this.deps.rememberGroupInviteCardSequence(groupId, sequence)
+        ) {
+            return false;
+        }
+
+        this.finishDispatch({
+            kind: 'group_invite',
+            time: event.time,
+            selfUin: event.selfUin,
+            groupId,
+            fromUin: event.senderUin,
+            fromUid: event.senderUid,
+            invitedUin: event.selfUin,
+            subType: 'invite',
+            message: '',
+            flag: formatGroupRequestFlag({ groupId, sequence, eventType: 2, filtered: false }),
+        });
+        return true;
     }
 
     private emit(event: QQEventVariant): void {
@@ -435,29 +459,6 @@ export class IncomingPacketPipeline {
         );
     }
 
-    /** Every group_invite that carries a requester UID gets async
-     *  enrichment before dispatch. Two INDEPENDENT things are filled in:
-     *
-     *   1. The verify COMMENT — the text the requester typed ("你们好" etc.).
-     *      It is NEVER in the push; it lives on the OIDB pending-request
-     *      queue, so we ALWAYS fetch it (mirrors Lagrange's unconditional
-     *      `FetchGroupRequests`; NapCat reads the equivalent
-     *      `notify.postscript`). See issue #98.
-     *   2. The requester's UIN + nickname — only when not already resolved
-     *      (the push carries a bare UID). Mirrors Lagrange's
-     *      `dev/Lagrange.Core/.../MessagingLogic.cs:215-224`.
-     *
-     *  These USED to be coupled — the comment fetch piggy-backed on the
-     *  uin-resolve condition, so a requester whose uin was already cached
-     *  silently lost their comment (bug #98). They're now decoupled inside
-     *  `dispatchGroupInvite`; this guard just routes every uid-bearing
-     *  group_invite onto the async path. */
-    private needsGroupInviteEnrich(
-        event: QQEventVariant,
-    ): event is Extract<QQEventVariant, { kind: 'group_invite' }> {
-        return event.kind === 'group_invite' && !!event.fromUid;
-    }
-
     private async dispatchAfterIdentityRefresh(
         pkt: PacketInfo,
         event: Extract<QQEventVariant, { kind: 'group_member_join' }>,
@@ -491,158 +492,61 @@ export class IncomingPacketPipeline {
         pkt: PacketInfo,
         event: Extract<QQEventVariant, { kind: 'group_invite' }>,
     ): Promise<number> {
-        const uid = event.fromUid;
-
-        if (uid) {
-            // Record the requester's identity up-front (synchronously), mirroring the
-            // friend_request path — uid-bearing group_invites take this async branch
-            // and would otherwise never store the inviter's uid↔uin when the uin is
-            // already known (needsProfile=false).
-            this.deps.identity.rememberRequestIdentity({
-                groupId: event.groupId,
-                uid,
-                uin: event.fromUin > 0 ? event.fromUin : 0,
-                source: 'group_request',
-            });
-
-            const subType = event.subType === 'invite' ? 'invite' : 'add';
-            // ALWAYS fetch the verify comment (it's never in the push). UID→UIN
-            // waits only when the requester is still unresolved. Comment and
-            // identity are independent; `Promise.allSettled` so a flake on one
-            // path cannot kill the other.
-            const needsProfile = event.fromUin <= 0;
-            const [profileR, requestR] = await Promise.allSettled([
-                needsProfile
-                    ? this.deps.identity.resolveUin(uid, event.groupId)
-                    : Promise.resolve(null),
-                this.deps.resolveGroupJoinRequest(event.groupId, uid, subType),
-            ]);
-
-            if (needsProfile) {
-                if (
-                    profileR.status === 'fulfilled' &&
-                    profileR.value !== null &&
-                    profileR.value > 0
-                ) {
-                    event.fromUin = profileR.value;
-                    this.deps.identity.rememberRequestIdentity({
-                        groupId: event.groupId,
-                        uid,
-                        uin: event.fromUin,
-                        source: 'group_request',
-                    });
-                } else if (profileR.status === 'rejected') {
-                    this.packetLog.trace(() => [
-                        'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="stranger_profile" error=%j',
-                        pkt.serviceCmd,
-                        pkt.seqId,
-                        event.kind,
-                        profileR.reason instanceof Error
-                            ? profileR.reason.message
-                            : String(profileR.reason),
-                    ]);
-                    this.log.warn(
-                        'failed to resolve stranger profile: uid=%s err=%s',
-                        uid,
-                        profileR.reason instanceof Error
-                            ? profileR.reason.message
-                            : String(profileR.reason),
-                    );
-                }
-            }
-
-            if (requestR.status === 'fulfilled' && requestR.value) {
-                // The verify text the requester typed; NapCat surfaces it as
-                // `notify.postscript`. Without this the OneBot `comment` field is
-                // empty — bug #98.
-                event.message = requestR.value.comment;
-
-                const request = requestR.value;
-
-                if (subType === 'invite' && request.targetUid) {
-                    if (!event.invitedUid) {
-                        event.invitedUid = request.targetUid;
-                    }
-
-                    if ((event.invitedUin ?? 0) <= 0 && request.targetUin > 0) {
-                        event.invitedUin = request.targetUin;
-                    }
-                }
-
-                const hasApprovalTuple =
-                    Number.isSafeInteger(request.sequence) &&
-                    request.sequence > 0 &&
-                    Number.isSafeInteger(request.groupId) &&
-                    request.groupId > 0 &&
-                    Number.isSafeInteger(request.eventType) &&
-                    request.eventType > 0;
-
-                if (hasApprovalTuple) {
-                    if (subType === 'invite' && request.eventType === 2) {
-                        // A bot self-invite must use the private Ark card's msgseq (#125),
-                        // not the sequence returned by 0x10C0. Keep the legacy flag when
-                        // correlation times out so the action can retry the cache later.
-                        const cardSequence =
-                            (await this.deps.resolveGroupInviteCardSequence?.(event.groupId)) ??
-                            null;
-
-                        if (cardSequence) {
-                            event.flag = formatGroupRequestFlag({
-                                groupId: event.groupId,
-                                sequence: cardSequence,
-                                eventType: 2,
-                                filtered: false,
-                            });
-                        } else {
-                            this.log.warn(
-                                'invite-card msgseq unavailable before dispatch: groupId=%d uid=%s',
-                                event.groupId,
-                                uid,
-                            );
-                        }
-                    } else {
-                        event.flag = formatGroupRequestFlag(request);
-                    }
-                }
-            } else if (requestR.status === 'rejected') {
-                this.packetLog.trace(() => [
-                    'packet_branch serviceCmd=%j seqId=%d branch=enrichment_degraded eventKind=%j enrichment="group_join_request" error=%j',
-                    pkt.serviceCmd,
-                    pkt.seqId,
-                    event.kind,
-                    requestR.reason instanceof Error
-                        ? requestR.reason.message
-                        : String(requestR.reason),
-                ]);
-                this.log.warn(
-                    'failed to resolve group join request: groupId=%d uid=%s err=%s',
-                    event.groupId,
-                    uid,
-                    requestR.reason instanceof Error
-                        ? requestR.reason.message
-                        : String(requestR.reason),
-                );
-            }
+        // Self-invite notices omit the approval msgseq; the private card owns this event.
+        if (
+            event.subType === 'invite' &&
+            this.isSelfMemberIdentity(event.invitedUin ?? 0, event.invitedUid)
+        ) {
+            return 0;
         }
 
-        if ((event.invitedUin ?? 0) <= 0 && event.invitedUid) {
-            try {
-                const invited = await this.deps.identity.resolveUin(
-                    event.invitedUid,
-                    event.groupId,
-                );
+        const uid = event.fromUid;
 
-                if (invited !== null && invited > 0) {
-                    event.invitedUin = invited;
-                }
-            } catch (error) {
-                this.log.warn(
-                    'failed to resolve invited account: groupId=%d uid=%s err=%s',
-                    event.groupId,
-                    event.invitedUid,
-                    error instanceof Error ? error.message : String(error),
-                );
-            }
+        if (!uid) {
+            throw new Error('group request omitted requester UID');
+        }
+
+        this.deps.identity.rememberRequestIdentity({
+            groupId: event.groupId,
+            uid,
+            uin: event.fromUin,
+            source: 'group_request',
+        });
+        const request = await this.deps.resolveGroupJoinRequest(
+            event.groupId,
+            uid,
+            event.subType,
+            event.invitedUid,
+        );
+
+        if (!request) {
+            this.log.warn('pending group request not found: group=%d uid=%s', event.groupId, uid);
+            return 0;
+        }
+
+        if (request.eventType === 2) {
+            return 0;
+        }
+
+        event.message = request.comment;
+        event.flag = formatGroupRequestFlag(request);
+        const requesterUin = event.subType === 'invite' ? request.invitorUin : request.targetUin;
+        event.fromUin =
+            event.fromUin ||
+            requesterUin ||
+            (await this.deps.identity.resolveUin(uid, event.groupId)) ||
+            0;
+
+        if (event.fromUin === 0) {
+            this.log.warn('group request sender unavailable: group=%d uid=%s', event.groupId, uid);
+        }
+
+        if (event.subType === 'invite') {
+            event.invitedUid = request.targetUid;
+            event.invitedUin =
+                request.targetUin ||
+                (await this.deps.identity.resolveUin(request.targetUid, event.groupId)) ||
+                0;
         }
 
         try {
@@ -778,13 +682,6 @@ export class IncomingPacketPipeline {
                     source: 'friend_message',
                 });
 
-                if (event.inviteCardGroupUin && event.inviteCardSequence) {
-                    this.deps.rememberGroupInviteCardSequence?.(
-                        event.inviteCardGroupUin,
-                        event.inviteCardSequence,
-                    );
-                }
-
                 break;
 
             case 'group_message': {
@@ -875,29 +772,18 @@ export class IncomingPacketPipeline {
             }
 
             case 'group_invite': {
-                // Defensive: never cache a uid→uin mapping where uin equals
-                // the group's own uin — that's the pollution signature the
-                // legacy decoder fallback produced. Pass 0 so `rememberUidUin`
-                // skips the map write (it short-circuits on uin <= 0) but the
-                // user row still gets upserted with the uid + group context.
-                const uinForCache =
-                    event.fromUin > 0 && event.fromUin !== event.groupId ? event.fromUin : 0;
                 this.deps.identity.rememberRequestIdentity({
                     groupId: event.groupId,
                     uid: event.fromUid,
-                    uin: uinForCache,
+                    uin: event.fromUin,
                     source: 'group_request',
                 });
 
                 if (event.invitedUid) {
-                    const invitedUin =
-                        event.invitedUin && event.invitedUin !== event.groupId
-                            ? event.invitedUin
-                            : 0;
                     this.deps.identity.rememberRequestIdentity({
                         groupId: event.groupId,
                         uid: event.invitedUid,
-                        uin: invitedUin,
+                        uin: event.invitedUin ?? 0,
                         source: 'group_request',
                     });
                 }

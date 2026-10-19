@@ -80,6 +80,7 @@ function makeManager(opts: {
         listProcesses: async () => pids.map((pid) => ({ pid, name: 'qq', path: '' })),
         // Detection reads QQ's own data directories; tests stay off the host.
         detectAccounts: opts.detectAccounts ?? (async () => []),
+        watchAccounts: () => () => {},
     });
     return {
         manager,

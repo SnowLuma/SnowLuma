@@ -154,6 +154,7 @@ function makePipeline(
         fetchGroupList,
         fetchGroupMemberList,
         resolveGroupJoinRequest: vi.fn(async () => null),
+        rememberGroupInviteCardSequence: vi.fn(() => true),
     });
     return { identity, pipeline, captured, fetchGroupList, fetchGroupMemberList };
 }

@@ -62,7 +62,6 @@ describe('OneBotManager bot_status', () => {
                 dispose: vi.fn(async () => ({ closed: true, errors: [] })),
                 emitBotStatus,
                 waitUntilNetworkReady: vi.fn(() => networkReady),
-                startGroupRequestPolling: vi.fn(),
                 startLoginHistorySync: vi.fn(),
                 getConnectionStatuses: () => [],
             } as unknown as OneBotInstance;
@@ -80,7 +79,6 @@ describe('OneBotManager bot_status', () => {
                     expect(emitBotStatus).toHaveBeenCalledOnce();
                 });
                 expect(emitBotStatus).toHaveBeenCalledWith('online');
-                expect(instance.startGroupRequestPolling).toHaveBeenCalledOnce();
             } finally {
                 await manager.dispose();
             }
@@ -110,7 +108,6 @@ describe('OneBotManager bot_status', () => {
             quiesce: vi.fn(),
             dispose,
             emitBotStatus,
-            startGroupRequestPolling: vi.fn(),
             getConnectionStatuses: () => [],
         } as unknown as OneBotInstance;
         const manager = new OneBotManager();
@@ -142,7 +139,6 @@ describe('OneBotManager bot_status', () => {
             quiesce: vi.fn(),
             dispose,
             emitBotStatus,
-            startGroupRequestPolling: vi.fn(),
             getConnectionStatuses: () => [],
         } as unknown as OneBotInstance;
         const manager = new OneBotManager();

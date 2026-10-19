@@ -38,7 +38,9 @@ function okResult(data: Uint8Array): SendPacketResult {
 function inviteCardMessage(sequence: number): PushMsgBody {
     const json = JSON.stringify({
         app: 'com.tencent.qun.invite',
-        jumpUrl: `mqqapi://group/invite_join?groupcode=12345&msgseq=${sequence}`,
+        meta: {
+            news: { jumpUrl: `mqqapi://group/invite_join?groupcode=12345&msgseq=${sequence}` },
+        },
     });
     const compressed = deflateSync(Buffer.from(json));
     const data = new Uint8Array(compressed.length + 1);

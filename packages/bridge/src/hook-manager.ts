@@ -14,12 +14,14 @@ import {
 import { PipeWatcher } from './pipe-watcher';
 import { createProcessEnumerator, type ProcessEnumerator } from './process-enumerator';
 import { QqHookClient } from './qq-hook-client';
-import { detectAccountLoginsForPids, type AccountLoginState } from './qq-account';
+import {
+    detectAccountLoginsForPids,
+    watchAccountChangesForPids,
+    type AccountLoginState,
+} from './qq-account';
 import type { HookProcessAccount, HookProcessInfo } from './types';
 
 const AUTO_LOAD_MAX_ATTEMPTS = 3;
-
-const DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS = 5000;
 
 type AutoLoadAttempt = {
     attempts: number;
@@ -61,9 +63,8 @@ export type HookManagerDeps = {
      *  the HOME it actually runs under (a container can give every QQ instance
      *  its own). Defaults to reading QQ's own account data. */
     detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
-    /** How often the watcher re-probes the account label of each process, in
-     *  milliseconds. Defaults to `DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS`. */
-    accountReprobeIntervalMs?: number;
+    /** Subscribe to login database changes. Returns the subscription cleanup. */
+    watchAccounts?: (pids: readonly number[], onChange: () => void) => () => void;
     /** When true, every newly-discovered QQ process is auto-injected (fires
      * `loadProcess(pid)` from the watcher's 'process-discovered' handler).
      * Failed loads are logged and leave the session in the 'error' state.
@@ -106,7 +107,7 @@ export class HookManager {
     private readonly ownsPipeWatcher: boolean;
     private readonly enumerator: ProcessEnumerator;
     private readonly detectAccounts: (pids: readonly number[]) => Promise<AccountLoginState[]>;
-    private readonly accountReprobeIntervalMs: number;
+    private readonly watchAccounts: NonNullable<HookManagerDeps['watchAccounts']>;
     private readonly autoLoadOnDiscovery: boolean;
     private readonly onSessionsChangedRaw?: () => void;
     private readonly log: Logger;
@@ -116,7 +117,8 @@ export class HookManager {
 
     private accounts = new Map<number, HookProcessAccount>();
     private accountProbe: Promise<void> | null = null;
-    private nextAccountProbeAt = 0;
+    private accountsDirty = true;
+    private stopWatchingAccounts?: () => void;
     private lastAccountProbeFailure = '';
 
     private disposed = false;
@@ -133,8 +135,9 @@ export class HookManager {
         };
         this.makeClient = deps.makeClient ?? ((pid: number) => new QqHookClient(pid));
         this.detectAccounts = deps.detectAccounts ?? detectAccountLoginsForPids;
-        this.accountReprobeIntervalMs =
-            deps.accountReprobeIntervalMs ?? DEFAULT_ACCOUNT_REPROBE_INTERVAL_MS;
+        this.watchAccounts =
+            deps.watchAccounts ??
+            ((pids, onChange) => watchAccountChangesForPids(pids, onChange, this.log));
         this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
 
         this.enumerator = createProcessEnumerator({
@@ -186,6 +189,7 @@ export class HookManager {
         await this.startPromise;
         this.autoLoadAttempts.delete(pid);
         const session = this.ensureSession(pid);
+        this.invalidateAccounts();
         await session.load();
         this.pipeWatcher.wake();
         await this.refreshAccounts();
@@ -197,6 +201,7 @@ export class HookManager {
         await this.startPromise;
         this.autoLoadAttempts.delete(pid);
         const session = this.ensureSession(pid);
+        this.invalidateAccounts();
         await session.unload();
         await this.refreshAccounts();
         return this.processInfo(session);
@@ -206,6 +211,8 @@ export class HookManager {
         this.assertValidPid(pid);
         await this.startPromise;
         const session = this.ensureSession(pid);
+        this.updateAccountWatcher();
+        this.invalidateAccounts();
         await session.refresh();
         await this.refreshAccounts();
         return this.processInfo(session);
@@ -217,6 +224,7 @@ export class HookManager {
         }
 
         this.disposed = true;
+        this.stopWatchingAccounts?.();
 
         for (const session of this.sessions.values()) {
             session.dispose();
@@ -238,45 +246,52 @@ export class HookManager {
         return { ...session.toInfo(), account: this.accounts.get(session.pid) ?? null };
     }
 
+    private invalidateAccounts(): void {
+        this.accountsDirty = true;
+    }
+
+    private updateAccountWatcher(): void {
+        this.stopWatchingAccounts?.();
+        this.stopWatchingAccounts = this.watchAccounts([...this.sessions.keys()], () => {
+            this.invalidateAccounts();
+            void this.refreshAccounts();
+        });
+    }
+
     /** REST, watcher ticks and login reconciliation share the same account snapshot. */
     private async refreshAccounts(): Promise<void> {
-        if (this.disposed) {
+        if (this.disposed || this.sessions.size === 0) {
             return;
         }
 
         if (this.accountProbe) {
             await this.accountProbe;
-
-            // Process discovery invalidates the snapshot while a read is in flight.
-            if (this.nextAccountProbeAt === 0) {
-                await this.refreshAccounts();
-            }
-
             return;
         }
 
-        if (Date.now() < this.nextAccountProbeAt || this.sessions.size === 0) {
+        if (!this.accountsDirty) {
             return;
         }
 
-        this.nextAccountProbeAt = Date.now() + this.accountReprobeIntervalMs;
-        this.accountProbe = runWithTraceRequest(() => this.readAccounts()).finally(() => {
+        this.accountProbe = runWithTraceRequest(async () => {
+            // All callers await the replacement read too if a lifecycle change
+            // invalidates an in-flight result.
+            do {
+                this.accountsDirty = false;
+                await this.readAccounts();
+            } while (!this.disposed && this.sessions.size > 0 && this.accountsDirty);
+        }).finally(() => {
             this.accountProbe = null;
         });
         await this.accountProbe;
     }
 
     private async readAccounts(): Promise<void> {
-        const sessions = new Map(this.sessions);
         const accounts = new Map<number, HookProcessAccount>();
 
         try {
-            for (const state of await this.detectAccounts([...sessions.keys()])) {
-                if (
-                    state.pid !== null &&
-                    sessions.has(state.pid) &&
-                    this.sessions.get(state.pid) === sessions.get(state.pid)
-                ) {
+            for (const state of await this.detectAccounts([...this.sessions.keys()])) {
+                if (state.pid !== null && this.sessions.has(state.pid)) {
                     accounts.set(state.pid, { uin: state.uin, nickname: state.nickname });
                 }
             }
@@ -291,7 +306,7 @@ export class HookManager {
             }
         }
 
-        if (this.disposed) {
+        if (this.disposed || this.accountsDirty) {
             return;
         }
 
@@ -364,6 +379,7 @@ export class HookManager {
             const session = this.sessions.get(pid);
 
             if (session) {
+                this.invalidateAccounts();
                 session.onPipeUp();
             }
         });
@@ -375,6 +391,7 @@ export class HookManager {
             const session = this.sessions.get(pid);
 
             if (session) {
+                this.invalidateAccounts();
                 session.onPipeDown();
             }
         });
@@ -570,7 +587,10 @@ export class HookManager {
         session.attachProcessInfo({ name: defaultProcessName() });
 
         session.on('login', (uin: string, sender) => {
+            // Account switches can keep the same 'online' status.
+            this.invalidateAccounts();
             this.bridgeManager.onHookLogin(pid, uin, sender);
+            this.notifySessionsChanged();
         });
         session.on('disconnected', (wasLoggedIn: boolean) => {
             if (wasLoggedIn) {
@@ -580,20 +600,25 @@ export class HookManager {
         session.on('receive-health-changed', (healthy: boolean) => {
             this.bridgeManager.onPidReceiveHealthChanged(pid, healthy);
         });
-        // status-changed fires on EVERY internal status mutation, including the
-        // ones reached via login / disconnected / refresh — subscribing here
-        // alone covers every transition the WebUI processes view cares about.
-        session.on('status-changed', () => {
+        let previousStatus = session.status;
+        session.on('status-changed', (status) => {
+            if (previousStatus === 'online' && status !== 'online') {
+                this.invalidateAccounts();
+            }
+
+            previousStatus = status;
             this.notifySessionsChanged();
         });
         session.on('disposed', () => {
             this.sessions.delete(pid);
             this.accounts.delete(pid);
-            this.nextAccountProbeAt = 0;
+            this.updateAccountWatcher();
+            this.invalidateAccounts();
         });
 
         this.sessions.set(pid, session);
-        this.nextAccountProbeAt = 0;
+        this.updateAccountWatcher();
+        this.invalidateAccounts();
         return session;
     }
 

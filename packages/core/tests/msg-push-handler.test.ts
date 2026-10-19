@@ -529,6 +529,7 @@ describe('parseMsgPush Event0x210 subType=364 (friend remark synchronization)', 
             fetchGroupList: vi.fn(async () => {}),
             fetchGroupMemberList: vi.fn(async () => {}),
             resolveGroupJoinRequest: vi.fn(async () => null),
+            rememberGroupInviteCardSequence: vi.fn(() => true),
         });
         pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
 
@@ -1027,6 +1028,7 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
             fetchGroupList: vi.fn(async () => {}),
             fetchGroupMemberList: vi.fn(async () => {}),
             resolveGroupJoinRequest: vi.fn(async () => null),
+            rememberGroupInviteCardSequence: vi.fn(() => true),
         });
         pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
         await pipeline.process(packet);

@@ -34,7 +34,6 @@ import {
     statusCooldownElapsed,
 } from './modules/status-command';
 import { loginHistorySyncCoordinator } from './history-sync';
-import { GroupRequestPoller } from './group-request-poller';
 import {
     HttpPostAdapter,
     HttpServerAdapter,
@@ -64,7 +63,6 @@ export class OneBotInstance {
     private readonly reactionStore: ReactionStore;
     private readonly networkManager: OneBotNetworkManager;
     private readonly networkReady: Promise<NetworkReconcileResult>;
-    private readonly groupRequestPoller: GroupRequestPoller;
     private lifecycleTail: Promise<void>;
     private readonly rkeyCache: RKeyCache;
     private readonly ctx: OneBotInstanceContext;
@@ -79,7 +77,6 @@ export class OneBotInstance {
     >();
     private eventPipeline: EventPipelineHandle | null = null;
     private eventPipelineDrain: Promise<void> = Promise.resolve();
-    private groupRequestPollerDrain: Promise<void> = Promise.resolve();
     private disposePromise: Promise<NetworkShutdownResult> | null = null;
     private disposeRequested = false;
     private acceptingActions = true;
@@ -241,7 +238,6 @@ export class OneBotInstance {
         this.startHeartbeat();
         this.rkeyCache.warmUp(this.bridge, this.uin);
         this.eventPipeline = registerEventPipeline(ctx);
-        this.groupRequestPoller = new GroupRequestPoller(this.bridge, ctx.selfId);
     }
 
     waitUntilNetworkReady(): Promise<NetworkReconcileResult> {
@@ -252,15 +248,6 @@ export class OneBotInstance {
      *  adapters before this generation is disposed. */
     emitBotStatus(subType: 'online' | 'offline'): Promise<void> {
         return this.dispatchEvent(makeBotStatusEvent(parseInt(this.uin, 10) || 0, subType));
-    }
-
-    /** Begin observing request-list-only group invitations after adapters exist. */
-    startGroupRequestPolling(): void {
-        if (this.disposeRequested) {
-            return;
-        }
-
-        this.groupRequestPoller.start();
     }
 
     /**
@@ -363,7 +350,6 @@ export class OneBotInstance {
         this.apiHandler.quiesce();
         this.online = false;
         this.stopHeartbeat();
-        this.groupRequestPollerDrain = this.groupRequestPoller.stop();
         this.historySyncAbortController?.abort(
             new Error(`OneBot instance UIN=${this.uin} is disposing`),
         );
@@ -386,7 +372,6 @@ export class OneBotInstance {
             await Promise.all([
                 Promise.all(this.inFlightActions),
                 this.eventPipelineDrain,
-                this.groupRequestPollerDrain,
                 this.historySyncTask ?? Promise.resolve(),
             ]);
             const shutdown = await this.networkManager.shutdown();

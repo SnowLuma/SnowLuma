@@ -419,7 +419,7 @@ export interface GroupInviteEvent extends QQEvent {
      *  logged-in account. */
     invitedUin?: number;
     invitedUid?: string;
-    subType: string;
+    subType: 'add' | 'invite';
     message: string;
     flag: string;
 }

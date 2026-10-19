@@ -38,6 +38,21 @@ function ctx(
 }
 
 describe('group invitation push carries the invitee (#394)', () => {
+    it('ignores unrelated notification commands', () => {
+        const content = protobuf_encode<GroupInvitation>({
+            cmd: 86,
+            info: {
+                inner: {
+                    groupUin: GROUP_ID,
+                    targetUid: 'u_invitee',
+                    invitorUid: 'u_inviter',
+                },
+            },
+        });
+
+        expect(decodeGroupInvitation(ctx(content))).toEqual([]);
+    });
+
     it('keeps the inviter as from* and the invitee as invited*', () => {
         const identity = IdentityService.memory(String(SELF_UIN));
         identity.rememberRequestIdentity({ uid: 'u_inviter', uin: 456, source: 'group_request' });

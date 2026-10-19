@@ -12,6 +12,7 @@ export {
     type LoginDbFailure,
 } from './login-db';
 export { accountDirName, loginDbPaths, ntMsgDbPath, qqDataRoots, qqDataRootsForPid } from './paths';
+export { watchAccountChangesForPids } from './watch';
 export {
     decryptDatabase,
     detectAlgorithm,
