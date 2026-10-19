@@ -296,6 +296,33 @@ describe('decodeRichBody / forward LightApp', () => {
         ]);
     });
 
+    it.each([
+        ['text content', '<msg><title>serviceID="35" m_resid="fake"</title></msg>'],
+        ['a comment', '<msg><!-- serviceID="35" m_resid="fake" --></msg>'],
+        ['a child node', '<msg><child serviceID="35" m_resid="fake" /></msg>'],
+    ])(
+        'does not promote plain XML to a forward when only %s mentions serviceID=35 (root-tag only)',
+        (_label, xml) => {
+            const xmlBuf = new Uint8Array(xml.length + 1);
+            xmlBuf[0] = 0x00;
+            xmlBuf.set(new TextEncoder().encode(xml), 1);
+
+            const body: MessageBody = {
+                richText: {
+                    elems: [
+                        {
+                            richMsg: { serviceId: 0, template1: xmlBuf },
+                        } as any,
+                    ],
+                },
+            };
+            const out = decodeRichBody(body, true);
+
+            // Stays a plain XML card and keeps its original content.
+            expect(out).toEqual([{ type: 'xml', text: xml, subType: 0 }]);
+        },
+    );
+
     it('still decodes the legacy richMsg serviceID=35 path (backward compat with mobile QQ)', () => {
         // Older clients (and some bridges) still emit the m_resid XML
         // shape. The decoder must keep treating it as a forward element

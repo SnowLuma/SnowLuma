@@ -154,11 +154,20 @@ function decodeRichMsgCard(
         return invalidCard(data.length, 'invalid_xml', decoded.budgetBytes);
     }
 
-    if (svcId === 35 || (svcId === 0 && /\bserviceID="35"/.test(content))) {
-        const match = /\bm_resid="([^"]+)"/.exec(content);
+    // The card type and resource attributes live on the root <msg ...> start
+    // tag only. Scanning the whole document would read text, comments or
+    // child nodes as the outer card and turn a plain XML card into a bogus
+    // forward (losing its content), so every attribute lookup below is
+    // confined to that start tag.
+    const rootMsgTag = /<\s*msg\b([^>]*)>/i.exec(content)?.[1] ?? '';
+    const declaredSvcId =
+        svcId === 0 ? /\bserviceID\s*=\s*"(\d+)"/.exec(rootMsgTag)?.[1] : undefined;
+
+    if (svcId === 35 || declaredSvcId === '35') {
+        const match = /\bm_resid\s*=\s*"([^"]+)"/.exec(rootMsgTag);
         // XML forwards link bundled inner messages by m_fileName, just as
         // LightApp forwards use uniseq. Keep it for the outer payload lookup.
-        const fileName = /\bm_fileName="([^"]+)"/.exec(content)?.[1];
+        const fileName = /\bm_fileName\s*=\s*"([^"]+)"/.exec(rootMsgTag)?.[1];
         return {
             element: match
                 ? {
