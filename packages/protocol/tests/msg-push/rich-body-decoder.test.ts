@@ -61,6 +61,99 @@ function lengthDelimited(fieldNumber: number, payload: Uint8Array): Uint8Array {
     ]);
 }
 
+function xmlCardBody(xml: string, serviceId = 0): MessageBody {
+    return {
+        richText: {
+            elems: [
+                {
+                    richMsg: {
+                        serviceId,
+                        template1: Buffer.concat([Buffer.from([0]), Buffer.from(xml, 'utf8')]),
+                    },
+                },
+            ],
+        },
+    };
+}
+
+describe('decodeRichBody / XML forward attributes', () => {
+    it('round-trips escaped resource IDs through the real sender and receiver', async () => {
+        const resId = 'res&<>"\'&lt;\t\n\r中文😀end';
+        const elems = await buildSendElems([{ type: 'forward', resId }]);
+        const body = protobuf_decode<MessageBody>(
+            protobuf_encode<MessageBody>({ richText: { elems } }),
+        );
+        expect(decodeRichBody(body, true)).toEqual([
+            { type: 'forward', resId, forwardUuid: expect.any(String) },
+        ]);
+    });
+
+    it.each([0, 35])(
+        'reads quoted root attributes and decodes entities once (service=%s)',
+        (serviceId) => {
+            const xml =
+                '\uFEFF <?xml version="1.0"?> <!-- header --> <?card data?>' +
+                '<msg brief="a > b" serviceID = \'&#51;&#x35;\' ' +
+                'm_resid = "res&amp;&lt;&gt;&quot;&apos;&amp;lt;" ' +
+                "m_fileName = 'key&#9;&#xA;&#13;&#x1F642;' />";
+            expect(decodeRichBody(xmlCardBody(xml, serviceId), true)).toEqual([
+                {
+                    type: 'forward',
+                    resId: 'res&<>"\'&lt;',
+                    forwardUuid: 'key\t\n\r🙂',
+                },
+            ]);
+        },
+    );
+
+    it.each([
+        '<msg><title>serviceID="35" m_resid="fake"</title></msg>',
+        '<msg><!-- serviceID="35" m_resid="fake" --></msg>',
+        '<msg><child serviceID="35" m_resid="fake" /></msg>',
+        '<wrapper><msg serviceID="35" m_resid="fake" /></wrapper>',
+        '<!-- <msg serviceID="35" m_resid="fake" /> --><msg />',
+        '<?test <msg serviceID="35" m_resid="fake" /> ?><msg />',
+        '<msg><![CDATA[<msg serviceID="35" m_resid="fake" />]]></msg>',
+        '<msg brief=\'serviceID="35" m_resid="fake"\' />',
+        '<msg data-serviceID="35" m_resid="fake" />',
+        '<msg serviceID="35" data-m_resid="fake" />',
+        '<msg serviceID="35"><child m_resid="fake" /></msg>',
+        '<msg serviceID="35" m_resid="first" m_resid="second" />',
+        '<msg serviceID="35"m_resid="fake" />',
+    ])(
+        'preserves XML when forward attributes are not an unambiguous root declaration: %s',
+        (xml) => {
+            expect(decodeRichBody(xmlCardBody(xml), true)).toEqual([
+                { type: 'xml', text: xml, subType: 0 },
+            ]);
+        },
+    );
+
+    it.each([0, 35])('does not borrow a child resource ID (service=%s)', (serviceId) => {
+        const xml = '<msg serviceID="35"><msg m_resid="child" m_fileName="child-key" /></msg>';
+        expect(decodeRichBody(xmlCardBody(xml, serviceId), true)).toEqual([
+            { type: 'xml', text: xml, subType: serviceId },
+        ]);
+    });
+
+    it('preserves an explicit non-forward protocol type', () => {
+        const xml = '<msg serviceID="35" m_resid="other-card" />';
+        expect(decodeRichBody(xmlCardBody(xml, 2), true)).toEqual([
+            { type: 'xml', text: xml, subType: 2 },
+        ]);
+    });
+
+    it.each(['&unknown;', '&#0;', '&#xD800;', '&#x110000;', '&amp'])(
+        'preserves XML rather than inventing a lookup key for invalid entity %s',
+        (entity) => {
+            const xml = `<msg serviceID="35" m_resid="res${entity}" />`;
+            expect(decodeRichBody(xmlCardBody(xml, 35), true)).toEqual([
+                { type: 'xml', text: xml, subType: 35 },
+            ]);
+        },
+    );
+});
+
 describe('decodeRichBody / forward LightApp', () => {
     it('emits {type:"forward", resId, forwardUuid} for com.tencent.multimsg', () => {
         const body: MessageBody = {

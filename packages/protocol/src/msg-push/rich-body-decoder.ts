@@ -35,6 +35,7 @@ import {
     MAX_RICH_CARD_OUTPUT_BYTES,
     ntImageUrlFromFileId,
 } from './helpers';
+import { readXmlMsgAttributes } from './xml-card';
 
 type ElemDecoded = Elem;
 type RichTextDecoded = RichText;
@@ -135,14 +136,16 @@ function decodeRichMsgCard(
         return invalidCard(data.length, 'invalid_xml', decoded.budgetBytes);
     }
 
-    if (svcId === 35) {
-        const match = /\bm_resid="([^"]+)"/.exec(content);
+    const rootAttributes = svcId === 0 || svcId === 35 ? readXmlMsgAttributes(content) : undefined;
+
+    if (svcId === 35 || (svcId === 0 && rootAttributes?.get('serviceID') === '35')) {
+        const resId = rootAttributes?.get('m_resid');
         // XML forwards link bundled inner messages by m_fileName, just as
         // LightApp forwards use uniseq. Keep it for the outer payload lookup.
-        const fileName = /\bm_fileName="([^"]+)"/.exec(content)?.[1];
+        const fileName = rootAttributes?.get('m_fileName') || undefined;
         return {
-            element: match
-                ? { type: 'forward', resId: match[1], forwardUuid: fileName }
+            element: resId
+                ? { type: 'forward', resId, forwardUuid: fileName }
                 : { type: 'xml', text: content, subType: svcId },
             error: null,
             inputBytes: data.length,
