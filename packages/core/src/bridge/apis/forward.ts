@@ -25,16 +25,15 @@ import { randomUUID } from 'crypto';
 import { gunzipSync, gzipSync } from 'zlib';
 import type { Bridge } from '../bridge';
 import type { BridgeContext, UploadedFileMeta } from '../bridge-context';
+import { ForwardResultCache } from './forward-cache';
 import { resolveSelfUid, toInt } from './shared';
 
 function asBridge(ctx: BridgeContext): Bridge {
     return ctx as unknown as Bridge;
 }
 
-// Module-scoped cache, keyed by res_id. Survives only for the lifetime
-// of the process — that's enough because OneBot clients typically
-// resolve a forward immediately after receiving the parent message.
-const forwardResCache = new Map<string, ForwardNodePayload[]>();
+// Share within a bridge without retaining disconnected accounts.
+const forwardCaches = new WeakMap<BridgeContext, ForwardResultCache>();
 
 const log = createLogger('Bridge.Forward');
 
@@ -77,6 +76,7 @@ interface ForwardUploadResult {
     // callers concatenate these to their own actions list so the
     // outermost upload carries the full tree.
     innerActions: ForwardInnerAction[];
+    cachedLayers: Map<string, ForwardNodePayload[]>;
 }
 
 // Local hex-decode helper — avoids importing the heavyweight `pipeline`
@@ -353,7 +353,18 @@ function assertNoWindowShakeInForward(nodes: ForwardNodePayload[]): void {
 }
 
 export class ForwardApi {
-    constructor(private readonly ctx: BridgeContext) {}
+    private readonly cache: ForwardResultCache;
+
+    constructor(private readonly ctx: BridgeContext) {
+        let cache = forwardCaches.get(ctx);
+
+        if (!cache) {
+            cache = new ForwardResultCache();
+            forwardCaches.set(ctx, cache);
+        }
+
+        this.cache = cache;
+    }
 
     async upload(nodes: ForwardNodePayload[], groupId?: number, userId?: number): Promise<string> {
         // Reject the complete recursive tree before identity resolution, media
@@ -367,7 +378,8 @@ export class ForwardApi {
             assertPrivateForwardFileCapacity(nodes);
         }
 
-        const { resId } = await this.uploadRecursive(nodes, groupId, userId);
+        const { resId, cachedLayers } = await this.uploadRecursive(nodes, groupId, userId);
+        this.cache.set(resId, cachedLayers);
         return resId;
     }
 
@@ -593,6 +605,7 @@ export class ForwardApi {
         // — see `dev/NapCatQQ/.../SendMsg.ts:241-246` + the `uniseq` round-
         // trip in `dev/NapCatQQ/.../forward-msg-builder.ts:94`.
         const myInnerActions: ForwardInnerAction[] = [];
+        const cachedLayers = new Map<string, ForwardNodePayload[]>();
         const processedNodes: ForwardNodePayload[] = [];
         const isGroup = groupId !== undefined;
 
@@ -605,6 +618,11 @@ export class ForwardApi {
                 // and `inner.innerActions` already contains deeper layers.
                 myInnerActions.push({ uuid: inner.uuid, msgBody: inner.msgBody });
                 myInnerActions.push(...inner.innerActions);
+
+                for (const [resId, cached] of inner.cachedLayers) {
+                    cachedLayers.set(resId, cached);
+                }
+
                 // Replace the inner placeholder element with a forward preview
                 // pointing at the inner res_id. `forwardUuid: inner.uuid`
                 // baked into the LightApp JSON's `meta.detail.uniseq` is what
@@ -692,7 +710,7 @@ export class ForwardApi {
             throw new Error('upload forward message response missing res_id');
         }
 
-        forwardResCache.set(
+        cachedLayers.set(
             resId,
             uploadReadyNodes.map((node) => ({
                 ...cloneNodeWithElements(node, node.elements.map(cacheableForwardElement)),
@@ -714,20 +732,21 @@ export class ForwardApi {
             // from (1) — no separate fetch needed.
             uuid: randomUUID(),
             innerActions: myInnerActions,
+            cachedLayers,
         };
     }
 
     async fetch(resId: string): Promise<ForwardNodePayload[]> {
         const bridge = asBridge(this.ctx);
-        const cached = forwardResCache.get(resId);
+        const cached = this.cache.get(resId);
 
         if (cached) {
-            const nodes = cloneNodes(cached);
+            const nodes = cloneNodes(cached.nodes);
 
-            // Inner nodes seeded by consumePiggybacks are cached un-enriched; enrich
+            // Bundled inner nodes are cached un-enriched; enrich
             // on read (a no-op once names are present) and persist so later hits skip.
             if (await this.enrichSenders(nodes)) {
-                forwardResCache.set(resId, cloneNodes(nodes));
+                this.cache.update(cached, cloneNodes(nodes));
             }
 
             return nodes;
@@ -820,9 +839,7 @@ export class ForwardApi {
         // matching piggyback body, decode it into inner nodes, and seed
         // the cache by the inner resId so a follow-up `fetch(innerResId)`
         // hits the cache instead of the wire.
-        if (piggybackByUuid.size > 0) {
-            this.consumePiggybacks(nodes, piggybackByUuid);
-        }
+        const cachedLayers = this.collectForwardLayers(resId, nodes, piggybackByUuid);
 
         // Fill sender nickname/card for nodes the SsoRecvLongMsg payload left empty
         // or stamped with the "QQ用户" placeholder (#174) — the long-msg member name
@@ -830,7 +847,8 @@ export class ForwardApi {
         await this.enrichSenders(nodes);
 
         if (nodes.length > 0) {
-            forwardResCache.set(resId, cloneNodes(nodes));
+            cachedLayers.set(resId, cloneNodes(nodes));
+            this.cache.set(resId, cachedLayers);
         }
 
         return nodes;
@@ -1017,20 +1035,22 @@ export class ForwardApi {
         return out;
     }
 
-    /** Recursively resolve forward previews against the piggyback table.
+    /** Resolve forward previews against the piggyback table.
      *  For every `{type: 'forward', resId, forwardUuid}` element we find,
      *  look up the uniseq in the piggyback map; if hit, decode the
      *  inner msgBody and cache it by inner resId, then descend into that
      *  inner layer to resolve deeper nestings carried in the SAME
      *  piggyback set (NapCat hoists the entire tree's piggybacks onto
      *  the outermost action list). */
-    private consumePiggybacks(
+    private collectForwardLayers(
+        resId: string,
         nodes: ForwardNodePayload[],
         piggybackByUuid: Map<string, PushMsgBody[]>,
-    ): void {
-        const seen = new Set<string>();
+    ): Map<string, ForwardNodePayload[]> {
+        const layers = new Map([[resId, cloneNodes(nodes)]]);
+        const decodedByUuid = new Map<string, ForwardNodePayload[]>();
 
-        const visit = (chain: ForwardNodePayload[]): void => {
+        for (const chain of layers.values()) {
             for (const node of chain) {
                 for (const elem of node.elements) {
                     if (elem.type !== 'forward') {
@@ -1040,7 +1060,7 @@ export class ForwardApi {
                     const uuid = elem.forwardUuid;
                     const innerResId = elem.resId;
 
-                    if (!uuid || !innerResId || seen.has(uuid)) {
+                    if (!uuid || !innerResId || layers.has(innerResId)) {
                         continue;
                     }
 
@@ -1050,15 +1070,19 @@ export class ForwardApi {
                         continue;
                     }
 
-                    seen.add(uuid);
-                    const innerNodes = this.decodeMsgBodiesToNodes(body);
-                    forwardResCache.set(innerResId, cloneNodes(innerNodes));
-                    visit(innerNodes);
+                    let innerNodes = decodedByUuid.get(uuid);
+
+                    if (!innerNodes) {
+                        innerNodes = cloneNodes(this.decodeMsgBodiesToNodes(body));
+                        decodedByUuid.set(uuid, innerNodes);
+                    }
+
+                    layers.set(innerResId, innerNodes);
                 }
             }
-        };
+        }
 
-        visit(nodes);
+        return layers;
     }
 }
 

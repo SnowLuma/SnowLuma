@@ -40,6 +40,7 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
 }));
 
 import { ForwardApi } from '../../src/bridge/apis/forward';
+import type { BridgeContext } from '../../src/bridge/bridge-context';
 import { mockBridge } from './_helpers';
 
 function uploadResponseWithResId(resId: string) {
@@ -107,6 +108,49 @@ function findLightAppJson(msgBody: PushMsgBody[]): {
 }
 
 describe('forward / nested upload wire alignment', () => {
+    it('bounds uploaded results while keeping a recently read nested upload together', async () => {
+        let sequence = 0;
+        const sendRawPacket = vi.fn(async (command: string) => {
+            if (command !== 'trpc.group.long_msg_interface.MsgService.SsoSendLongMsg') {
+                throw new Error('test cache miss');
+            }
+
+            return uploadResponseWithResId(`upload-cache-${++sequence}`);
+        });
+        const bridge = mockBridge({ sendRawPacket });
+        const forward = new ForwardApi(bridge as unknown as BridgeContext);
+        const outer = await forward.upload([
+            {
+                userUin: 111,
+                nickname: 'outer',
+                elements: [],
+                innerForward: [
+                    {
+                        userUin: 222,
+                        nickname: 'inner',
+                        elements: [{ type: 'text', text: 'nested upload' }],
+                    },
+                ],
+            },
+        ]);
+        const filler = [{ userUin: 111, nickname: 'filler', elements: [] }];
+
+        for (let index = 0; index < 511; index++) {
+            await forward.upload(filler);
+        }
+
+        await forward.fetch('upload-cache-1');
+        await forward.upload(filler);
+        const uploadedCount = sendRawPacket.mock.calls.length;
+        const sameBridgeApi = new ForwardApi(bridge as unknown as BridgeContext);
+        expect((await sameBridgeApi.fetch(outer))[0]?.elements[0]?.resId).toBe('upload-cache-1');
+        expect((await sameBridgeApi.fetch('upload-cache-1'))[0]?.elements).toEqual([
+            { type: 'text', text: 'nested upload' },
+        ]);
+        expect(sendRawPacket).toHaveBeenCalledTimes(uploadedCount);
+        await expect(forward.fetch('upload-cache-3')).rejects.toThrow('test cache miss');
+    });
+
     it('outer LongMsgResult contains both MultiMsg and the inner uuid piggyback action', async () => {
         // Inner upload returns inner-res; outer upload returns outer-res.
         const responses = ['inner-res', 'outer-res'];
