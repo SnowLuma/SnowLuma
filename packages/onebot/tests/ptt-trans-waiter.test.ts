@@ -8,6 +8,13 @@ import {
 afterEach(() => vi.useRealTimers());
 
 describe('PTT transcription requests', () => {
+    it.each([Number(18446744073335783674n), 1.5, NaN, Infinity])(
+        'rejects an inexact numeric message id: %s',
+        (msgId) => {
+            expect(() => pttTransKey(10001, msgId)).toThrow(RangeError);
+        },
+    );
+
     it('keeps accounts isolated for the same message id', async () => {
         const first = requestPttTransText(pttTransKey(10001, 1), 20_000, async () => '');
         const second = requestPttTransText(pttTransKey(10002, 1), 20_000, async () => '');
@@ -19,8 +26,9 @@ describe('PTT transcription requests', () => {
 
     it.each(['text', ''])('accepts a pushed transcription: %j', async (text) => {
         const result = requestPttTransText('account:push', 20_000, async () => '');
-        deliverPttTransText('account:push', text);
+        expect(deliverPttTransText('account:push', text)).toBe(true);
         await expect(result).resolves.toBe(text);
+        expect(deliverPttTransText('account:push', text)).toBe(false);
     });
 
     it('registers before triggering so an immediate push is not lost', async () => {

@@ -12,10 +12,8 @@ import type { pb, uint_32, uint_64 } from '@snowluma/proton';
  * fields (uuid / md5) and the response `text` tag should be confirmed with a
  * single live capture before relying on them.
  *
- * Flow: send Trans{C2C,Group}PttReq → response carries the text inline when
- * transcription is already done; when it's empty the server transcribes
- * asynchronously (no dedicated push command exists — see NotifyTransUpdate),
- * so the caller re-sends with backoff until the text arrives or it times out.
+ * Flow: the response can carry completed text inline. Otherwise, the caller
+ * waits for an asynchronous result correlated with the original message ID.
  */
 
 /** Source ptt-element field (NT internal tag) noted in the comment after each. */
@@ -73,7 +71,7 @@ export interface GroupPttTransResult {
 /**
  * Outer response. `type` echoes the scene; result is at field 2 (group) /
  * field 3 (c2c). An empty `text` with `errCode == 0` means "transcribing,
- * retry later".
+ * await the result push".
  */
 export interface PttTransResp {
     type?: pb<1, uint_32>;

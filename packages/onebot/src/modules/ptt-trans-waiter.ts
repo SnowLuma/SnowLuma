@@ -5,8 +5,12 @@ interface Pending {
 
 const pending = new Map<string, Pending>();
 
-export function pttTransKey(selfUin: number, msgId: number): string {
-    return selfUin + ':' + msgId;
+export function pttTransKey(selfUin: number, msgId: number | bigint): string {
+    if (typeof msgId === 'number' && !Number.isSafeInteger(msgId)) {
+        throw new RangeError('PTT message id must be a safe integer or bigint');
+    }
+
+    return selfUin + ':' + BigInt.asIntN(64, BigInt(msgId));
 }
 
 /** Register before triggering; only this request may settle its own response or timeout. */
@@ -53,6 +57,13 @@ export function requestPttTransText(
 }
 
 /** QQ push results identify the account and message, not an individual trigger request. */
-export function deliverPttTransText(key: string, text: string): void {
-    pending.get(key)?.resolve(text);
+export function deliverPttTransText(key: string, text: string): boolean {
+    const waiter = pending.get(key);
+
+    if (!waiter) {
+        return false;
+    }
+
+    waiter.resolve(text);
+    return true;
 }

@@ -166,7 +166,8 @@ type PipelineEventReason =
     | 'pipeline_threw'
     | 'recalled_before_backfill'
     | 'recalled_after_backfill'
-    | 'waiter_notified';
+    | 'waiter_notified'
+    | 'waiter_not_found';
 
 async function convertAndDispatch(
     ctx: OneBotInstanceContext,
@@ -458,8 +459,14 @@ function handlePttTransResult(
     event: Extract<QQEventVariant, { kind: 'ptt_trans_result' }>,
     state: EventTraceState,
 ): void {
-    deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
-    traceEventTerminal(log, event.kind, state, 'internal', 'waiter_notified');
+    const notified = deliverPttTransText(pttTransKey(event.selfUin, event.msgId), event.text);
+    traceEventTerminal(
+        log,
+        event.kind,
+        state,
+        'internal',
+        notified ? 'waiter_notified' : 'waiter_not_found',
+    );
 }
 
 function convertOnly<K extends EventKind>(

@@ -495,7 +495,7 @@ export interface GroupMsgEmojiLikeEvent extends QQEvent {
  */
 export interface PttTransResultEvent extends QQEvent {
     kind: 'ptt_trans_result';
-    msgId: number;
+    msgId: bigint;
     text: string;
 }
 

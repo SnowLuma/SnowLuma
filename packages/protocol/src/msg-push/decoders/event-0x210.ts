@@ -205,7 +205,7 @@ function decodePttTransResult(ctx: MsgPushContext): QQEventVariant[] {
         return [];
     }
 
-    const msgId = Number(item.msgId ?? 0n);
+    const msgId = item.msgId ?? 0n;
     const text = item.text ?? '';
 
     if (!msgId || !text) {

@@ -9,6 +9,11 @@ import {
     type LogEntry,
 } from '@snowluma/common/logger';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import { MSG_PUSH_CMD, parseMsgPushOrThrow } from '@snowluma/protocol/msg-push';
+import type { PushMsg } from '@snowluma/proto-defs/message';
+import type { PttTransPush } from '@snowluma/proto-defs/ptt-trans';
+import { protobuf_encode } from '@snowluma/proton';
 
 // Wrap convertEvent in a vi.fn that delegates to the real impl by
 // default, so one test can override it to return null without making
@@ -29,7 +34,13 @@ vi.mock('../src/modules/message-actions', async () => {
 import { convertEvent, type ConverterContext } from '../src/event-converter';
 import { registerEventPipeline } from '../src/event-pipeline';
 import type { OneBotInstanceContext } from '../src/instance-context';
+import { hashMessageIdInt32, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
 import { backfillReplyTarget } from '../src/modules/message-actions';
+import {
+    deliverPttTransText,
+    pttTransKey,
+    requestPttTransText,
+} from '../src/modules/ptt-trans-waiter';
 import { TempSessionStore } from '../src/temp-session-store';
 import type {
     FriendMessage,
@@ -107,6 +118,28 @@ function makeMemberJoin(): GroupMemberJoin {
     };
 }
 
+function decodePttTransPush(selfId: number, msgId: bigint, text: string): QQEventVariant[] {
+    return parseMsgPushOrThrow(
+        {
+            pid: 1,
+            uin: String(selfId),
+            serviceCmd: MSG_PUSH_CMD,
+            seqId: 1,
+            retCode: 0,
+            fromClient: false,
+            body: protobuf_encode<PushMsg>({
+                message: {
+                    contentHead: { msgType: 528, subType: 61, timestamp: 1700000000 },
+                    body: {
+                        msgContent: protobuf_encode<PttTransPush>({ item: { msgId, text } }),
+                    },
+                },
+            }),
+        },
+        IdentityService.memory(String(selfId)),
+    );
+}
+
 function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
     ctx: OneBotInstanceContext;
     bus: BridgeEventBus;
@@ -168,6 +201,79 @@ function makeContext(extra: Partial<OneBotInstanceContext> = {}): {
 }
 
 describe('registerEventPipeline', () => {
+    it('matches transcription pushes to signed message IDs without rounding or crossing accounts', async () => {
+        vi.useFakeTimers();
+        const previousLevel = getLogLevel();
+        const entries: LogEntry[] = [];
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+        setLogLevel('trace');
+        const cases = [
+            { selfId: SELF_ID, msgId: -373767942, wireId: 18446744073335783674n },
+            { selfId: SELF_ID, msgId: -373767943, wireId: 18446744073335783673n },
+            { selfId: SELF_ID + 1, msgId: -373767942, wireId: 18446744073335783674n },
+            { selfId: SELF_ID, msgId: -2147483648, wireId: 18446744071562067968n },
+            { selfId: SELF_ID, msgId: -1, wireId: 18446744073709551615n },
+            { selfId: SELF_ID, msgId: 147311541, wireId: 147311541n },
+            { selfId: SELF_ID, msgId: 2147483647, wireId: 2147483647n },
+            {
+                selfId: SELF_ID,
+                msgId: hashMessageIdInt32(1, 12345, PRIVATE_MESSAGE_EVENT),
+                wireId: 18446744073124008294n,
+            },
+        ];
+        const requests = cases.map((item, index) => {
+            const context = makeContext({ selfId: item.selfId, uin: String(item.selfId) });
+            const handle = registerEventPipeline(context.ctx);
+            const key = pttTransKey(item.selfId, item.msgId);
+            const text = `transcription ${index}`;
+            const result = requestPttTransText(key, 20_000, async () => '');
+            return { ...item, ...context, handle, key, text, result };
+        });
+        const settled = Promise.allSettled(requests.map(({ result }) => result));
+
+        try {
+            expect(cases.at(-1)?.msgId).toBe(-585543322);
+
+            for (const request of requests.toReversed()) {
+                const events = decodePttTransPush(request.selfId, request.wireId, request.text);
+                expect(events).toHaveLength(1);
+                await request.bus.emit(events[0]!);
+            }
+
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(await settled).toEqual(
+                requests.map(({ text }) => ({ status: 'fulfilled', value: text })),
+            );
+            expect(vi.getTimerCount()).toBe(0);
+            expect(requests.flatMap(({ dispatchCalls }) => dispatchCalls)).toEqual([]);
+            expect(
+                entries.filter(
+                    (entry) =>
+                        entry.scope === 'Event' &&
+                        entry.message.startsWith('event_terminal kind=ptt_trans_result') &&
+                        entry.message.includes('reason=waiter_notified'),
+                ),
+            ).toHaveLength(requests.length);
+            expect(
+                entries.some(
+                    (entry) =>
+                        entry.message.startsWith('event_input kind=ptt_trans_result') &&
+                        entry.message.includes('msgId:18446744073335783674'),
+                ),
+            ).toBe(true);
+        } finally {
+            for (const request of requests) {
+                deliverPttTransText(request.key, 'cleanup');
+                request.handle.stop();
+                await request.handle.drain();
+            }
+
+            unsubscribe();
+            setLogLevel(previousLevel);
+            vi.useRealTimers();
+        }
+    });
+
     it('caches meta and dispatches a converted event for friend_message', async () => {
         const { ctx, bus, metaCalls, dispatchCalls } = makeContext();
         registerEventPipeline(ctx);
@@ -540,7 +646,7 @@ describe('registerEventPipeline', () => {
                 kind: 'ptt_trans_result',
                 time: 1700000000,
                 selfUin: SELF_ID,
-                msgId: 99,
+                msgId: 99n,
                 text: 'done',
             });
 
@@ -555,7 +661,7 @@ describe('registerEventPipeline', () => {
                     expect.stringContaining('outcome=dropped reason=converter_returned_null'),
                     expect.stringContaining('outcome=failed reason=converter_threw'),
                     expect.stringContaining('outcome=dropped reason=recalled_before_backfill'),
-                    expect.stringContaining('outcome=internal reason=waiter_notified'),
+                    expect.stringContaining('outcome=internal reason=waiter_not_found'),
                 ]),
             );
             expect(

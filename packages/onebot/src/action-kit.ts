@@ -302,7 +302,7 @@ function arrayField<E>(
 }
 
 export const f = {
-    /** Positive integer (>0): group_id / user_id / message_id. */
+    /** Positive integer (>0): group_id / user_id. */
     uint(): Field<number> {
         return new FieldImpl<number>(intCore('a positive integer', { min: 1 }), {
             type: 'uint',

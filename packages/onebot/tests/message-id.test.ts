@@ -8,6 +8,10 @@ describe('hashMessageIdInt32', () => {
         expect(id1).toBe(id2);
     });
 
+    it('preserves negative hashes as valid message IDs', () => {
+        expect(hashMessageIdInt32(1, 12345, PRIVATE_MESSAGE_EVENT)).toBe(-585543322);
+    });
+
     it('returns non-zero', () => {
         // The function ensures id !== 0 by setting it to 1
         const id = hashMessageIdInt32(0, 0, '');
