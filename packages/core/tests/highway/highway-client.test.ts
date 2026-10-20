@@ -15,8 +15,9 @@
 //     一连接，但仍全部成功。
 
 import { getLogLevel, setLogLevel, subscribeLogs, type LogEntry } from '@snowluma/common/logger';
-import type { HttpConn0x6FF501Response } from '@snowluma/proto-defs/highway';
-import { protobuf_encode } from '@snowluma/proton';
+import type { HttpConn0x6FF501Response, ReqDataHighwayHead } from '@snowluma/proto-defs/highway';
+import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { unpackHighwayFrame } from '@snowluma/protocol/highway/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 
@@ -79,6 +80,8 @@ class FakeSocket extends EventEmitter {
     writable = true;
     posts = 0;
     headers: string[] = [];
+    frames: Buffer[] = [];
+    closeBeforeResponse = false;
     connectFailure?: Error | 'timeout';
     private connectTimer?: ReturnType<typeof setTimeout>;
     private buf = Buffer.alloc(0);
@@ -141,6 +144,7 @@ class FakeSocket extends EventEmitter {
             }
 
             this.headers.push(s.slice(0, he));
+            this.frames.push(Buffer.from(this.buf.subarray(he + 4, total)));
             this.buf = this.buf.subarray(total);
             this.posts += 1;
             const thisPost = this.posts;
@@ -153,6 +157,14 @@ class FakeSocket extends EventEmitter {
                     this.writable = false;
                     this.readableEnded = true;
                     this.emit('error', new Error('ECONNRESET'));
+                    this.emit('close');
+                    return;
+                }
+
+                if (this.closeBeforeResponse) {
+                    this.writable = false;
+                    this.readableEnded = true;
+                    this.emit('end');
                     this.emit('close');
                     return;
                 }
@@ -443,7 +455,7 @@ describe('fetchHighwaySession trace lifecycle', () => {
     });
 });
 
-describe('Highway initial connection selection', () => {
+describe('Highway connection selection', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
@@ -582,24 +594,160 @@ describe('Highway initial connection selection', () => {
         expect(source.closeCount).toBe(1);
     });
 
-    it('stays on the selected node after data was sent without an acknowledgement', async () => {
+    it.each([0, HIGHWAY_BLOCK_SIZE])(
+        'retries only the unconfirmed chunk at offset %i on the next node',
+        async (offset) => {
+            vi.useFakeTimers();
+            installFactory(() => {
+                const host = createConnectionMock.mock.lastCall?.[0].host;
+                const socket = new FakeSocket(
+                    buildEmptyHighwayResponseFrame(),
+                    'keepalive',
+                    host === '192.0.2.1' && offset > 0 ? 2 : -1,
+                );
+                socket.closeBeforeResponse = host === '192.0.2.1' && offset === 0;
+                return socket;
+            });
+            const session = sessionWithCandidates();
+            const original = structuredClone(session);
+            const source = new RecordingChunkSource(offset + 80);
+            const extend = new Uint8Array([0x12, 0x34]);
+            const upload = uploadHighwayHttp(
+                makeBridge(),
+                session,
+                71,
+                source,
+                new Uint8Array(16),
+                extend,
+            );
+            const completed = expect(upload).resolves.toBeUndefined();
+            await Promise.all([completed, vi.runAllTimersAsync()]);
+            expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual(
+                session.servers,
+            );
+            const [failed, recovered] = createdSockets as FakeSocket[];
+            expect(recovered!.posts).toBe(1);
+            const first = unpackHighwayFrame(failed!.frames.at(-1)!);
+            const retry = unpackHighwayFrame(recovered!.frames[0]!);
+            const firstHead = protobuf_decode<ReqDataHighwayHead>(first.head);
+            const retryHead = protobuf_decode<ReqDataHighwayHead>(retry.head);
+            expect(retry.body).toEqual(first.body);
+            expect(retryHead).toEqual({
+                ...firstHead,
+                msgBaseHead: { ...firstHead.msgBaseHead, retryTimes: 1 },
+            });
+            expect(retryHead.msgSegHead?.dataOffset ?? 0n).toBe(BigInt(offset));
+            expect(retryHead.bytesReqExtendInfo).toEqual(Buffer.from(extend));
+            expect(source.reads).toEqual(
+                offset === 0
+                    ? [{ offset: 0, length: 80 }]
+                    : [
+                          { offset: 0, length: HIGHWAY_BLOCK_SIZE },
+                          { offset, length: 80 },
+                      ],
+            );
+            expect(source.closeCount).toBe(1);
+            expect(session).toEqual(original);
+            expect((createdSockets as FakeSocket[]).every((socket) => socket.destroyed)).toBe(true);
+        },
+    );
+
+    it('bounds retries across nodes and reports the unconfirmed chunk without advancing progress', async () => {
         vi.useFakeTimers();
-        installFactory(
-            (idx) =>
-                new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive', idx === 0 ? 1 : -1),
-        );
+        installFactory(() => {
+            const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+            socket.closeBeforeResponse = true;
+            return socket;
+        });
         const session = sessionWithCandidates();
+        const source = new RecordingChunkSource(80);
+        const entries: LogEntry[] = [];
+        setLogLevel('trace');
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+
+        try {
+            const upload = uploadHighwayHttp(
+                makeBridge(),
+                session,
+                71,
+                source,
+                new Uint8Array(16),
+                new Uint8Array(),
+            );
+            const failed = expect(upload).rejects.toThrow(
+                /transport failed after 3 attempts.*acknowledgedBytes=0.*unconfirmed/,
+            );
+            await Promise.all([failed, vi.runAllTimersAsync()]);
+            expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual([
+                session.servers[0],
+                session.servers[1],
+                session.servers[0],
+            ]);
+            expect(source.reads).toEqual([{ offset: 0, length: 80 }]);
+            expect(source.closeCount).toBe(1);
+            const terminals = highwayTrace(entries).filter((entry) =>
+                entry.message.startsWith('highway_put_terminal '),
+            );
+            expect(terminals).toHaveLength(1);
+            expect(terminals[0]!.message).toContain('outcome=failed reason=transport_exhausted');
+            expect(terminals[0]!.message).toContain('uploadedBytes=0');
+            expect((createdSockets as FakeSocket[]).every((socket) => socket.destroyed)).toBe(true);
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('continues after the actual failed node and skips candidates that cannot reconnect', async () => {
+        vi.useFakeTimers();
+        installFactory(() => {
+            const host = createConnectionMock.mock.lastCall?.[0].host;
+            const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+
+            if (host === '192.0.2.1') {
+                socket.connectFailure = new Error('ECONNREFUSED');
+            } else if (host === '192.0.2.2') {
+                socket.closeBeforeResponse = true;
+            } else if (host === '192.0.2.3') {
+                socket.connectFailure = 'timeout';
+            }
+
+            return socket;
+        });
+        const session = {
+            ...makeSession(),
+            servers: Array.from({ length: 4 }, (_, i) => ({ host: `192.0.2.${i + 1}`, port: 443 })),
+        };
+        const source = new RecordingChunkSource(80);
         const upload = uploadHighwayHttp(
             makeBridge(),
             session,
-            1004,
-            new RecordingChunkSource(1),
+            71,
+            source,
             new Uint8Array(16),
             new Uint8Array(),
         );
-        const completed = expect(upload).resolves.toBeUndefined();
-        await vi.runAllTimersAsync();
-        await completed;
+        await Promise.all([expect(upload).resolves.toBeUndefined(), vi.runAllTimersAsync()]);
+        expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual(
+            session.servers,
+        );
+        expect((createdSockets as FakeSocket[]).map((socket) => socket.posts)).toEqual([
+            0, 1, 0, 1,
+        ]);
+        expect(source.reads).toEqual([{ offset: 0, length: 80 }]);
+        expect(source.closeCount).toBe(1);
+    });
+
+    it('keeps the successful node when the peer closes after acknowledgement', async () => {
+        installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'closeafter'));
+        const session = sessionWithCandidates();
+        await uploadHighwayHttp(
+            makeBridge(),
+            session,
+            71,
+            new RecordingChunkSource(HIGHWAY_BLOCK_SIZE + 80),
+            new Uint8Array(16),
+            new Uint8Array(),
+        );
         expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual([
             session.servers[0],
             session.servers[0],

@@ -336,11 +336,14 @@ function tcpConnect(host: string, port: number, timeoutMs = 10000): Promise<net.
 
 async function connectHighway(
     servers: HighwayServer[],
-): Promise<{ socket: net.Socket; server: HighwayServer }> {
+    startIndex = 0,
+): Promise<{ socket: net.Socket; server: HighwayServer; serverIndex: number }> {
     const deadline = Date.now() + HIGHWAY_CONNECT_BUDGET_MS;
     const errors: Error[] = [];
 
-    for (const server of servers) {
+    for (let i = 0; i < servers.length; i++) {
+        const serverIndex = (startIndex + i) % servers.length;
+        const server = servers[serverIndex]!;
         const remaining = deadline - Date.now();
 
         if (remaining <= 0) {
@@ -353,7 +356,7 @@ async function connectHighway(
                 server.port,
                 Math.min(HIGHWAY_CONNECT_TIMEOUT_MS, remaining),
             );
-            return { socket, server };
+            return { socket, server, serverIndex };
         } catch (cause) {
             const error = new Error(`${server.host}:${server.port}: ${highwayErrorText(cause)}`, {
                 cause,
@@ -698,6 +701,7 @@ async function uploadHighwayHttpOperation(
     let socket: net.Socket | null = null;
     let connectCount = 0;
     let server = session.servers[0]!;
+    let serverIndex = 0;
 
     const dropSocket = (): void => {
         if (socket) {
@@ -771,13 +775,10 @@ async function uploadHighwayHttpOperation(
 
                 try {
                     if (!socket) {
-                        // Select only before the first connection succeeds. Zero acknowledged
-                        // bytes does not mean no data was sent to an already connected node.
-                        if (connectCount === 0) {
-                            ({ socket, server } = await connectHighway(session.servers));
-                        } else {
-                            socket = await tcpConnect(server.host, server.port);
-                        }
+                        ({ socket, server, serverIndex } = await connectHighway(
+                            session.servers,
+                            serverIndex,
+                        ));
 
                         connectCount += 1;
                         trace.connectCount = connectCount;
@@ -824,17 +825,23 @@ async function uploadHighwayHttpOperation(
                         trace.failureReason = 'transport_exhausted';
                         const exhausted = new Error(
                             `highway upload transport failed after ${transportAttempts} attempts ` +
-                                `(cmdId=${commandId} chunk=${chunkSize}/${totalSize} offset=${offset}): ${String(err)}`,
+                                `(cmdId=${commandId} chunk=${chunkSize}/${totalSize} offset=${offset}` +
+                                ` acknowledgedBytes=${offset}; current chunk unconfirmed): ${String(err)}`,
+                            { cause: err },
                         );
                         trace.error = exhausted;
                         throw exhausted;
                     }
 
+                    // Keep the current session and chunk intact when changing nodes.
+                    // Missing acknowledgement does not prove the previous node received nothing.
+                    serverIndex = (serverIndex + 1) % session.servers.length;
                     log.trace(
-                        'highway_put_branch branch=chunk_retry offset=%d bytes=%d attempt=%d error=%j',
+                        'highway_put_branch branch=chunk_retry offset=%d bytes=%d attempt=%d nextServer=%j error=%j',
                         offset,
                         chunkSize,
                         transportAttempts,
+                        session.servers[serverIndex],
                         highwayErrorText(err),
                     );
                     await sleepMs(HIGHWAY_RETRY_BASE_MS * transportAttempts);

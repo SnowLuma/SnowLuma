@@ -305,6 +305,51 @@ describe('apis/group-file', () => {
         expect(publishSpy).toHaveBeenCalledOnce();
     });
 
+    it.each([true, false])(
+        'publishes only after the upload is confirmed (confirmed=%s)',
+        async (confirmed) => {
+            const bridge = mockBridge();
+            bridge.sendRawPacket.mockResolvedValueOnce(
+                packResponse(
+                    protobuf_encode<OidbBase<OidbGroupFileResp>>({
+                        body: {
+                            upload: {
+                                fileId: 'fid-confirm',
+                                uploadIp: '127.0.0.1',
+                                uploadPort: 443,
+                                fileKey: new Uint8Array([1]),
+                                checkKey: new Uint8Array([2]),
+                            },
+                        },
+                    }),
+                ),
+            );
+            const api = new GroupFileApi(bridge as any);
+            const publishSpy = vi.spyOn(api, 'publish').mockResolvedValue();
+            const failure = new Error('highway upload transport failed; current chunk unconfirmed');
+            vi.mocked(highwayClient.uploadHighwayHttp).mockImplementationOnce(async () => {
+                expect(publishSpy).not.toHaveBeenCalled();
+
+                if (!confirmed) {
+                    throw failure;
+                }
+            });
+            const upload = api.upload(12345, 'base64://AQID', 'confirmed.txt');
+
+            if (confirmed) {
+                await expect(upload).resolves.toEqual({ fileId: 'fid-confirm' });
+                expect(publishSpy).toHaveBeenCalledExactlyOnceWith(12345, 'fid-confirm');
+            } else {
+                await expect(upload).rejects.toBe(failure);
+                expect(publishSpy).not.toHaveBeenCalled();
+            }
+
+            expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();
+            expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+            expect(highwayClient.fetchHighwaySession).toHaveBeenCalledOnce();
+        },
+    );
+
     it('upload caches the upload metadata for later resend by file_id', async () => {
         const bridge = mockBridge();
         bridge.sendRawPacket.mockResolvedValueOnce(
