@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { builtinModules } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +14,8 @@ let root: string;
 let staging: string;
 
 beforeAll(async () => {
-    compiled = await mkdtemp(path.join(os.tmpdir(), 'snowluma-entry-build-'));
+    // Module resolution uses canonical paths, including when the temp directory is a symlink.
+    compiled = await realpath(await mkdtemp(path.join(os.tmpdir(), 'snowluma-entry-build-')));
     const loaded = await loadConfigFromFile(
         { command: 'build', mode: 'production' },
         fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
@@ -114,7 +115,7 @@ afterAll(async () => {
     await rm(compiled, { recursive: true, force: true });
 });
 beforeEach(async () => {
-    root = await mkdtemp(path.join(os.tmpdir(), 'snowluma-entry-test-'));
+    root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'snowluma-entry-test-')));
     staging = await updateDirectory(root);
     await releaseFixture(root, '1.0.0');
     await cp(path.join(compiled, '1.0.0/index.mjs'), path.join(root, 'index.mjs'));
@@ -158,7 +159,7 @@ describe('packaged startup', () => {
         expect(JSON.parse(result.output)).toEqual({
             version: '1.0.0',
             node: process.execPath,
-            cwd: os.tmpdir(),
+            cwd: await realpath(os.tmpdir()),
             args: ['value with spaces'],
             oldAlive: false,
         });
