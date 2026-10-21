@@ -217,6 +217,58 @@ function groupSentEvent(overrides: JsonObject = {}): JsonObject {
 }
 
 describe('OneBot self-sent events', () => {
+    it('reports a client private send once across repeated confirmations and pushes', async () => {
+        const { dispatch, emitEvent, stored } = makeInstanceHarness();
+        const event = privateSentEvent({ message_id: -7654321 });
+        await Promise.all([dispatch(event, 'bridge'), dispatch({ ...event }, 'bridge')]);
+        await dispatch({ ...event, raw_message: 'canonical content' }, 'bridge');
+        expect(emitEvent).toHaveBeenCalledExactlyOnceWith(event);
+        expect(stored.get(-7654321)?.raw_message).toBe('canonical content');
+    });
+
+    it('keeps private action deduplication for more than one echo', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        const event = privateSentEvent();
+        await dispatch(event, 'send');
+        await dispatch({ ...event }, 'bridge');
+        await dispatch({ ...event }, 'bridge');
+        expect(emitEvent).toHaveBeenCalledOnce();
+    });
+
+    it('distinguishes private sends by identity and peer even when text is identical', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        const event = privateSentEvent();
+        await dispatch(event, 'bridge');
+        await dispatch({ ...event, message_seq: RECEIPT.clientSequence + 1 }, 'bridge');
+        await dispatch({ ...event, target_id: PEER_ID + 1 }, 'bridge');
+        await dispatch({ ...event, message_id: -7654321 }, 'bridge');
+        expect(emitEvent).toHaveBeenCalledTimes(4);
+    });
+
+    it('keeps private deduplication isolated and expires it without deleting history', async () => {
+        vi.useFakeTimers();
+
+        try {
+            const first = makeInstanceHarness();
+            const second = makeInstanceHarness();
+            const event = privateSentEvent();
+            await first.dispatch(event, 'bridge');
+            await second.dispatch(
+                { ...event, self_id: SELF_ID + 1, user_id: SELF_ID + 1 },
+                'bridge',
+            );
+            expect(second.emitEvent).toHaveBeenCalledOnce();
+            await first.dispatch(event, 'bridge');
+            expect(first.emitEvent).toHaveBeenCalledOnce();
+            vi.advanceTimersByTime(120_000);
+            await first.dispatch(event, 'bridge');
+            expect(first.emitEvent).toHaveBeenCalledTimes(2);
+            expect(first.stored.has(987654)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('reports a client group send once across repeated server pushes', async () => {
         const { dispatch, emitEvent, stored } = makeInstanceHarness();
         const event = groupSentEvent();

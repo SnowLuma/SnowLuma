@@ -479,7 +479,7 @@ export class OneBotInstance {
                 return;
             }
 
-            if (event.post_type === 'message_sent' && event.message_type === 'group') {
+            if (event.post_type === 'message_sent') {
                 this.rememberSelfSentEvent(event);
             }
         } else {
@@ -552,12 +552,6 @@ export class OneBotInstance {
 
         if (!pending || !sameSelfSentMessage(pending.event, event)) {
             return false;
-        }
-
-        // A client group send has no action-side event. Keep its first live
-        // echo for the full window so repeated pushes cannot report it again.
-        if (event.message_type !== 'group') {
-            this.recentSelfSentEvents.delete(key);
         }
 
         return true;

@@ -3,7 +3,7 @@ import type { JsonObject } from './types';
 export const SELF_SENT_ECHO_WINDOW_MS = 120_000;
 
 /**
- * Match a reported self send with a later QQ echo, including repeated group
+ * Match a reported self send with a later QQ echo, including repeated
  * pushes. The message hash alone is insufficient because it is a signed 32-bit
  * value and can collide; sequence, conversation and a bounded time window are
  * part of the identity as well.
