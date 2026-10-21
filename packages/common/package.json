@@ -8,6 +8,10 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./webui-target": {
+      "types": "./src/webui-target.ts",
+      "default": "./src/webui-target.ts"
+    },
     "./update-source": {
       "types": "./src/update-source.ts",
       "default": "./src/update-source.ts"

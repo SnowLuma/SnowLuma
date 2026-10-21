@@ -137,7 +137,10 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
         setNavItems(reconciled.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i)));
 
     return (
-        <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
+        <div
+            data-ui-surface="chrome"
+            className="flex h-full w-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
+        >
             {/* Brand — logo sits in a fixed 48px column centred in the collapsed
           rail; the wordmark to its right is clipped (never unmounted) when the
           rail narrows. */}
@@ -206,7 +209,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                         </Reorder.Group>
                     </div>
                 ) : (
-                    <nav className="flex flex-col gap-1 px-2 py-2">
+                    <nav data-collapsed={collapsed} className="flex flex-col gap-1 px-2 py-2">
                         {orderedNav.map(({ to, label, icon: Icon, description }) => {
                             const isActive = pathname === to;
                             return (
@@ -217,7 +220,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                                     onClick={onItemClick}
                                     aria-current={isActive ? 'page' : undefined}
                                     className={cn(
-                                        'group relative flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors cursor-pointer outline-none',
+                                        'ui-nav-item group relative flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors cursor-pointer outline-none',
                                         isActive
                                             ? 'text-sidebar-accent-foreground'
                                             : 'text-muted-foreground hover:bg-sidebar-accent/40 hover:text-foreground',
@@ -232,7 +235,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                                             <motion.span
                                                 layoutId="sidebar-active-pill"
                                                 className={cn(
-                                                    'absolute inset-y-0 rounded-lg bg-sidebar-accent',
+                                                    'ui-nav-highlight absolute inset-y-0 rounded-lg bg-sidebar-accent',
                                                     collapsed ? 'left-0.5 w-11' : 'inset-x-0',
                                                 )}
                                                 transition={{
@@ -244,7 +247,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
                                             {!collapsed && (
                                                 <motion.span
                                                     layoutId="sidebar-active-bar"
-                                                    className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+                                                    className="ui-nav-highlight absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
                                                     transition={{
                                                         type: 'spring',
                                                         stiffness: 380,

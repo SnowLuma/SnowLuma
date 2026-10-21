@@ -1,0 +1,233 @@
+/* MaiBot millennium: plastic case, recessed screen, raised keys.
+   Only loaded for this target; every rule remains scoped so release is reversible. */
+@font-face {
+  font-family: "SnowLuma Jersey 20";
+  src: url("./assets/Jersey20-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 118%;
+  unicode-range: U+0000-024F;
+}
+
+html[data-webui-target="maibot"] {
+  --mil-shell: #ddd4bf;
+  --mil-panel: #ebe4d2;
+  --mil-hi: #f6f1e3;
+  --mil-lo: #bdb39c;
+  --mil-drop: #9c927b;
+  --mil-line: #5a544a;
+  --mil-ink: #4a443a;
+  --mil-print: #5f5849;
+  --mil-screen: #fbf9f0;
+  --mil-screen-ink: #3a3833;
+  --mil-key: #f3eee1;
+  --mil-key-side: #c2b8a1;
+  --mil-key-hi: #fffaf0;
+  --mil-key-hover: #fbf7ec;
+  --mil-on: #8fd6a0;
+  --mil-on-ink: #2f3a2b;
+  --mil-on-side: #5fa873;
+  --mil-accent-text: #236b43;
+
+  --background: var(--mil-shell);
+  --foreground: var(--mil-ink);
+  --card: var(--mil-panel);
+  --card-foreground: var(--mil-ink);
+  --popover: var(--mil-panel);
+  --popover-foreground: var(--mil-ink);
+  --primary: var(--mil-accent-text);
+  --primary-foreground: var(--mil-screen);
+  --secondary: var(--mil-key);
+  --secondary-foreground: var(--mil-ink);
+  --muted: var(--mil-shell);
+  --muted-foreground: var(--mil-print);
+  --accent: var(--mil-on);
+  --accent-foreground: var(--mil-on-ink);
+  --destructive: #b53724;
+  --destructive-foreground: #fffaf0;
+  --success: #2a7d50;
+  --warning: #8f4f18;
+  --log-info: #315b7c;
+  --log-success: #2a7d50;
+  --log-warn: #8f4f18;
+  --log-error: #b53724;
+  --border: var(--mil-lo);
+  --input: var(--mil-screen);
+  --ring: var(--mil-accent-text);
+  --sidebar: var(--mil-panel);
+  --sidebar-foreground: var(--mil-ink);
+  --sidebar-primary: var(--mil-accent-text);
+  --sidebar-primary-foreground: var(--mil-screen);
+  --sidebar-accent: var(--mil-on);
+  --sidebar-accent-foreground: var(--mil-on-ink);
+  --sidebar-border: var(--mil-lo);
+  --sidebar-ring: var(--mil-accent-text);
+  --shadow-card: inset 1px 1px var(--mil-hi), inset -1px -1px var(--mil-lo), 0 3px 0 var(--mil-drop);
+  --mil-key-shadow: inset 1px 1px var(--mil-key-hi), inset -1px -1px var(--mil-key-side), 0 2px 0 var(--mil-key-side);
+  --mil-screen-shadow: inset 1px 1px 2px var(--mil-lo), inset -1px -1px var(--mil-hi);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+html[data-webui-target="maibot"].dark {
+  --mil-shell: #2f2c28;
+  --mil-panel: #3a3631;
+  --mil-hi: #4a453f;
+  --mil-lo: #2a2723;
+  --mil-drop: #1d1b18;
+  --mil-line: #171513;
+  --mil-ink: #ebe4d2;
+  --mil-print: #b5ad9a;
+  --mil-screen: #1e221e;
+  --mil-screen-ink: #e8e2cf;
+  --mil-key: #4d4841;
+  --mil-key-side: #2e2b27;
+  --mil-key-hi: #60594f;
+  --mil-key-hover: #595249;
+  --mil-accent-text: #8fd6a0;
+  --primary-foreground: #2f3a2b;
+  --sidebar-primary-foreground: #2f3a2b;
+  --border: #746c5d;
+  --sidebar-border: #746c5d;
+  --destructive: #f08a77;
+  --destructive-foreground: #352019;
+  --success: #8fd6a0;
+  --warning: #e5b278;
+  --log-info: #99bdd8;
+  --log-success: #8fd6a0;
+  --log-warn: #e5b278;
+  --log-error: #f08a77;
+}
+
+/* Preserve accessibility preferences above both target palettes. */
+html[data-webui-target="maibot"][data-contrast="high"] {
+  --border: var(--mil-ink);
+  --sidebar-border: var(--mil-ink);
+  --muted-foreground: var(--mil-ink);
+}
+
+html[data-webui-target="maibot"] :is(.ui-card, [data-ui-surface="panel"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]) {
+  border: 1px solid var(--mil-line);
+  border-radius: 0;
+  background: var(--mil-panel);
+  color: var(--mil-ink);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+
+html[data-webui-target="maibot"] [data-ui-surface="chrome"] {
+  background: var(--mil-panel);
+  box-shadow: inset 1px 1px var(--mil-hi), inset -1px -1px var(--mil-lo);
+}
+
+html[data-webui-target="maibot"] [data-ui-surface="canvas"] {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The desktop rail clips a fixed-width inner sidebar. Its separator must
+   belong to the animated outer edge, not the clipped inner panel. */
+html[data-webui-target="maibot"] [data-ui-surface="sidebar"] {
+  border-inline-end: 1px solid var(--sidebar-border);
+}
+
+html[data-webui-target="maibot"] :is([data-ui-control], pre, table) {
+  border-radius: 0;
+  background: var(--mil-screen);
+  color: var(--mil-screen-ink);
+  box-shadow: var(--mil-screen-shadow);
+  caret-color: var(--mil-accent-text);
+}
+
+html[data-webui-target="maibot"] :is([data-ui-control], input, textarea):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+html[data-webui-target="maibot"] :is(.ui-button, [role="tab"], .ui-nav-item) {
+  border: 1px solid var(--mil-line);
+  border-radius: 0;
+  background: var(--mil-key);
+  color: var(--mil-ink);
+  box-shadow: var(--mil-key-shadow);
+}
+
+html[data-webui-target="maibot"] :is(.ui-button, [role="tab"], .ui-nav-item):hover:not(:disabled) {
+  background: var(--mil-key-hover);
+}
+
+/* Keep the whole keycap inside the collapsed rail instead of cropping the
+   expanded key's right edge. Text stays mounted and retains its nowrap rules. */
+html[data-webui-target="maibot"] nav[data-collapsed="true"] .ui-nav-item {
+  width: 3rem;
+}
+
+html[data-webui-target="maibot"] :is(.ui-button[data-variant="default"], [role="tab"][aria-selected="true"], .ui-nav-item[aria-current="page"]) {
+  background: var(--mil-on);
+  color: var(--mil-on-ink);
+  box-shadow: inset 1px 1px #c1ebcb, inset -1px -1px var(--mil-on-side), 0 2px 0 var(--mil-on-side);
+}
+
+html[data-webui-target="maibot"] .ui-button[data-variant="destructive"] {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+html[data-webui-target="maibot"] .ui-button[data-variant="default"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mil-on) 85%, var(--mil-key-hi));
+}
+
+html[data-webui-target="maibot"] .ui-button[data-variant="destructive"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--destructive) 90%, var(--mil-ink));
+}
+
+html[data-webui-target="maibot"] .ui-button:is([data-variant="ghost"], [data-variant="link"]) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+html[data-webui-target="maibot"] :is(.ui-button, [role="tab"], .ui-nav-item):active:not(:disabled) {
+  box-shadow: var(--mil-screen-shadow);
+  scale: 1;
+}
+
+html[data-webui-target="maibot"] .ui-nav-item[aria-current="page"] :is(svg, span) {
+  color: var(--mil-on-ink);
+}
+
+html[data-webui-target="maibot"] .ui-nav-highlight {
+  display: none;
+}
+
+html[data-webui-target="maibot"] .ui-segmented {
+  border-radius: 0;
+  background: var(--mil-screen);
+  box-shadow: var(--mil-screen-shadow);
+}
+
+html[data-webui-target="maibot"] .ui-segmented-thumb {
+  border-radius: 0;
+  background: var(--mil-on);
+  box-shadow: var(--mil-key-shadow);
+}
+
+html[data-webui-target="maibot"] .ui-segmented-thumb span {
+  color: var(--mil-on-ink);
+}
+
+html[data-webui-target="maibot"] [data-ui-decoration] {
+  display: none;
+}
+
+html[data-webui-target="maibot"] ::selection {
+  background: var(--mil-on);
+  color: var(--mil-on-ink);
+}
+
+html[data-webui-target="maibot"] * {
+  scrollbar-color: var(--mil-print) var(--mil-shell);
+}

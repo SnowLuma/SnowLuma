@@ -17,6 +17,9 @@
     <script>
       (function () {
         try {
+          // Deployment overlays are prepared before React mounts. Do not flash
+          // a saved palette/font underneath an opted-in host presentation.
+          if (document.getElementById('snowluma-webui-target')) return;
           var raw = localStorage.getItem('snowluma_ui_appearance');
           var a = raw ? JSON.parse(raw) : {};
           if (!a || typeof a !== 'object') a = {};

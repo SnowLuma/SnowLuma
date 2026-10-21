@@ -7,6 +7,7 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type ReactNode,
 } from 'react';
 import { flushSync } from 'react-dom';
@@ -14,6 +15,14 @@ import { MotionConfig } from 'motion/react';
 import { actionErrorMessage, useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { webuiSessionHeaders } from '@/lib/api/session-headers';
 import type { Palette, ThemeMode, UiAppearance, UiBackground } from '@/types';
+import { WEBUI_TARGETS, type WebuiPresentation } from '@snowluma/common/webui-target';
+import { resolveAppearance } from '@/appearance/registry';
+import {
+    applyPresentationAttributes,
+    getTargetAppearance,
+    presentationStore,
+    subscribeHostAppearance,
+} from '@/appearance/runtime';
 
 // Re-export the appearance value types so consumers (settings page etc.) can
 // import them straight from the context module.
@@ -745,8 +754,13 @@ function cssVarsCss(a: UiAppearance): string {
     return decls ? `:root{${decls}}` : '';
 }
 
-function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
+function applyAppearance(
+    a: UiAppearance,
+    resolved: 'light' | 'dark',
+    presentation: WebuiPresentation | null,
+): void {
     const root = document.documentElement;
+    applyPresentationAttributes(presentation);
 
     root.classList.remove('light', 'dark');
     root.classList.add(resolved);
@@ -811,7 +825,9 @@ function applyAppearance(a: UiAppearance, resolved: 'light' | 'dark'): void {
     // Palette (base/surface tokens) first, then accent (--primary/--ring) — a
     // disjoint var set, layered after so it composes with any flavor. The
     // operator's variable-panel overrides come last so they win over both.
-    el.textContent = `${paletteVarsCss(a)}\n${accentVarsCss(a)}\n${cssVarsCss(a)}`;
+    el.textContent = presentation
+        ? ''
+        : `${paletteVarsCss(a)}\n${accentVarsCss(a)}\n${cssVarsCss(a)}`;
 
     // Custom CSS — appended AFTER the accent block so it is the last style in
     // <head> and can override anything. Skipped under ?safe-mode=1 (escape
@@ -1078,7 +1094,12 @@ function writeCache(a: UiAppearance): void {
 // ─── Context ───────────────────────────────────────────────────────────────
 
 interface ThemeContextValue {
+    /** Effective presentation for components. Never persist this object. */
     appearance: UiAppearance;
+    /** User preferences underneath the deployment overlay. Only these are persisted. */
+    savedAppearance: UiAppearance;
+    presentation: WebuiPresentation | null;
+    managedBy: string | null;
     /** True once the first server load attempt has resolved. */
     ready: boolean;
     resolved: 'light' | 'dark';
@@ -1112,6 +1133,14 @@ function getSystemTheme(): 'light' | 'dark' {
 export function ThemeProvider({ children }: { children: ReactNode }) {
     const { runAction, startAction } = useActionFeedback();
     const [appearance, setAppearanceState] = useState<UiAppearance>(readCache);
+    const presentation = useSyncExternalStore(
+        presentationStore.subscribe,
+        presentationStore.getSnapshot,
+    );
+    const effectiveAppearance = useMemo(
+        () => resolveAppearance(appearance, presentation, getTargetAppearance()),
+        [appearance, presentation],
+    );
     const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
     const [ready, setReady] = useState(false);
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1123,8 +1152,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     // A Catppuccin flavor fixes light/dark; otherwise honor mode (+ system).
     const resolved: 'light' | 'dark' =
-        paletteResolved(appearance.palette) ??
-        (appearance.mode === 'system' ? systemTheme : appearance.mode);
+        paletteResolved(effectiveAppearance.palette) ??
+        (effectiveAppearance.mode === 'system' ? systemTheme : effectiveAppearance.mode);
+
+    useLayoutEffect(() => subscribeHostAppearance(window, presentationStore), []);
 
     // Track the OS theme for `mode: 'system'`.
     useEffect(() => {
@@ -1167,11 +1198,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // application doesn't flash. The pre-mount flash is handled by the inline
     // bootstrap script in index.html.
     useLayoutEffect(() => {
-        applyAppearance(appearance, resolved);
-    }, [appearance, resolved]);
+        applyAppearance(effectiveAppearance, resolved, presentation);
+    }, [effectiveAppearance, resolved, presentation]);
     useLayoutEffect(() => {
-        applyBackgroundLayer(appearance);
-    }, [appearance]);
+        applyBackgroundLayer(effectiveAppearance);
+    }, [effectiveAppearance]);
 
     // Cancel a pending save when the provider unmounts.
     useEffect(
@@ -1358,7 +1389,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     const value = useMemo<ThemeContextValue>(
         () => ({
-            appearance,
+            appearance: effectiveAppearance,
+            savedAppearance: appearance,
+            presentation,
+            managedBy: presentation ? WEBUI_TARGETS[presentation.target].label : null,
             ready,
             resolved,
             setAppearance,
@@ -1366,12 +1400,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             removeBackground,
             formatClock,
             reloadAppearance,
-            mode: appearance.mode,
+            mode: effectiveAppearance.mode,
             setMode: (m: ThemeMode) => setAppearance({ mode: m }),
             pollInterval: appearance.pollInterval,
         }),
         [
             appearance,
+            effectiveAppearance,
+            presentation,
             ready,
             resolved,
             setAppearance,

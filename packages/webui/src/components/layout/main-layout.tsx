@@ -55,6 +55,7 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
             {/* Desktop sidebar (hidden in kiosk) */}
             {!isMobile && !kiosk && (
                 <motion.aside
+                    data-ui-surface="sidebar"
                     initial={false}
                     animate={{ width: showCollapsed ? 64 : 248 }}
                     transition={
@@ -133,6 +134,7 @@ export function MainLayout({ status, onLogout, notice, children }: MainLayoutPro
           Depth comes from a soft shadow + the canvas tone sitting on the
           (sidebar-toned) chrome, not a border. */}
             <div
+                data-ui-surface="canvas"
                 className={cn(
                     'flex min-w-0 flex-1 flex-col overflow-hidden',
                     !isMobile && !kiosk && 'rounded-tl-2xl',

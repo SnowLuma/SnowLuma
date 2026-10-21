@@ -1,6 +1,7 @@
 import { APP_VERSION } from '@snowluma/common/version';
 import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
+import { resolveWebuiTarget } from '@snowluma/common/webui-target';
+import { registerStaticFrontend } from './static-frontend';
 import type { HookManager, HookProcessInfo } from '@snowluma/bridge';
 import { getRuntimeIntegrity, hasLowProcessIntegrity } from '@snowluma/bridge';
 import {
@@ -636,6 +637,15 @@ export async function initWebUI(
         updateRoot?: string;
     } = {},
 ): Promise<{ port: number; stop: () => Promise<void> }> {
+    const webuiTarget = resolveWebuiTarget(process.env.SNOWLUMA_WEBUI_TARGET);
+
+    if (webuiTarget) {
+        log.info(
+            'presentation target enabled: %s (runtime override; saved appearance is preserved)',
+            webuiTarget,
+        );
+    }
+
     const host = listener.host || '127.0.0.1';
     const tlsEnabled = listener.tlsEnabled === true;
     const bootCheck = checkListenerExposure({
@@ -2267,29 +2277,7 @@ export async function initWebUI(
     // Build path is relative to the bundled / dev __dirname. SPA fallback to
     // index.html so client-side routes (if any) keep working.
     const staticRoot = path.resolve(__dirname, 'client');
-    app.use('/*', serveStatic({ root: staticRoot }));
-
-    const indexHtmlPath = path.join(staticRoot, 'index.html');
-    app.get('*', (c) => {
-        // SPA fallback: only for navigations that didn't hit a static asset.
-        if (
-            c.req.path.startsWith('/api/') ||
-            c.req.path.startsWith('/avatar/') ||
-            c.req.path.startsWith('/ui-asset/')
-        ) {
-            return c.text('not found', 404);
-        }
-
-        if (existsSync(indexHtmlPath)) {
-            const html = readFileSync(indexHtmlPath, 'utf8');
-            return c.html(html);
-        }
-
-        return c.text(
-            'WebUI client bundle not found. Run `pnpm --filter webui build` (or use the dev server on :5178).',
-            404,
-        );
-    });
+    registerStaticFrontend(app, staticRoot, webuiTarget);
 
     const finalPort = await findAvailablePort(desiredPort, { host });
 

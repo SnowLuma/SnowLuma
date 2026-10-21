@@ -353,6 +353,7 @@ function LoginShell({
     wide?: boolean;
     children: ReactNode;
 }) {
+    const { managedBy } = useTheme();
     return (
         <div
             className={cn(
@@ -360,9 +361,10 @@ function LoginShell({
                 customBg ? 'bg-transparent' : 'bg-background',
             )}
         >
-            {fxOn && <LoginWaves />}
+            {fxOn && !managedBy && <LoginWaves />}
 
             <div
+                data-ui-decoration=""
                 className="pointer-events-none absolute inset-0"
                 style={{
                     background:
@@ -393,6 +395,7 @@ function LoginShell({
                 </Card>
 
                 <motion.button
+                    style={{ display: managedBy ? 'none' : undefined }}
                     type="button"
                     onClick={() => onHelpOpen(true)}
                     whileHover={reduce ? undefined : { scale: 1.04 }}

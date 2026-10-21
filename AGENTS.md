@@ -78,6 +78,8 @@ Use focused tests while iterating. Before handing off a code change, run the ful
 
 `pnpm dev` starts Core and can attach to local QQ processes; use it only when runtime testing is intended. `pnpm dev:web` starts the frontend, which expects a WebUI backend. Follow the existing test fakes for isolated work rather than starting a live account unnecessarily.
 
+WebUI deployment targets use a reversible presentation overlay. Read [the host appearance contract](packages/webui/INTEGRATIONS.md) before changing it. Keep target validation in `@snowluma/common/webui-target`, implementations in the frontend target registry, and saved preferences separate from effective appearance. Default deployments must not load target assets or host listeners; do not put target-name branches in business pages.
+
 ## Implementation rules
 
 - **Fix the cause.** Reproduce failures at the owning layer and add a regression test for the observable behavior. Avoid account-, filename-, or example-specific patches.

@@ -126,7 +126,7 @@ export function SegmentedControl({
         <div
             role="radiogroup"
             aria-label={label}
-            className={`relative inline-block select-none rounded-[9px] border border-border bg-muted/70 p-[3px] shadow-[inset_0_1px_2px_rgb(0_0_0/0.07)] ${className}`}
+            className={`ui-segmented relative inline-block select-none rounded-[9px] border border-border bg-muted/70 p-[3px] shadow-[inset_0_1px_2px_rgb(0_0_0/0.07)] ${className}`}
         >
             <div
                 className="relative grid"
@@ -150,7 +150,7 @@ export function SegmentedControl({
 
                 <motion.div
                     aria-hidden
-                    className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden rounded-[6px] bg-foreground text-background shadow-[0_1px_2px_rgb(0_0_0/0.28)]"
+                    className="ui-segmented-thumb pointer-events-none absolute inset-y-0 left-0 overflow-hidden rounded-[6px] bg-foreground text-background shadow-[0_1px_2px_rgb(0_0_0/0.28)]"
                     style={{ width: `${100 / count}%`, x: thumbX }}
                     initial={false}
                 >

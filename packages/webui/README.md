@@ -3,6 +3,14 @@
 SnowLuma's browser console is a Vite + React application for managing runtime
 status, OneBot configuration, logs, storage, and server settings.
 
+## Host appearance integration
+
+`SNOWLUMA_WEBUI_TARGET=maibot` opts a deployment into a reversible millennium
+appearance overlay. Standalone defaults are unchanged. Hosts drive live light/dark
+updates without saving over personal preferences or adding another selector.
+See [the integration contract and extension guide](INTEGRATIONS.md) before changing
+target startup, theme ownership, host messaging or scoped styles.
+
 ## Interaction conventions
 
 - Destructive actions and second confirmations stay in modal dialogs.

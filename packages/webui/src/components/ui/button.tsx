@@ -50,6 +50,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 className={cn(buttonVariants({ variant, size, press: !isStatic }), className)}
                 ref={ref}
                 data-press-scale={isStatic ? undefined : ''}
+                data-variant={variant ?? 'default'}
                 {...props}
             />
         );

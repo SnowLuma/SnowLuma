@@ -189,6 +189,7 @@ export function SettingsPage() {
 function SettingsNav({ tab, onChange }: { tab: SettingsTab; onChange: (t: SettingsTab) => void }) {
     return (
         <nav
+            data-ui-surface="panel"
             aria-label="设置导航"
             className={cn(
                 'flex flex-wrap gap-1 rounded-xl border bg-card p-1.5',
@@ -518,7 +519,14 @@ function TopbarPanel() {
 
 function AppearancePanel() {
     const isDesktop = useDesktopSidebar();
-    const { appearance, setAppearance, uploadBackground, removeBackground, resolved } = useTheme();
+    const {
+        savedAppearance: appearance,
+        setAppearance,
+        uploadBackground,
+        removeBackground,
+        resolved,
+        managedBy,
+    } = useTheme();
     const a = appearance;
     // A Catppuccin flavor fixes its own light/dark + darkness, so the mode and
     // intensity controls are inert while one is active.
@@ -560,205 +568,234 @@ function AppearancePanel() {
 
     return (
         <div className="flex flex-col gap-5">
-            <Group
-                title="主题"
-                icon={Sun}
-                description="配色方案、明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。"
-            >
-                <SettingRow
-                    label="配色方案"
-                    hint="“默认”跟随下方明暗模式；Catppuccin 为整套配色，会自行决定明暗。"
-                    layout="stack"
+            {managedBy && (
+                <p className="text-sm leading-relaxed text-muted-foreground" role="status">
+                    外观跟随{managedBy}
+                    。原有配色、字体和背景已保留，退出集成后恢复；缩放与无障碍设置仍可调整。
+                </p>
+            )}
+            <fieldset disabled={!!managedBy} className="contents" aria-label="主题、配色与背景">
+                <Group
+                    title="主题"
+                    icon={Sun}
+                    description={
+                        managedBy
+                            ? '下方显示已保留的个人设置；当前界面外观由宿主管理。'
+                            : '配色方案、明暗模式与深色风格。所有改动立即生效并保存到服务器，跨设备同步。'
+                    }
                 >
-                    <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="配色方案">
-                        {PALETTE_OPTIONS.map((p) => {
-                            const active = a.palette === p.id;
-                            return (
-                                <button
-                                    key={p.id}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={active}
-                                    aria-label={p.label}
-                                    onClick={() => setAppearance({ palette: p.id })}
-                                    className={cn(
-                                        'flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl border p-1.5 transition-[border-color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
-                                        active
-                                            ? 'border-primary ring-2 ring-primary/30'
-                                            : 'border-border hover:border-foreground/30',
-                                    )}
-                                >
-                                    <span
-                                        className="flex h-11 w-full items-center justify-center rounded-lg"
-                                        style={{ backgroundColor: p.preview.bg }}
+                    <SettingRow
+                        label="配色方案"
+                        hint="“默认”跟随下方明暗模式；Catppuccin 为整套配色，会自行决定明暗。"
+                        layout="stack"
+                    >
+                        <div
+                            className="flex flex-wrap gap-2.5"
+                            role="radiogroup"
+                            aria-label="配色方案"
+                        >
+                            {PALETTE_OPTIONS.map((p) => {
+                                const active = a.palette === p.id;
+                                return (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={active}
+                                        aria-label={p.label}
+                                        onClick={() => setAppearance({ palette: p.id })}
+                                        className={cn(
+                                            'flex w-[5.5rem] flex-col items-center gap-1.5 rounded-xl border p-1.5 transition-[border-color,box-shadow] duration-150 ease-out cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40',
+                                            active
+                                                ? 'border-primary ring-2 ring-primary/30'
+                                                : 'border-border hover:border-foreground/30',
+                                        )}
                                     >
                                         <span
-                                            className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm"
-                                            style={{ backgroundColor: p.preview.surface }}
+                                            className="flex h-11 w-full items-center justify-center rounded-lg"
+                                            style={{ backgroundColor: p.preview.bg }}
                                         >
-                                            {p.preview.dots.map((d, i) => (
-                                                <span
-                                                    key={i}
-                                                    className="size-1.5 rounded-full"
-                                                    style={{ backgroundColor: d }}
-                                                />
-                                            ))}
+                                            <span
+                                                className="flex gap-1 rounded-md px-1.5 py-1 shadow-sm"
+                                                style={{ backgroundColor: p.preview.surface }}
+                                            >
+                                                {p.preview.dots.map((d, i) => (
+                                                    <span
+                                                        key={i}
+                                                        className="size-1.5 rounded-full"
+                                                        style={{ backgroundColor: d }}
+                                                    />
+                                                ))}
+                                            </span>
                                         </span>
-                                    </span>
-                                    <span className="text-xs font-medium">{p.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </SettingRow>
-                <SettingRow
-                    label="显示模式"
-                    hint={paletteFixed ? '当前由 Catppuccin 配色决定明暗。' : undefined}
-                >
-                    <Segmented
-                        value={a.mode}
-                        options={MODE_OPTIONS}
-                        onChange={(mode) => setAppearance({ mode })}
-                        disabled={paletteFixed}
-                    />
-                </SettingRow>
-                <SettingRow
-                    label="深色强度"
-                    hint={
-                        paletteFixed
-                            ? 'Catppuccin 配色自带明暗，无需调节。'
-                            : '“纯黑”将深色背景压到接近纯黑，适合 OLED 屏幕（仅深色模式下可见）。'
-                    }
-                    layout="stack"
-                >
-                    <Segmented
-                        value={a.darkIntensity}
-                        options={DARK_INTENSITY_OPTIONS}
-                        onChange={(darkIntensity) => setAppearance({ darkIntensity })}
-                        disabled={paletteFixed}
-                    />
-                </SettingRow>
-            </Group>
+                                        <span className="text-xs font-medium">{p.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </SettingRow>
+                    <SettingRow
+                        label="显示模式"
+                        hint={
+                            managedBy
+                                ? '明暗模式跟随宿主。'
+                                : paletteFixed
+                                  ? '当前由 Catppuccin 配色决定明暗。'
+                                  : undefined
+                        }
+                    >
+                        <Segmented
+                            value={a.mode}
+                            options={MODE_OPTIONS}
+                            onChange={(mode) => setAppearance({ mode })}
+                            disabled={paletteFixed}
+                        />
+                    </SettingRow>
+                    <SettingRow
+                        label="深色强度"
+                        hint={
+                            managedBy
+                                ? '深色材质由宿主外观决定。'
+                                : paletteFixed
+                                  ? 'Catppuccin 配色自带明暗，无需调节。'
+                                  : '“纯黑”将深色背景压到接近纯黑，适合 OLED 屏幕（仅深色模式下可见）。'
+                        }
+                        layout="stack"
+                    >
+                        <Segmented
+                            value={a.darkIntensity}
+                            options={DARK_INTENSITY_OPTIONS}
+                            onChange={(darkIntensity) => setAppearance({ darkIntensity })}
+                            disabled={paletteFixed}
+                        />
+                    </SettingRow>
+                </Group>
 
-            <Group title="强调色" icon={Palette} description="按钮、链接与高亮使用的主色调。">
-                <SettingRow label="预设色" layout="stack">
-                    <div className="flex flex-wrap items-center gap-2">
-                        {ACCENTS.map((spec) => {
-                            const active = a.accentMode === 'preset' && a.accentPreset === spec.id;
-                            return (
-                                <button
-                                    key={spec.id}
-                                    type="button"
-                                    onClick={() =>
-                                        setAppearance({
-                                            accentMode: 'preset',
-                                            accentPreset: spec.id,
-                                        })
-                                    }
-                                    title={spec.label}
-                                    aria-label={spec.label}
-                                    className={cn(
-                                        'relative flex size-9 items-center justify-center rounded-full border transition-transform cursor-pointer hover:scale-105',
-                                        active
-                                            ? 'border-foreground/30 ring-2 ring-primary'
-                                            : 'border-border',
-                                    )}
-                                    style={{ backgroundColor: spec.swatch }}
-                                >
-                                    {active && (
-                                        <Check
-                                            className="size-4 text-white drop-shadow-sm"
-                                            strokeWidth={3}
-                                        />
-                                    )}
-                                </button>
-                            );
-                        })}
-                        <label
-                            title="自定义颜色"
-                            className={cn(
-                                'relative flex size-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-transform hover:scale-105',
-                                a.accentMode === 'custom'
-                                    ? 'border-foreground/30 ring-2 ring-primary'
-                                    : 'border-border',
-                            )}
-                            style={{
-                                background:
+                <Group title="强调色" icon={Palette} description="按钮、链接与高亮使用的主色调。">
+                    <SettingRow label="预设色" layout="stack">
+                        <div className="flex flex-wrap items-center gap-2">
+                            {ACCENTS.map((spec) => {
+                                const active =
+                                    a.accentMode === 'preset' && a.accentPreset === spec.id;
+                                return (
+                                    <button
+                                        key={spec.id}
+                                        type="button"
+                                        onClick={() =>
+                                            setAppearance({
+                                                accentMode: 'preset',
+                                                accentPreset: spec.id,
+                                            })
+                                        }
+                                        title={spec.label}
+                                        aria-label={spec.label}
+                                        className={cn(
+                                            'relative flex size-9 items-center justify-center rounded-full border transition-transform cursor-pointer hover:scale-105',
+                                            active
+                                                ? 'border-foreground/30 ring-2 ring-primary'
+                                                : 'border-border',
+                                        )}
+                                        style={{ backgroundColor: spec.swatch }}
+                                    >
+                                        {active && (
+                                            <Check
+                                                className="size-4 text-white drop-shadow-sm"
+                                                strokeWidth={3}
+                                            />
+                                        )}
+                                    </button>
+                                );
+                            })}
+                            <label
+                                title="自定义颜色"
+                                className={cn(
+                                    'relative flex size-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-transform hover:scale-105',
                                     a.accentMode === 'custom'
-                                        ? a.accentCustom
-                                        : 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #10b981, #0ea5e9, #8b5cf6, #f43f5e)',
-                            }}
-                        >
-                            <input
-                                type="color"
-                                value={toColorInputValue(a.accentCustom)}
-                                onChange={(e) => pickCustomAccent(e.target.value)}
-                                className="absolute inset-0 cursor-pointer opacity-0"
-                                aria-label="自定义强调色"
-                            />
-                            {a.accentMode === 'custom' && (
-                                <Check
-                                    className="pointer-events-none size-4 text-white drop-shadow-sm"
-                                    strokeWidth={3}
+                                        ? 'border-foreground/30 ring-2 ring-primary'
+                                        : 'border-border',
+                                )}
+                                style={{
+                                    background:
+                                        a.accentMode === 'custom'
+                                            ? a.accentCustom
+                                            : 'conic-gradient(from 0deg, #f43f5e, #f59e0b, #10b981, #0ea5e9, #8b5cf6, #f43f5e)',
+                                }}
+                            >
+                                <input
+                                    type="color"
+                                    value={toColorInputValue(a.accentCustom)}
+                                    onChange={(e) => pickCustomAccent(e.target.value)}
+                                    className="absolute inset-0 cursor-pointer opacity-0"
+                                    aria-label="自定义强调色"
                                 />
-                            )}
-                        </label>
-                    </div>
-                </SettingRow>
-                <SettingRow
-                    label="应用范围"
-                    hint="“仅侧栏”时，按钮等全局元素保持默认蓝，强调色只染侧栏选中项。"
-                >
-                    <Segmented
-                        value={a.accentScope}
-                        options={SCOPE_OPTIONS}
-                        onChange={(accentScope) => setAppearance({ accentScope })}
-                    />
-                </SettingRow>
-                <SettingRow label="侧栏样式">
-                    <Segmented
-                        value={a.sidebarStyle}
-                        options={SIDEBAR_STYLE_OPTIONS}
-                        onChange={(sidebarStyle) => setAppearance({ sidebarStyle })}
-                    />
-                </SettingRow>
-            </Group>
+                                {a.accentMode === 'custom' && (
+                                    <Check
+                                        className="pointer-events-none size-4 text-white drop-shadow-sm"
+                                        strokeWidth={3}
+                                    />
+                                )}
+                            </label>
+                        </div>
+                    </SettingRow>
+                    <SettingRow
+                        label="应用范围"
+                        hint="“仅侧栏”时，按钮等全局元素保持默认蓝，强调色只染侧栏选中项。"
+                    >
+                        <Segmented
+                            value={a.accentScope}
+                            options={SCOPE_OPTIONS}
+                            onChange={(accentScope) => setAppearance({ accentScope })}
+                        />
+                    </SettingRow>
+                    <SettingRow label="侧栏样式">
+                        <Segmented
+                            value={a.sidebarStyle}
+                            options={SIDEBAR_STYLE_OPTIONS}
+                            onChange={(sidebarStyle) => setAppearance({ sidebarStyle })}
+                        />
+                    </SettingRow>
+                </Group>
 
-            <BackgroundCard
-                appearance={a}
-                setAppearance={setAppearance}
-                uploadBackground={uploadBackground}
-                removeBackground={removeBackground}
-            />
-
+                <BackgroundCard
+                    appearance={a}
+                    setAppearance={setAppearance}
+                    uploadBackground={uploadBackground}
+                    removeBackground={removeBackground}
+                />
+            </fieldset>
             <Group title="排版与界面" icon={Palette} description="字体、圆角、缩放与密度。">
-                <SettingRow label="界面字体" layout="stack">
-                    <FontField
-                        value={a.fontSans}
-                        custom={a.fontSansCustom}
-                        presets={FONT_SANS_OPTIONS}
-                        onChange={(fontSans) => setAppearance({ fontSans })}
-                        onCustomChange={(fontSansCustom) => setAppearance({ fontSansCustom })}
-                        placeholder="例如：LXGW WenKai, PingFang SC"
-                    />
-                </SettingRow>
-                <SettingRow label="等宽字体" hint="用于日志与代码。" layout="stack">
-                    <FontField
-                        value={a.fontMono}
-                        custom={a.fontMonoCustom}
-                        presets={FONT_MONO_OPTIONS}
-                        onChange={(fontMono) => setAppearance({ fontMono })}
-                        onCustomChange={(fontMonoCustom) => setAppearance({ fontMonoCustom })}
-                        placeholder="例如：Cascadia Code, Sarasa Mono SC"
-                    />
-                </SettingRow>
-                <SettingRow label="圆角">
-                    <Segmented
-                        value={a.radius}
-                        options={RADIUS_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
-                        onChange={(radius) => setAppearance({ radius })}
-                    />
-                </SettingRow>
+                <fieldset disabled={!!managedBy} className="contents" aria-label="字体与圆角">
+                    <SettingRow label="界面字体" layout="stack">
+                        <FontField
+                            value={a.fontSans}
+                            custom={a.fontSansCustom}
+                            presets={FONT_SANS_OPTIONS}
+                            onChange={(fontSans) => setAppearance({ fontSans })}
+                            onCustomChange={(fontSansCustom) => setAppearance({ fontSansCustom })}
+                            placeholder="例如：LXGW WenKai, PingFang SC"
+                        />
+                    </SettingRow>
+                    <SettingRow label="等宽字体" hint="用于日志与代码。" layout="stack">
+                        <FontField
+                            value={a.fontMono}
+                            custom={a.fontMonoCustom}
+                            presets={FONT_MONO_OPTIONS}
+                            onChange={(fontMono) => setAppearance({ fontMono })}
+                            onCustomChange={(fontMonoCustom) => setAppearance({ fontMonoCustom })}
+                            placeholder="例如：Cascadia Code, Sarasa Mono SC"
+                        />
+                    </SettingRow>
+                    <SettingRow label="圆角">
+                        <Segmented
+                            value={a.radius}
+                            options={RADIUS_OPTIONS.map((r) => ({
+                                value: r.value,
+                                label: r.label,
+                            }))}
+                            onChange={(radius) => setAppearance({ radius })}
+                        />
+                    </SettingRow>
+                </fieldset>
                 <SliderSettingRow
                     label="界面缩放"
                     hint="整体放大或缩小界面，适合高分屏或视力需要。"
@@ -779,10 +816,12 @@ function AppearancePanel() {
                 </SettingRow>
             </Group>
 
-            <ThemeVarsPanel
-                cssVars={a.cssVars}
-                onChange={(cssVars) => setAppearance({ cssVars })}
-            />
+            <fieldset disabled={!!managedBy} className="contents" aria-label="主题变量">
+                <ThemeVarsPanel
+                    cssVars={a.cssVars}
+                    onChange={(cssVars) => setAppearance({ cssVars })}
+                />
+            </fieldset>
 
             <TopbarPanel />
 
@@ -816,6 +855,7 @@ function AppearancePanel() {
                 >
                     <ToggleSwitch
                         value={a.customPointerSystem}
+                        disabled={!!managedBy}
                         onChange={(customPointerSystem) => setAppearance({ customPointerSystem })}
                         ariaLabel="自定义光标"
                     />
@@ -1432,7 +1472,7 @@ function validateCss(css: string): string | null {
 }
 
 function AdvancedPanel() {
-    const { appearance, setAppearance } = useTheme();
+    const { savedAppearance: appearance, setAppearance, managedBy } = useTheme();
     const { runAction } = useActionFeedback();
     const cssRef = useRef<HTMLTextAreaElement>(null);
     const [cssWarn, setCssWarn] = useState<string | null>(null);
@@ -1572,77 +1612,83 @@ function AdvancedPanel() {
 
     return (
         <div className="flex flex-col gap-5">
-            <Card>
-                <CardHeader className="gap-1">
-                    <CardTitle className="flex items-center gap-2 text-[15px]">
-                        <Code2 className="size-4 text-primary" /> 自定义 CSS
-                    </CardTitle>
-                    <CardDescription className="text-[12px] leading-relaxed">
-                        高级用户可注入自定义样式，登录后全局生效（登录页不受影响）。
-                        若改坏了界面，在地址后加{' '}
-                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-meta">
-                            ?safe-mode=1
-                        </code>{' '}
-                        可临时禁用自定义 CSS 进来修复。
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="mr-1 text-xs text-muted-foreground">插入模板：</span>
-                        {CSS_SNIPPETS.map((s) => (
-                            <button
-                                key={s.label}
-                                type="button"
-                                onClick={() => insertSnippet(s.css)}
-                                className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground transition-colors cursor-pointer outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
-                            >
-                                <Plus className="size-3" /> {s.label}
-                            </button>
-                        ))}
-                    </div>
-                    <Textarea
-                        ref={cssRef}
-                        value={appearance.customCss}
-                        onChange={(e) => {
-                            setAppearance({ customCss: e.target.value });
+            {managedBy && (
+                <p className="text-sm text-muted-foreground">
+                    自定义 CSS 已保留，跟随{managedBy}外观期间暂停应用。
+                </p>
+            )}
+            <fieldset disabled={!!managedBy} className="contents" aria-label="自定义 CSS">
+                <Card>
+                    <CardHeader className="gap-1">
+                        <CardTitle className="flex items-center gap-2 text-[15px]">
+                            <Code2 className="size-4 text-primary" /> 自定义 CSS
+                        </CardTitle>
+                        <CardDescription className="text-[12px] leading-relaxed">
+                            高级用户可注入自定义样式，登录后全局生效（登录页不受影响）。
+                            若改坏了界面，在地址后加{' '}
+                            <code className="rounded bg-muted px-1 py-0.5 font-mono text-meta">
+                                ?safe-mode=1
+                            </code>{' '}
+                            可临时禁用自定义 CSS 进来修复。
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="mr-1 text-xs text-muted-foreground">插入模板：</span>
+                            {CSS_SNIPPETS.map((s) => (
+                                <button
+                                    key={s.label}
+                                    type="button"
+                                    onClick={() => insertSnippet(s.css)}
+                                    className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground transition-colors cursor-pointer outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                                >
+                                    <Plus className="size-3" /> {s.label}
+                                </button>
+                            ))}
+                        </div>
+                        <Textarea
+                            ref={cssRef}
+                            value={appearance.customCss}
+                            onChange={(e) => {
+                                setAppearance({ customCss: e.target.value });
 
-                            if (cssWarn) {
-                                setCssWarn(null);
-                            }
-                        }}
-                        onBlur={(e) => setCssWarn(validateCss(e.target.value))}
-                        maxLength={50000}
-                        spellCheck={false}
-                        placeholder={
-                            '/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'
-                        }
-                        className="h-64 resize-y rounded-lg bg-card/40 p-3 font-mono text-base leading-relaxed md:text-[12px]"
-                    />
-                    {cssWarn && (
-                        <p className="flex items-start gap-1.5 text-xs text-warning">
-                            <AlertTriangle className="mt-px size-3.5 shrink-0" /> {cssWarn}
-                        </p>
-                    )}
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-meta text-muted-foreground">
-                            {appearance.customCss.length} / 50000 字符
-                        </span>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                                setAppearance({ customCss: '' });
-                                setCssWarn(null);
+                                if (cssWarn) {
+                                    setCssWarn(null);
+                                }
                             }}
-                            disabled={!appearance.customCss}
-                            className="text-destructive hover:text-destructive"
-                        >
-                            <Trash2 className="size-4" /> 清空
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
+                            onBlur={(e) => setCssWarn(validateCss(e.target.value))}
+                            maxLength={50000}
+                            spellCheck={false}
+                            placeholder={
+                                '/* 例如：放大侧栏字号 */\n.text-sidebar-foreground { font-size: 1.05em; }'
+                            }
+                            className="h-64 resize-y rounded-lg bg-card/40 p-3 font-mono text-base leading-relaxed md:text-[12px]"
+                        />
+                        {cssWarn && (
+                            <p className="flex items-start gap-1.5 text-xs text-warning">
+                                <AlertTriangle className="mt-px size-3.5 shrink-0" /> {cssWarn}
+                            </p>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-meta text-muted-foreground">
+                                {appearance.customCss.length} / 50000 字符
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    setAppearance({ customCss: '' });
+                                    setCssWarn(null);
+                                }}
+                                disabled={!appearance.customCss}
+                                className="text-destructive hover:text-destructive"
+                            >
+                                <Trash2 className="size-4" /> 清空
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            </fieldset>
             <Card>
                 <CardHeader className="gap-1">
                     <CardTitle className="text-[15px]">备份与重置</CardTitle>

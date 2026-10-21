@@ -3,11 +3,25 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { injectWebuiTarget, resolveWebuiTarget } from '@snowluma/common/webui-target';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-    plugins: [tailwindcss(), react()],
+    plugins: [
+        tailwindcss(),
+        react(),
+        {
+            name: 'webui-runtime-target',
+            // Production builds are target-neutral. Core injects the deployment at request time.
+            apply: 'serve',
+            transformIndexHtml: {
+                order: 'pre',
+                handler: (html) =>
+                    injectWebuiTarget(html, resolveWebuiTarget(process.env.SNOWLUMA_WEBUI_TARGET)),
+            },
+        },
+    ],
     resolve: {
         alias: {
             '@': path.resolve(__dirname, 'src'),

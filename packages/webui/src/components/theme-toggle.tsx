@@ -10,12 +10,12 @@ const OPTIONS: { mode: ThemeMode; icon: typeof Sun; label: string }[] = [
 ];
 
 export function ThemeToggle({ className }: { className?: string }) {
-    const { appearance, mode, setMode } = useTheme();
+    const { appearance, mode, setMode, managedBy } = useTheme();
 
     // A Catppuccin flavor fixes light/dark, so this quick toggle would be inert
     // (and its pill would desync from the forced scheme) — hide it. Light/dark is
     // then changed by switching the palette back to “默认” in settings.
-    if (paletteResolved(appearance.palette)) {
+    if (managedBy || paletteResolved(appearance.palette)) {
         return null;
     }
 
