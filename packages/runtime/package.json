@@ -7,6 +7,6 @@
   "main": "index.mjs",
   "description": "SnowLuma runtime distribution manifest: ships into dist/ (launcher.bat, package.json, native/*.dll, native/*.node). All native bindings ship as standalone `.node` files in `dist/native/` — loaded via `process.dlopen()` / `createRequire().require()` from inside the bundle. There are intentionally NO runtime npm dependencies; production artifacts are self-contained.",
   "engines": {
-    "node": ">=24"
+    "node": "^24.22.1 || >=26.12.1"
   }
 }

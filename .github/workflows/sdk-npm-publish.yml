@@ -38,9 +38,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           # Trusted Publishing requires Node >=22.14 and npm >=11.5.1.
-          # Node 24 ships a supported npm CLI; the application runtime stays
-          # pinned separately by .node-version.
-          node-version: '24'
+          # Use the same patched runtime as application builds.
+          node-version-file: '.node-version'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 

@@ -58,7 +58,7 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 ### 系统要求
 
-- **Node.js 24+**
+- **Node.js 24.22.1（24 系列），或 26.12.1 及更新版本**；开发和构建使用 [`.node-version`](.node-version) 固定的版本。
 - **pnpm 11.25.0**（项目通过 `packageManager` 与 CI 统一版本）
 - macOS / Linux / Windows 均可。如果要构建原生产物，需要对应平台的工具链。
 

@@ -54,6 +54,8 @@ Read the relevant owner before changing a path:
 
 Use the Node version in [.node-version](.node-version) and the pnpm version in [package.json](package.json). Install with `pnpm install --frozen-lockfile`; keep the existing lockfile unless changing dependencies.
 
+The Node security baseline is `^24.22.1 || >=26.12.1`; older 24.x releases, 25.x and unpatched 26.x releases are unsupported. Keep workspace `engines.node` declarations and [the launcher preflight](packages/runtime/check-node-version.cjs) aligned. CI and bundled releases use `.node-version`; raising that pin alone does not upgrade an existing installation's runtime.
+
 Run commands from the repository root:
 
 ```sh

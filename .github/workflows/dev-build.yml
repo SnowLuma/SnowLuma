@@ -141,7 +141,7 @@ jobs:
 
       # Naming convention:
       #   SnowLuma-dev-<arch>.zip|tar.gz        – zero-install (node bundled)
-      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node 24+
+      #   SnowLuma-dev-<arch>-lite.zip|tar.gz   – user provides Node ^24.22.1 or >=26.12.1
       - name: Package (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh

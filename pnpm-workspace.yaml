@@ -3,7 +3,7 @@ packages:
 
 catalog:
   '@types/node': 24.19.2
-  vite: ^8.0.16
+  vite: ~8.1.6
   typescript: ~6.0.2
 
 overrides:
@@ -11,13 +11,21 @@ overrides:
   'esbuild@<0.28.1': ^0.28.1
   '@babel/core@<7.29.6': ^7.29.6
   'qs@<=6.15.3': ^6.16.0
-  'fast-uri@<3.1.6': ^3.1.6
+  'fast-uri@<3.1.8': ^3.1.8
   '@hono/node-server@<1.19.15': ^1.19.15
-  'hono': ~4.12.34
+  'hono': ~4.13.11
   'postcss@<=8.5.22': ^8.5.23
-  'ip-address@<=10.3.0': ^10.3.1
+  'ip-address@<10.7.1': ^10.7.1
   'body-parser@<2.3.0': ^2.3.0
-  'brace-expansion@<5.0.7': ^5.0.7
+  'brace-expansion@<5.0.12': ^5.0.12
+  'undici@>=8.0.0 <8.12.2': 8.12.2
+  'browserslist@<4.28.7': 4.28.7
+  '@humanfs/node@<0.16.8': 0.16.8
+  'baseline-browser-mapping@<2.11.0': 2.11.0
+  'figlet@<1.11.3': 1.11.3
+  'seroval@<1.6.3': 1.6.3
+  'source-map-js@<1.2.2': 1.2.2
+  'proxy-addr@<2.0.8': 2.0.8
 
 peerDependencyRules:
   allowedVersions:

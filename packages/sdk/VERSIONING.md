@@ -11,6 +11,8 @@ The SDK follows SemVer for its public package surface:
 
 SDK and application versions are synchronized by `pnpm bump <version>` from the repository root.
 
+The current Node.js requirement is `^24.22.1 || >=26.12.1`. Use the repository's `.node-version` for development and builds.
+
 - Major: removes or changes a public export, changes runtime behavior incompatibly, changes supported Node version, or changes package subpaths.
 - Minor: adds new public API, supports new SnowLuma actions, adds optional parameters, or adds error subclasses.
 - Patch: fixes bugs, improves docs, narrows implementation details without breaking public types, or updates action metadata without changing call signatures.

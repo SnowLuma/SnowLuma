@@ -35,8 +35,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "5.10.0",
-    "@vitest/coverage-istanbul": "4.1.4",
-    "@vitest/coverage-v8": "^4.1.4",
+    "@vitest/coverage-istanbul": "4.1.11",
+    "@vitest/coverage-v8": "4.1.11",
     "cross-env": "^10.1.0",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "10.1.8",
@@ -50,7 +50,7 @@
   },
   "packageManager": "pnpm@11.25.0",
   "engines": {
-    "node": ">=24",
+    "node": "^24.22.1 || >=26.12.1",
     "pnpm": "11.25.0"
   }
 }

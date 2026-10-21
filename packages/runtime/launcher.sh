@@ -8,7 +8,7 @@ if [[ -x "./node" ]]; then
 else
   NODE_BIN="$(command -v node || true)"
   if [[ -z "$NODE_BIN" ]]; then
-    echo "error: 'node' not found on PATH and no bundled ./node; install Node.js 24+." >&2
+    echo "error: 'node' not found on PATH and no bundled ./node; install Node.js 24.22.1 (24.x) or >=26.12.1." >&2
     exit 127
   fi
 fi

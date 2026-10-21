@@ -28,9 +28,9 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.4"
+    "vitest": "4.1.11"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^24.22.1 || >=26.12.1"
   }
 }
