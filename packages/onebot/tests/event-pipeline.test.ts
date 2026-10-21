@@ -33,8 +33,9 @@ vi.mock('../src/modules/message-actions', async () => {
 
 import { convertEvent, type ConverterContext } from '../src/event-converter';
 import { registerEventPipeline } from '../src/event-pipeline';
+import { buildDispatchPayload, pickDispatchJson } from '../src/event-filter';
 import type { OneBotInstanceContext } from '../src/instance-context';
-import { hashMessageIdInt32, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
+import { GROUP_MESSAGE_EVENT, hashMessageIdInt32, PRIVATE_MESSAGE_EVENT } from '../src/message-id';
 import { backfillReplyTarget } from '../src/modules/message-actions';
 import {
     deliverPttTransText,
@@ -323,6 +324,100 @@ describe('registerEventPipeline', () => {
         expect(metaCalls[0].meta.isGroup).toBe(true);
         expect(metaCalls[0].meta.targetId).toBe(GROUP_ID);
         expect(dispatchCalls[0].message_type).toBe('group');
+    });
+
+    it('reports a received client group push according to each adapter self-message option', async () => {
+        const { ctx, bus, metaCalls, dispatchCalls, dispatchArgs } = makeContext();
+        ctx.converterCtx.messageIdResolver = (_isGroup, sessionId, sequence, eventName) =>
+            hashMessageIdInt32(sequence, sessionId, eventName);
+        const handle = registerEventPipeline(ctx);
+        const identity = IdentityService.memory(SELF_UIN);
+        const packet = {
+            pid: 1,
+            uin: SELF_UIN,
+            serviceCmd: MSG_PUSH_CMD,
+            seqId: 1,
+            retCode: 0,
+            fromClient: false,
+            body: protobuf_encode<PushMsg>({
+                message: {
+                    responseHead: {
+                        fromUin: SELF_ID,
+                        grp: { groupUin: GROUP_ID, memberCard: 'self', groupName: 'test group' },
+                    },
+                    contentHead: {
+                        msgType: 82,
+                        sequence: 5637,
+                        timestamp: 1_700_000_000,
+                        msgId: 335502226,
+                    },
+                    body: { richText: { elems: [{ text: { str: 'client group send' } }] } },
+                },
+            }),
+        };
+
+        try {
+            const events = parseMsgPushOrThrow(packet, identity);
+            expect(events).toHaveLength(1);
+
+            for (const event of events) {
+                await bus.emit(event);
+            }
+
+            const messageId = hashMessageIdInt32(5637, GROUP_ID, GROUP_MESSAGE_EVENT);
+            expect(metaCalls).toEqual([
+                {
+                    id: messageId,
+                    meta: expect.objectContaining({
+                        isGroup: true,
+                        targetId: GROUP_ID,
+                        sequence: 5637,
+                        random: 335502226,
+                    }),
+                },
+            ]);
+            expect(dispatchCalls).toHaveLength(1);
+            const event = dispatchCalls[0];
+            expect(event).toMatchObject({
+                post_type: 'message_sent',
+                message_type: 'group',
+                self_id: SELF_ID,
+                user_id: SELF_ID,
+                group_id: GROUP_ID,
+                message_id: messageId,
+                message_seq: 5637,
+                raw_message: 'client group send',
+            });
+            expect(dispatchArgs[0].source).toBe('bridge');
+
+            const payload = buildDispatchPayload(event);
+            expect(
+                pickDispatchJson(payload, { reportSelfMessage: false, messageFormat: 'array' }),
+            ).toBeNull();
+            expect(
+                JSON.parse(
+                    pickDispatchJson(payload, { reportSelfMessage: true, messageFormat: 'array' })!,
+                ),
+            ).toMatchObject({
+                post_type: 'message_sent',
+                message: [{ type: 'text', data: { text: 'client group send' } }],
+            });
+            expect(
+                JSON.parse(
+                    pickDispatchJson(payload, {
+                        reportSelfMessage: true,
+                        messageFormat: 'string',
+                    })!,
+                ),
+            ).toMatchObject({
+                post_type: 'message_sent',
+                message: 'client group send',
+            });
+        } finally {
+            handle.stop();
+            await handle.drain();
+            await identity.close();
+        }
     });
 
     it('caches meta with random=0 for temp_message and dispatches as private+sub_type=group', async () => {

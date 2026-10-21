@@ -70,8 +70,8 @@ export class OneBotInstance {
     private readonly startedAt = Date.now();
     /** Per-conversation last-reply timestamp for the `#sl` cooldown. */
     private readonly statusCommandCooldown = new Map<string, number>();
-    /** Action-side events awaiting a possible canonical QQ echo. */
-    private readonly pendingSelfSentEchoes = new Map<
+    /** Reported self sends retained while matching subsequent QQ echoes. */
+    private readonly recentSelfSentEvents = new Map<
         string,
         { event: JsonObject; expiresAt: number }
     >();
@@ -464,7 +464,7 @@ export class OneBotInstance {
         }
 
         if (source === 'bridge') {
-            if (this.consumePendingSelfSentEcho(event)) {
+            if (this.isDuplicateSelfSentEcho(event)) {
                 this.log.trace(
                     'duplicate self-message echo suppressed message_id=%d message_seq=%d',
                     toInt(event.message_id),
@@ -478,8 +478,12 @@ export class OneBotInstance {
                 );
                 return;
             }
+
+            if (event.post_type === 'message_sent' && event.message_type === 'group') {
+                this.rememberSelfSentEvent(event);
+            }
         } else {
-            this.rememberPendingSelfSentEcho(event);
+            this.rememberSelfSentEvent(event);
         }
 
         // The send path already logged the real peer and payload. Logging its
@@ -523,7 +527,7 @@ export class OneBotInstance {
         ]);
     }
 
-    private rememberPendingSelfSentEcho(event: JsonObject): void {
+    private rememberSelfSentEvent(event: JsonObject): void {
         const key = selfSentEventKey(event);
 
         if (key === null) {
@@ -531,11 +535,11 @@ export class OneBotInstance {
         }
 
         const now = Date.now();
-        this.sweepPendingSelfSentEchoes(now);
-        this.pendingSelfSentEchoes.set(key, { event, expiresAt: now + SELF_SENT_ECHO_WINDOW_MS });
+        this.sweepSelfSentEvents(now);
+        this.recentSelfSentEvents.set(key, { event, expiresAt: now + SELF_SENT_ECHO_WINDOW_MS });
     }
 
-    private consumePendingSelfSentEcho(event: JsonObject): boolean {
+    private isDuplicateSelfSentEcho(event: JsonObject): boolean {
         const key = selfSentEventKey(event);
 
         if (key === null) {
@@ -543,21 +547,26 @@ export class OneBotInstance {
         }
 
         const now = Date.now();
-        this.sweepPendingSelfSentEchoes(now);
-        const pending = this.pendingSelfSentEchoes.get(key);
+        this.sweepSelfSentEvents(now);
+        const pending = this.recentSelfSentEvents.get(key);
 
         if (!pending || !sameSelfSentMessage(pending.event, event)) {
             return false;
         }
 
-        this.pendingSelfSentEchoes.delete(key);
+        // A client group send has no action-side event. Keep its first live
+        // echo for the full window so repeated pushes cannot report it again.
+        if (event.message_type !== 'group') {
+            this.recentSelfSentEvents.delete(key);
+        }
+
         return true;
     }
 
-    private sweepPendingSelfSentEchoes(now: number): void {
-        for (const [key, pending] of this.pendingSelfSentEchoes) {
+    private sweepSelfSentEvents(now: number): void {
+        for (const [key, pending] of this.recentSelfSentEvents) {
             if (pending.expiresAt <= now) {
-                this.pendingSelfSentEchoes.delete(key);
+                this.recentSelfSentEvents.delete(key);
             }
         }
     }

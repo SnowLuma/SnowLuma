@@ -175,7 +175,7 @@ function makeInstanceHarness(
         acceptingActions: true,
         uin: String(SELF_ID),
         statusCommandCooldown: new Map([['p:20002', Date.now()]]),
-        pendingSelfSentEchoes: new Map(),
+        recentSelfSentEvents: new Map(),
     });
     const dispatch = (
         instance as unknown as {
@@ -203,7 +203,101 @@ function privateSentEvent(overrides: JsonObject = {}): JsonObject {
     };
 }
 
+function groupSentEvent(overrides: JsonObject = {}): JsonObject {
+    return {
+        ...privateSentEvent(),
+        message_type: 'group',
+        sub_type: 'normal',
+        message_id: -7654321,
+        message_seq: RECEIPT.sequence,
+        group_id: 30003,
+        target_id: undefined,
+        ...overrides,
+    };
+}
+
 describe('OneBot self-sent events', () => {
+    it('reports a client group send once across repeated server pushes', async () => {
+        const { dispatch, emitEvent, stored } = makeInstanceHarness();
+        const event = groupSentEvent();
+
+        await dispatch(event, 'bridge');
+        await dispatch({ ...event, raw_message: 'canonical echo' }, 'bridge');
+        await dispatch({ ...event, raw_message: 'latest canonical echo' }, 'bridge');
+
+        expect(emitEvent).toHaveBeenCalledOnce();
+        expect(emitEvent).toHaveBeenCalledWith(event);
+        expect(stored.get(-7654321)?.raw_message).toBe('latest canonical echo');
+    });
+
+    it('reports concurrent copies of a client group send only once', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        const event = groupSentEvent();
+
+        await Promise.all([
+            dispatch({ ...event }, 'bridge'),
+            dispatch({ ...event }, 'bridge'),
+            dispatch({ ...event }, 'bridge'),
+        ]);
+
+        expect(emitEvent).toHaveBeenCalledOnce();
+    });
+
+    it('keeps group sends with identical text but different message identities', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        const event = groupSentEvent();
+
+        await dispatch(event, 'bridge');
+        await dispatch({ ...event, message_seq: RECEIPT.sequence + 1 }, 'bridge');
+        await dispatch({ ...event, group_id: 30004 }, 'bridge');
+        await dispatch({ ...event, message_id: -7654322 }, 'bridge');
+
+        expect(emitEvent).toHaveBeenCalledTimes(4);
+    });
+
+    it('keeps group deduplication isolated between account instances', async () => {
+        const first = makeInstanceHarness();
+        const second = makeInstanceHarness();
+
+        await first.dispatch(groupSentEvent(), 'bridge');
+        await second.dispatch(
+            groupSentEvent({ self_id: SELF_ID + 1, user_id: SELF_ID + 1 }),
+            'bridge',
+        );
+
+        expect(first.emitEvent).toHaveBeenCalledOnce();
+        expect(second.emitEvent).toHaveBeenCalledOnce();
+    });
+
+    it('expires group self-send identities without treating stored history as already reported', async () => {
+        vi.useFakeTimers();
+
+        try {
+            const { dispatch, emitEvent } = makeInstanceHarness();
+            const event = groupSentEvent();
+
+            await dispatch(event, 'bridge');
+            await dispatch({ ...event }, 'bridge');
+            expect(emitEvent).toHaveBeenCalledOnce();
+
+            vi.advanceTimersByTime(120_000);
+            await dispatch({ ...event }, 'bridge');
+            expect(emitEvent).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps the timestamp bound when a group sequence and hash are reused', async () => {
+        const { dispatch, emitEvent } = makeInstanceHarness();
+        const event = groupSentEvent();
+
+        await dispatch(event, 'bridge');
+        await dispatch({ ...event, time: RECEIPT.timestamp + 121 }, 'bridge');
+
+        expect(emitEvent).toHaveBeenCalledTimes(2);
+    });
+
     it('does not publish an event suppressed by the persistence recall check', async () => {
         const { dispatch, emitEvent } = makeInstanceHarness();
         // The event's cache operation is the final authority after asynchronous
