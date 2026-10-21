@@ -7,6 +7,7 @@ import {
 } from '@snowluma/common/logger';
 import { renderParamsVerbose } from '@snowluma/common/log-summary';
 import { isRealUin } from '@snowluma/common/uin';
+import { CLIENT_MESSAGE_RECEIPT_CMD } from '@snowluma/common/protocol-types';
 import { readdirSync, promises as fs } from 'fs';
 import net from 'net';
 import path from 'path';
@@ -38,6 +39,8 @@ export enum PipeOp {
     recvPacket = 6,
     loginState = 7,
     loginIdentityHint = 17,
+    clientMessageReceipt = 21,
+    clientMessageState = 22,
 }
 
 const PipeFlagWantReply = 1 << 0;
@@ -55,6 +58,7 @@ export interface QqHookPacket {
     cmd: string;
     uin: string;
     body: Buffer;
+    source?: 'client-message';
 }
 
 export interface QqHookHello {
@@ -1366,6 +1370,44 @@ export class QqHookClient extends EventEmitter {
 
         if (frame.op === PipeOp.loginState) {
             this.applyLoginStateFrame(frame);
+            return;
+        }
+
+        if (frame.op === PipeOp.clientMessageState) {
+            if (frame.status === 1) {
+                runtimeLog.debug('Client private-message reporting is available: PID=%d', this.pid);
+            } else {
+                runtimeLog.warn(
+                    'Client private-message reporting is unavailable: PID=%d status=%d',
+                    this.pid,
+                    frame.status,
+                );
+            }
+
+            return;
+        }
+
+        if (frame.op === PipeOp.clientMessageReceipt) {
+            if (
+                frame.cmd !== '' ||
+                frame.requestId !== 0 ||
+                frame.flags !== 0 ||
+                frame.value0 <= 0n ||
+                frame.value0 > BigInt(Number.MAX_SAFE_INTEGER) ||
+                !isRealUin(frame.msg)
+            ) {
+                runtimeLog.warn('Invalid client message receipt: PID=%d', this.pid);
+                return;
+            }
+
+            this.emit('packet', {
+                seq: Number(frame.value0),
+                error: frame.status,
+                cmd: CLIENT_MESSAGE_RECEIPT_CMD,
+                uin: frame.msg,
+                body: Buffer.from(frame.body),
+                source: 'client-message',
+            } satisfies QqHookPacket);
             return;
         }
 

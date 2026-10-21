@@ -79,10 +79,18 @@ export interface SendMessageResponse {
     result?: pb<1, int_32>;
     errMsg?: pb<2, string>;
     timestamp1?: pb<3, uint_32>;
+    reviewResult?: pb<6, int_32>;
+    serverResult?: pb<7, SendMessageServerResult>;
     field10?: pb<10, uint_32>;
     groupSequence?: pb<11, uint_32>;
     timestamp2?: pb<12, uint_32>;
     privateSequence?: pb<14, uint_32>;
+}
+
+export interface SendMessageServerResult {
+    type?: pb<1, int_32>;
+    code?: pb<2, int_32>;
+    message?: pb<3, string>;
 }
 
 // MentionExtra (for building @mention text element)

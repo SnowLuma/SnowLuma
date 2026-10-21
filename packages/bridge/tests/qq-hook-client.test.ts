@@ -12,6 +12,7 @@ import {
     type LogEntry,
 } from '@snowluma/common/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CLIENT_MESSAGE_RECEIPT_CMD } from '@snowluma/common/protocol-types';
 import {
     HEADER_SIZE,
     listLiveLinuxPipePids,
@@ -144,6 +145,113 @@ describe('QqHookClient login wait lifecycle', () => {
         const waiting = client.waitForLogin();
         client.close();
         await expect(waiting).rejects.toThrow('closed');
+    });
+});
+
+describe('QqHookClient client message receipts', () => {
+    it('preserves receipt provenance and failure status separately from normal packets', async () => {
+        const sockets = mockControlPipe(12345, () => {});
+        const client = new QqHookClient(12345);
+        const onPacket = vi.fn();
+
+        try {
+            await client.startRecv(onPacket);
+            const socket = sockets.mock.results[0]!.value;
+            const body = Buffer.from([1, 2, 3]);
+            socket.emit(
+                'data',
+                pipeFrame({ op: PipeOp.clientMessageReceipt, value0: 42n, message: '10001', body }),
+            );
+            socket.emit(
+                'data',
+                pipeFrame({
+                    op: PipeOp.clientMessageReceipt,
+                    value0: 43n,
+                    message: '10001',
+                    status: -1,
+                }),
+            );
+            socket.emit(
+                'data',
+                pipeFrame({
+                    op: PipeOp.recvPacket,
+                    value0: 44n,
+                    message: '10001',
+                    cmd: CLIENT_MESSAGE_RECEIPT_CMD,
+                    body,
+                }),
+            );
+
+            expect(onPacket.mock.calls.map(([packet]) => packet)).toEqual([
+                {
+                    seq: 42,
+                    error: 0,
+                    cmd: CLIENT_MESSAGE_RECEIPT_CMD,
+                    uin: '10001',
+                    body,
+                    source: 'client-message',
+                },
+                {
+                    seq: 43,
+                    error: -1,
+                    cmd: CLIENT_MESSAGE_RECEIPT_CMD,
+                    uin: '10001',
+                    body: Buffer.alloc(0),
+                    source: 'client-message',
+                },
+                { seq: 44, error: 0, cmd: CLIENT_MESSAGE_RECEIPT_CMD, uin: '10001', body },
+            ]);
+        } finally {
+            client.close();
+        }
+    });
+
+    it('reports unsupported capability and invalid envelopes without breaking normal receive', async () => {
+        const entries: LogEntry[] = [];
+        setLogLevel('warn');
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+        const sockets = mockControlPipe(12345, () => {});
+        const client = new QqHookClient(12345);
+        const onPacket = vi.fn();
+
+        try {
+            await client.startRecv(onPacket);
+            const socket = sockets.mock.results[0]!.value;
+            socket.emit('data', pipeFrame({ op: PipeOp.clientMessageState, status: -1 }));
+
+            for (const patch of [
+                { value0: 0n },
+                { value0: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
+                { message: '' },
+                { cmd: 'unexpected' },
+                { requestId: 1 },
+            ]) {
+                socket.emit(
+                    'data',
+                    pipeFrame({
+                        op: PipeOp.clientMessageReceipt,
+                        value0: 42n,
+                        message: '10001',
+                        ...patch,
+                    }),
+                );
+            }
+
+            expect(onPacket).not.toHaveBeenCalled();
+            expect(
+                entries.filter(
+                    (entry) => entry.scope === 'QQHook.Runtime' && entry.level === 'warn',
+                ),
+            ).toHaveLength(6);
+            socket.emit(
+                'data',
+                pipeFrame({ op: PipeOp.recvPacket, cmd: 'normal', message: '10001', value0: 44n }),
+            );
+            expect(onPacket).toHaveBeenCalledOnce();
+        } finally {
+            client.close();
+            unsubscribe();
+        }
     });
 });
 

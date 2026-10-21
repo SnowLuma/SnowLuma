@@ -929,6 +929,42 @@ describe('HookSession — pipe-down must not clobber a settled error', () => {
 });
 
 describe('HookSession — packet forwarding', () => {
+    it('forwards client receipts only for the active account without changing direction', async () => {
+        const onPacket = vi.fn();
+        const ctx = makeSession({ pipeLive: true, onPacket });
+        await ctx.session.load();
+        ctx.session.onPipeUp();
+        await flush();
+        ctx.currentClient().fireLogin('10001');
+        const receipt: QqHookPacket = {
+            seq: 42,
+            error: 0,
+            cmd: 'ClientMessageReceipt',
+            uin: '10001',
+            source: 'client-message',
+            body: Buffer.from([1, 2, 3]),
+        };
+
+        for (const uin of ['', '0', '20002']) {
+            ctx.currentClient().firePacket({ ...receipt, uin });
+        }
+
+        expect(onPacket).not.toHaveBeenCalled();
+        ctx.currentClient().firePacket(receipt);
+        expect(onPacket).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                pid: 1234,
+                uin: '10001',
+                source: 'client-message',
+                fromClient: false,
+            }),
+        );
+        ctx.currentClient().fireLogin('20002');
+        ctx.currentClient().firePacket(receipt);
+        expect(onPacket).toHaveBeenCalledOnce();
+        await ctx.session.dispose();
+    });
+
     // These tests cover the field-rename + filter logic that used to live
     // inside the deleted NtqqHandler.onHookPacket. Inlining it here means
     // we can exercise the transformation with a plain vi.fn() sink, no

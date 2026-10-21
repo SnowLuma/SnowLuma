@@ -85,8 +85,18 @@ export class IncomingPacketPipeline {
     }
 
     process(pkt: PacketInfo): Promise<void> {
+        return this.processWithHandlers(pkt, this.cmdHandlers_.get(pkt.serviceCmd));
+    }
+
+    processEvents(pkt: PacketInfo, events: readonly QQEventVariant[]): Promise<void> {
+        return this.processWithHandlers(pkt, [() => [...events]]);
+    }
+
+    private processWithHandlers(
+        pkt: PacketInfo,
+        handlers: readonly CmdParser[] | undefined,
+    ): Promise<void> {
         const startedAt = Date.now();
-        const handlers = this.cmdHandlers_.get(pkt.serviceCmd);
 
         if (!handlers) {
             this.packetLog.trace(() => [

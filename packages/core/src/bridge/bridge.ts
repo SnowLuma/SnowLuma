@@ -4,7 +4,13 @@ import { packetTimeoutMs } from '@snowluma/bridge/packet-timeout';
 import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
-import { MSG_PUSH_CMD, parseMsgPushOrThrow, SysMsgDedup } from '@snowluma/protocol/msg-push';
+import {
+    MSG_PUSH_CMD,
+    parseMsgPushOrThrow,
+    SysMsgDedup,
+    decodeClientMessageReceipt,
+    fetchClientMessage,
+} from '@snowluma/protocol/msg-push';
 import { KICK_NT_CMD, parseKickNT } from '@snowluma/protocol/kick-nt';
 import { IncomingPacketPipeline, type CmdParser } from '@snowluma/protocol/packet-pipeline';
 import type { OnlineDeviceInfo } from '@snowluma/protocol/events';
@@ -38,6 +44,10 @@ export class Bridge implements BridgeInterface {
     private onlineClients_: readonly Readonly<OnlineDeviceInfo>[] | null = null;
     private disposePromise_: Promise<void> | null = null;
     private readonly pendingPackets_ = new Set<Promise<void>>();
+    private readonly clientMessageTasks_ = new Map<
+        string,
+        { connection: ProcessConnection; work: Promise<void> }
+    >();
     private rosterWarmupStarted_ = false;
     private settleRosterWarmup!: (result: RosterWarmupResult) => void;
     private readonly rosterWarmup = new Promise<RosterWarmupResult>((resolve) => {
@@ -111,9 +121,13 @@ export class Bridge implements BridgeInterface {
 
     bindPid(pid: number, client: PacketSender): void {
         const previous = this.activeConnection;
+        const existing = this.connections.get(pid);
         this.connections.delete(pid);
         // A new login stays healthy until the watchdog confirms a failure.
-        this.connections.set(pid, { pid, client, receiveHealthy: true });
+        const connection =
+            existing?.client === client ? existing : { pid, client, receiveHealthy: true };
+        connection.receiveHealthy = true;
+        this.connections.set(pid, connection);
 
         if (previous?.pid !== pid || previous.client !== client) {
             runtimeLog.trace(
@@ -190,10 +204,79 @@ export class Bridge implements BridgeInterface {
             return Promise.reject(new Error('Bridge is disposed'));
         }
 
-        const work = this.identity.initialization.then(() => this.pipeline.process(pkt));
+        const connection = this.connections.get(pkt.pid);
+        const work = this.identity.initialization.then(() =>
+            pkt.source === 'client-message'
+                ? this.processClientMessage(pkt, connection)
+                : this.pipeline.process(pkt),
+        );
         this.pendingPackets_.add(work);
         void work.finally(() => this.pendingPackets_.delete(work)).catch(() => undefined);
         return work;
+    }
+
+    private async processClientMessage(
+        pkt: PacketInfo,
+        connection: ProcessConnection | undefined,
+    ): Promise<void> {
+        const requireConnection = (): ProcessConnection => {
+            if (
+                this.disposePromise_ ||
+                !connection ||
+                this.connections.get(pkt.pid) !== connection
+            ) {
+                throw new Error('Client message receipt belongs to an inactive connection');
+            }
+
+            return connection;
+        };
+
+        const current = requireConnection();
+        const receipt = decodeClientMessageReceipt(pkt, this.identity.uin);
+        const key = JSON.stringify([
+            pkt.pid,
+            receipt.peerUid,
+            receipt.sequence,
+            receipt.clientSequence,
+            receipt.timestamp,
+        ]);
+        const pending = this.clientMessageTasks_.get(key);
+
+        if (pending?.connection === current) {
+            return pending.work;
+        }
+
+        if (this.clientMessageTasks_.size >= 256) {
+            throw new Error('Too many pending client message lookups');
+        }
+
+        runtimeLog.trace(
+            'client_message_lookup_start uin=%j pid=%d seqId=%d',
+            this.identity.uin,
+            pkt.pid,
+            pkt.seqId,
+        );
+        const work = (async () => {
+            const event = await fetchClientMessage(current.client, this.identity, receipt);
+            requireConnection();
+            await this.pipeline.processEvents(pkt, [event]);
+            runtimeLog.trace(
+                'client_message_lookup_complete uin=%j pid=%d seqId=%d',
+                this.identity.uin,
+                pkt.pid,
+                pkt.seqId,
+            );
+        })();
+        const task = { connection: current, work };
+        this.clientMessageTasks_.set(key, task);
+
+        try {
+            await work;
+        } finally {
+            if (this.clientMessageTasks_.get(key) === task) {
+                this.clientMessageTasks_.delete(key);
+            }
+        }
     }
 
     rememberUploadedFile(meta: UploadedFileMeta): void {

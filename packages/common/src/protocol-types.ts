@@ -1,3 +1,5 @@
+export const CLIENT_MESSAGE_RECEIPT_CMD = 'ClientMessageReceipt';
+
 export interface PacketInfo {
     pid: number;
     uin: string;
@@ -6,6 +8,7 @@ export interface PacketInfo {
     seqId: number;
     retCode: number;
     fromClient: boolean;
+    source?: 'client-message';
     body: Uint8Array;
 }
 export type PacketSink = (packet: PacketInfo) => void;

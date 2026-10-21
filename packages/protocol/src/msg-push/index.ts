@@ -26,6 +26,7 @@ import { deriveSysMsgDedupIdentity, SysMsgDedup } from './sysmsg-dedup';
 
 export { deriveSysMsgDedupIdentity, SysMsgDedup } from './sysmsg-dedup';
 export type { SysMsgDedupIdentity } from './sysmsg-dedup';
+export { decodeClientMessageReceipt, fetchClientMessage } from './client-message-receipt';
 
 export { SSO_GET_GROUP_MSG_CMD, fetchGroupMessageRange } from './fetch-group-history';
 export {

@@ -957,6 +957,17 @@ export class HookSession extends EventEmitter {
             return;
         }
 
+        if (
+            packet.source === 'client-message' &&
+            (!isRealUin(packet.uin) || packet.uin !== this._uin)
+        ) {
+            this.log.warn(
+                'Client message receipt belongs to an inactive account: PID=%d',
+                this.pid,
+            );
+            return;
+        }
+
         const uin = packet.uin || this._uin;
         // Routing requires a real UIN, but even a frame carrying UIN=0 proves the
         // receive hook is alive. Attribute that evidence to the current epoch
@@ -986,6 +997,7 @@ export class HookSession extends EventEmitter {
             seqId: packet.seq,
             retCode: packet.error,
             fromClient: false,
+            ...(packet.source ? { source: packet.source } : {}),
             body: Buffer.from(packet.body),
         });
     }
