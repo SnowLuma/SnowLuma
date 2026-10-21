@@ -169,7 +169,7 @@ jobs:
 
           1. 解压与你的系统架构匹配的压缩包。
           2. Windows 运行 \`launcher.bat\`；Linux 运行 \`./launcher.sh\`。
-          3. 浏览器访问 http://localhost:5099，初始账号为 \`admin\`，密码见启动日志。
+          3. 浏览器访问 http://localhost:5099 ，初始账号为 \`admin\`，密码见启动日志。
 
           无人值守部署可同时设置 \`SNOWLUMA_ACCEPT_EULA=1\` 与 \`SNOWLUMA_ACCEPT_PRIVACY=1\` 完成协议确认。设置这些变量即表示运营者已阅读并同意发行包内的 EULA 与隐私政策；缺少任意一项时仍会显示同意页面。
 
