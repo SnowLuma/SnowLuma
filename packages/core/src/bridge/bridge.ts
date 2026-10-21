@@ -257,7 +257,11 @@ export class Bridge implements BridgeInterface {
             pkt.seqId,
         );
         const work = (async () => {
-            const event = await fetchClientMessage(current.client, this.identity, receipt);
+            const source: PacketSender = {
+                sendPacket: (cmd, body, timeout) =>
+                    requireConnection().client.sendPacket(cmd, body, timeout),
+            };
+            const event = await fetchClientMessage(source, this.identity, receipt);
             requireConnection();
             await this.pipeline.processEvents(pkt, [event]);
             runtimeLog.trace(

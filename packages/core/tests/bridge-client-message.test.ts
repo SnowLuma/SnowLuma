@@ -20,6 +20,7 @@ function deferred<T>() {
 
 afterEach(async () => {
     await Promise.all(bridges.splice(0).map((bridge) => bridge.dispose()));
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -94,6 +95,32 @@ async function setup() {
 }
 
 describe('Bridge client message recovery', () => {
+    it('does not retry a delayed lookup on a detached or replacement connection', async () => {
+        const ctx = await setup();
+        vi.useFakeTimers();
+        ctx.sendPacket.mockResolvedValue({
+            ...response(),
+            responseData: Buffer.from(
+                protobuf_encode<SsoGetC2cMsgResponse>({
+                    result: 100000301,
+                    friendUid: 'u_test_peer',
+                }),
+            ),
+        });
+        const work = ctx.bridge.onPacket(packet());
+        const rejected = expect(work).rejects.toThrow('inactive connection');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ctx.sendPacket).toHaveBeenCalledOnce();
+        ctx.bridge.detachPid(1234);
+        const replacement = vi.fn<PacketSender['sendPacket']>();
+        ctx.bridge.bindPid(1234, { sendPacket: replacement });
+        await vi.runAllTimersAsync();
+        await rejected;
+        expect(ctx.sendPacket).toHaveBeenCalledOnce();
+        expect(replacement).not.toHaveBeenCalled();
+        expect(ctx.received).not.toHaveBeenCalled();
+    });
+
     it('dispatches confirmed content through the normal event pipeline', async () => {
         const ctx = await setup();
         await ctx.bridge.onPacket(packet());

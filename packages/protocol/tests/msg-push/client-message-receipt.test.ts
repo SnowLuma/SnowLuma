@@ -18,6 +18,7 @@ const time = 1_700_000_000;
 const identities: IdentityService[] = [];
 
 afterEach(async () => {
+    vi.useRealTimers();
     await Promise.all(identities.splice(0).map((identity) => identity.close()));
 });
 
@@ -44,6 +45,16 @@ function message(): PushMsgBody {
         responseHead: { fromUin: Number(self), fromUid: 'u_test_self', toUin: 20002, toUid: peer },
         contentHead: { msgType: 166, sequence: 9, ntMsgSeq: 87, timestamp: time, msgId: 123456 },
         body: { richText: { elems: [{ text: { str: 'hello' } }, { face: { index: 1 } }] } },
+    };
+}
+
+function lookupResponse(response: SsoGetC2cMsgResponse): SendPacketResult {
+    return {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<SsoGetC2cMsgResponse>(response)),
     };
 }
 
@@ -254,6 +265,48 @@ describe('client message receipts', () => {
         await expect(setup([message(), message()]).run()).rejects.toThrow('expected one');
         await expect(setup([message()], 'u_other').run()).rejects.toThrow('conversation');
     });
+
+    it('retries only the confirmed message while storage catches up', async () => {
+        const ctx = setup();
+        vi.useFakeTimers();
+        ctx.sendPacket.mockResolvedValueOnce(
+            lookupResponse({ result: 100000301, friendUid: peer, messages: [] }),
+        );
+        const work = ctx.run();
+        await vi.advanceTimersByTimeAsync(99);
+        expect(ctx.sendPacket).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await work).toMatchObject({ ntMsgSeq: 87, clientSeq: 9 });
+        expect(ctx.sendPacket).toHaveBeenCalledTimes(2);
+        expect(ctx.sendPacket.mock.calls[1]).toEqual(ctx.sendPacket.mock.calls[0]);
+    });
+
+    it('reports a bounded failure when storage never contains the confirmed message', async () => {
+        const ctx = setup();
+        vi.useFakeTimers();
+        ctx.sendPacket.mockResolvedValue(
+            lookupResponse({ result: 100000301, friendUid: peer, messages: [] }),
+        );
+        const rejected = expect(ctx.run()).rejects.toThrow('still unavailable after 6 attempts');
+        await vi.runAllTimersAsync();
+        await rejected;
+        expect(ctx.sendPacket).toHaveBeenCalledTimes(6);
+    });
+
+    it.each([
+        { result: 100000302, friendUid: peer, messages: [] },
+        { result: 100000301, friendUid: 'u_other', messages: [] },
+        { result: 100000301, messages: [] },
+        { result: 100000301, friendUid: peer, messages: [message()] },
+    ] satisfies SsoGetC2cMsgResponse[])(
+        'does not retry unrelated or inconsistent errors: %j',
+        async (response) => {
+            const ctx = setup();
+            ctx.sendPacket.mockResolvedValue(lookupResponse(response));
+            await expect(ctx.run()).rejects.toThrow();
+            expect(ctx.sendPacket).toHaveBeenCalledOnce();
+        },
+    );
 
     it('preserves distinct identities for equal text', async () => {
         const first = setup();

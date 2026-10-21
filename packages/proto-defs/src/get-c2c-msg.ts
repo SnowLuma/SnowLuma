@@ -1,4 +1,4 @@
-import type { pb, pb_repeated, uint_32, bool } from '@snowluma/proton';
+import type { pb, pb_repeated, uint_32, int_32, bool } from '@snowluma/proton';
 import type { PushMsgBody } from './message';
 
 // trpc.msg.register_proxy.RegisterProxy.SsoGetC2cMsg — fetch private (c2c)
@@ -15,6 +15,8 @@ export interface SsoGetC2cMsg {
 }
 
 export interface SsoGetC2cMsgResponse {
+    result?: pb<1, int_32>;
+    errorMessage?: pb<2, string>;
     friendUid?: pb<4, string>;
     messages?: pb_repeated<7, PushMsgBody>;
 }

@@ -1,6 +1,7 @@
 import { CLIENT_MESSAGE_RECEIPT_CMD, type PacketInfo } from '@snowluma/common/protocol-types';
 import type { PacketSender } from '@snowluma/common/packet-sender';
 import { isRealUin } from '@snowluma/common/uin';
+import { createLogger } from '@snowluma/common/logger';
 import type { SendMessageResponse } from '@snowluma/proto-defs/action';
 import type { SsoGetC2cMsg, SsoGetC2cMsgResponse } from '@snowluma/proto-defs/get-c2c-msg';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
@@ -12,6 +13,9 @@ import { decodeFriendMessage } from './decoders/friend-message';
 import { PkgType } from './enums';
 import { SSO_GET_C2C_MSG_CMD } from './fetch-c2c-history';
 import { requirePacketResponse } from './packet-response';
+
+const log = createLogger('MsgPush.ClientMessage');
+const historyRetryDelays = [100, 250, 500, 1000, 2000] as const;
 
 export interface ClientMessageReceipt {
     readonly peerUid: string;
@@ -91,13 +95,47 @@ export async function fetchClientMessage(
         startSequence: receipt.sequence,
         endSequence: receipt.sequence,
     });
-    const result = await sender.sendPacket(SSO_GET_C2C_MSG_CMD, Buffer.from(request));
-    const response = protobuf_decode<SsoGetC2cMsgResponse>(
-        requirePacketResponse(result, 'Client message lookup'),
-    );
+    let response: SsoGetC2cMsgResponse;
 
-    if (response.friendUid && response.friendUid !== receipt.peerUid) {
-        throw new Error('Client message lookup returned another conversation');
+    for (let attempt = 0; ; attempt++) {
+        const result = await sender.sendPacket(SSO_GET_C2C_MSG_CMD, Buffer.from(request), 5000);
+        response = protobuf_decode<SsoGetC2cMsgResponse>(
+            requirePacketResponse(result, 'Client message lookup'),
+        );
+
+        if (response.friendUid && response.friendUid !== receipt.peerUid) {
+            throw new Error('Client message lookup returned another conversation');
+        }
+
+        // A successful send can precede visibility in message storage. Only
+        // its explicit not-yet-stored result permits retrying this exact ID.
+        if (
+            response.result === 100000301 &&
+            response.friendUid === receipt.peerUid &&
+            !response.messages?.length
+        ) {
+            const delay = historyRetryDelays[attempt];
+
+            if (delay === undefined) {
+                throw new Error(
+                    `Client message history is still unavailable after ${attempt + 1} attempts (code=${response.result})`,
+                );
+            }
+
+            log.debug(
+                'Confirmed client message is not yet in history: attempt=%d nextDelayMs=%d',
+                attempt + 1,
+                delay,
+            );
+            await new Promise<void>((resolve) => setTimeout(resolve, delay));
+            continue;
+        }
+
+        if ((response.result ?? 0) !== 0) {
+            throw new Error(`Client message lookup failed (code=${response.result})`);
+        }
+
+        break;
     }
 
     if (response.messages?.length !== 1) {
