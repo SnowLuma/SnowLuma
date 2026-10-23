@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { ActionCallError } from './results.js';
+import type { TraceContext } from './tracing.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_STREAM_BYTES = 4 * 1024 * 1024 * 1024;
@@ -26,7 +27,7 @@ const MAX_FILE_CHUNKS = 200_000;
 const RESET_TIMEOUT_MS = 5_000;
 const MAX_ACTIVE_STREAMS = 4;
 const INTERNAL_STREAM_CALL = Symbol('snowluma.mcp.internalStreamCall');
-const MCP_UPLOAD_OWNED_FIELDS = [
+export const MCP_UPLOAD_OWNED_FIELDS = [
     'stream_id',
     'chunk_data',
     'chunk_index',
@@ -135,6 +136,18 @@ export interface TransferProgress {
 
 export interface CallOptions {
     signal?: AbortSignal;
+    trace?: TraceContext;
+}
+
+function requestHeaders(
+    base: Record<string, string>,
+    trace?: TraceContext,
+): Record<string, string> {
+    return {
+        ...base,
+        ...(trace ? { traceparent: trace.traceparent } : {}),
+        ...(trace?.tracestate ? { tracestate: trace.tracestate } : {}),
+    };
 }
 
 export interface StreamCallOptions extends CallOptions {
@@ -733,7 +746,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                 signal.throwIfAborted();
                 const res = await fetchImpl(opts.endpoint, {
                     method: 'POST',
-                    headers,
+                    headers: requestHeaders(headers, options?.trace),
                     body: JSON.stringify({ action, params }),
                     signal,
                 });
@@ -842,6 +855,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                         (uploadParams, signal) =>
                             client.callStream(action, uploadParams, {
                                 ...(signal ? { signal } : {}),
+                                ...(options.trace ? { trace: options.trace } : {}),
                                 [INTERNAL_STREAM_CALL]: true,
                             } as InternalStreamCallOptions),
                         options.onProgress,
@@ -867,7 +881,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                     throwIfCancelled(options?.signal, action, 'connection');
                     res = await fetchImpl(opts.endpoint, {
                         method: 'POST',
-                        headers,
+                        headers: requestHeaders(headers, options?.trace),
                         body: JSON.stringify({ action, params }),
                         signal: requestSignal,
                     });

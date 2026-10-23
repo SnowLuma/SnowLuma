@@ -8,10 +8,11 @@
 // Visibility is gated by `mode`, and `callTool` RE-checks every permission
 // (defense in depth: a client may call a tool that was never listed).
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/server';
 import { ACTIONS, CATEGORIES } from './generated/catalog.js';
 import type { CatalogAction } from './types.js';
 import type { ActionClient } from './client.js';
+import { MCP_UPLOAD_OWNED_FIELDS } from './client.js';
 import { discover, FILTER_PROPERTIES } from './discovery.js';
 import {
     asText,
@@ -24,6 +25,7 @@ import {
 } from './results.js';
 import { VERSION } from './version.js';
 import type { TransferProgress } from './client.js';
+import type { TraceContext } from './tracing.js';
 
 export type Mode = 'docs' | 'read' | 'write';
 
@@ -186,6 +188,7 @@ export interface CallCtx {
     mode: Mode;
     client?: ActionClient;
     signal?: AbortSignal;
+    trace?: TraceContext;
     onProgress?: (progress: TransferProgress) => Promise<void>;
 }
 
@@ -232,13 +235,21 @@ export async function callTool(
     }
 }
 
-/** Shared execution path for query_action (read) / invoke_action (write).
- *  Re-checks mode + readOnly routing regardless of which tools were listed. */
-async function execute(
+export interface PreparedActionCall {
+    action: string;
+    params: Record<string, unknown>;
+    inputFile?: string;
+    catalog: CatalogAction;
+    client: ActionClient;
+    inputSchema: Record<string, unknown>;
+}
+
+/** The same side-effect-free gate is used before execution and input collection. */
+export function prepareActionCall(
     args: Record<string, unknown>,
     ctx: CallCtx,
     kind: 'read' | 'write',
-): Promise<ToolResult> {
+): PreparedActionCall | ToolResult {
     if (kind === 'write' && ctx.mode !== 'write') {
         return asError(
             '写操作未启用：需设置 SNOWLUMA_MCP_MODE=write。',
@@ -321,22 +332,54 @@ async function execute(
         return asError('execution.input_file 仅可用于 upload_file_stream。');
     }
 
+    const inputSchema =
+        inputFile && Array.isArray(cat.inputSchema.required)
+            ? {
+                  ...cat.inputSchema,
+                  required: cat.inputSchema.required.filter(
+                      (key) => !MCP_UPLOAD_OWNED_FIELDS.includes(key),
+                  ),
+              }
+            : cat.inputSchema;
+    return { action, params, inputFile, catalog: cat, client: ctx.client, inputSchema };
+}
+
+/** Shared execution path for query_action (read) / invoke_action (write). */
+async function execute(
+    args: Record<string, unknown>,
+    ctx: CallCtx,
+    kind: 'read' | 'write',
+): Promise<ToolResult> {
+    const prepared = prepareActionCall(args, ctx, kind);
+
+    if ('structuredContent' in prepared) {
+        return prepared;
+    }
+
+    const { action, params, inputFile, catalog: cat, client } = prepared;
+
     try {
         ctx.signal?.throwIfAborted();
 
         if (cat.stream) {
-            const result = await ctx.client.callStream(action, params, {
+            const result = await client.callStream(action, params, {
                 ...(inputFile ? { inputFile } : {}),
                 ...(ctx.signal ? { signal: ctx.signal } : {}),
+                ...(ctx.trace ? { trace: ctx.trace } : {}),
                 ...(ctx.onProgress ? { onProgress: ctx.onProgress } : {}),
             });
             return asText(result, envelopeDiagnostics(result.terminal));
         }
 
-        const result = await ctx.client.call(
+        const result = await client.call(
             action,
             params,
-            ctx.signal ? { signal: ctx.signal } : undefined,
+            ctx.signal || ctx.trace
+                ? {
+                      ...(ctx.signal ? { signal: ctx.signal } : {}),
+                      ...(ctx.trace ? { trace: ctx.trace } : {}),
+                  }
+                : undefined,
         );
         return asText(result, envelopeDiagnostics(result));
     } catch (err) {

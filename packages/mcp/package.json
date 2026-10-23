@@ -27,9 +27,9 @@
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true})\"",
     "gen": "vitest run scripts/gen-catalog.test.ts",
     "prebuild": "pnpm run clean && pnpm run gen",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-message-app.mjs",
     "prepack": "pnpm run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p apps/tsconfig.json",
     "test": "vitest run",
     "start": "node dist/server.js"
   },
@@ -41,15 +41,20 @@
     "qq"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.0"
+    "@modelcontextprotocol/server": "^2.3.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@snowluma/onebot": "workspace:*",
     "@snowluma/proton": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@types/ws": "^8.18.1",
+    "@modelcontextprotocol/ext-apps": "^2.0.3"
   },
   "engines": {
     "node": "^24.22.1 || >=26.12.1"

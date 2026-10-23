@@ -40,6 +40,33 @@ function fakeOneBot(): ActionClient {
 }
 
 describe('MCP protocol compatibility', () => {
+    it('accepts legacy trace metadata and returns its correlation without changing the tool result', async () => {
+        const onebot = fakeOneBot();
+        const { client } = await connect(onebot);
+        const parent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+        const result = await client.callTool({
+            name: 'query_action',
+            arguments: { action: 'get_status' },
+            _meta: { traceparent: parent },
+        });
+        expect(result._meta?.traceparent).toMatch(
+            /^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$/,
+        );
+        expect(onebot.call).toHaveBeenCalledWith(
+            'get_status',
+            {},
+            expect.objectContaining({
+                trace: { traceparent: result._meta?.traceparent },
+            }),
+        );
+        expect(result.content).toEqual([
+            {
+                type: 'text',
+                text: JSON.stringify({ status: 'ok', retcode: 0, data: { online: true } }, null, 2),
+            },
+        ]);
+    });
+
     it('publishes output schemas that a real MCP client can validate for every tool', async () => {
         const { client } = await connect(fakeOneBot());
         const tools = await client.listTools();
@@ -48,7 +75,10 @@ describe('MCP protocol compatibility', () => {
             expect(tool.outputSchema).toBeDefined();
             const result = await client.callTool({
                 name: tool.name,
-                arguments: { name: 'get_status', query: 'history', action: 'get_status' },
+                arguments:
+                    tool.name === 'preview_message'
+                        ? { message_type: 'group', target_id: 1, text: 'preview' }
+                        : { name: 'get_status', query: 'history', action: 'get_status' },
             });
             expect(result.isError).toBeUndefined();
             expect(result.structuredContent).toMatchObject({ diagnostics: { outcome: 'success' } });

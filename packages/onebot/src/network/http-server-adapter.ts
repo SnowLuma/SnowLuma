@@ -1,4 +1,4 @@
-import { createLogger } from '@snowluma/common/logger';
+import { createLogger, runWithTraceRequest } from '@snowluma/common/logger';
 import { WebSocketServer } from '@snowluma/websocket';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import type { ApiHandler } from '../api-handler';
@@ -13,6 +13,7 @@ import {
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
 import { isAuthorized, normalizePath } from './utils';
 import { WsServerConnections } from './ws-server-connections';
+import { httpTraceparent } from './http-trace';
 
 const moduleLog = createLogger('OneBot.HTTP');
 
@@ -345,7 +346,11 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         });
     }
 
-    private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    private handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        return runWithTraceRequest(() => this.handleRequestInContext(req, res));
+    }
+
+    private async handleRequestInContext(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const apiQuiescedAtIngress = this.ctx.api.isAcceptingActions === false;
 
         if (apiQuiescedAtIngress) {
@@ -380,6 +385,16 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         if (!isAuthorized(req, accessToken)) {
             respond(401, { status: 'failed', retcode: 1401, data: null, wording: 'unauthorized' });
             return;
+        }
+
+        if (req.headers.traceparent !== undefined) {
+            const traceparent = httpTraceparent(req.headers.traceparent);
+
+            if (traceparent) {
+                this.log.trace('http_trace traceparent=%s', traceparent);
+            } else {
+                this.log.trace('http_trace ignored invalid traceparent');
+            }
         }
 
         if (req.method === 'GET' && !action) {
