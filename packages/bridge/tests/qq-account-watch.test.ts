@@ -1,32 +1,68 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as fs from 'node:fs';
-import { mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { EventEmitter } from 'node:events';
+import type { FSWatcher, WatchListener } from 'node:fs';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { createLogger } from '@snowluma/common/logger';
-import { watchAccountFiles } from '../src/qq-account/watch';
+import { watchAccountChangesForPids, watchAccountFiles } from '../src/qq-account/watch';
 
-vi.mock('node:fs', async (importOriginal) => {
-    const actual = await importOriginal<typeof fs>();
-    return { ...actual, watch: vi.fn(actual.watch) };
-});
+const files = vi.hoisted(() => ({
+    watch: vi.fn<
+        (
+            directory: string,
+            options: { persistent: boolean },
+            listener: WatchListener<string>,
+        ) => FSWatcher
+    >(),
+}));
 
-let root: string;
+vi.mock('node:fs', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('node:fs')>()),
+    watch: files.watch,
+}));
+
+class TestWatcher extends EventEmitter implements FSWatcher {
+    // Keep callbacks reachable after close to exercise queued, stale events.
+    close = vi.fn();
+    ref() {
+        return this;
+    }
+    unref() {
+        return this;
+    }
+}
+
+const root = path.resolve('account-watch-fixture');
+const directories = new Set<string>();
+const watchers: TestWatcher[] = [];
 const subscriptions: Array<() => void> = [];
+const platform = process.platform;
 
-beforeEach(async () => {
-    root = await mkdtemp(path.join(os.tmpdir(), 'snowluma-account-watch-'));
+beforeEach(() => {
+    vi.useFakeTimers();
+    directories.add(root);
+    files.watch.mockImplementation((directory, _options, listener) => {
+        if (!directories.has(directory)) {
+            throw Object.assign(new Error('directory missing'), { code: 'ENOENT' });
+        }
+
+        const watcher = new TestWatcher();
+        watcher.on('change', listener);
+        watchers.push(watcher);
+        return watcher;
+    });
 });
 
-afterEach(async () => {
+afterEach(() => {
     for (const stop of subscriptions.splice(0)) {
         stop();
     }
 
-    await rm(root, { recursive: true, force: true });
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    watchers.length = 0;
+    directories.clear();
+    files.watch.mockReset();
+    vi.useRealTimers();
     vi.restoreAllMocks();
-    vi.clearAllMocks();
 });
 
 function subscribe(dbPaths = [path.join(root, 'login.db')]) {
@@ -38,58 +74,145 @@ function subscribe(dbPaths = [path.join(root, 'login.db')]) {
     return { changed, stop, warning };
 }
 
+// Native filesystem delivery is covered separately on the production platforms.
+// These tests control event ordering and the debounce clock, not OS startup timing.
 describe('account file changes', () => {
-    it('coalesces login database and WAL changes while ignoring message data and SHM', async () => {
+    it('coalesces login database and WAL changes while ignoring message data and SHM', () => {
         const dbPath = path.join(root, 'login.db');
         const { changed } = subscribe([dbPath, dbPath]);
-        expect(fs.watch).toHaveBeenCalledTimes(1);
-        await writeFile(dbPath, 'login');
-        await writeFile(`${dbPath}-wal`, 'wal');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-        await writeFile(path.join(root, 'nt_msg.db'), 'message');
-        await writeFile(`${dbPath}-shm`, 'shared memory');
-        await delay(350);
-        expect(changed).toHaveBeenCalledTimes(1);
-    });
-
-    it('observes database replacement and WAL recreation', async () => {
-        const dbPath = path.join(root, 'login.db');
-        await writeFile(dbPath, 'initial');
-        const { changed } = subscribe();
-        await writeFile(path.join(root, 'replacement'), 'replacement');
-        await rename(path.join(root, 'replacement'), dbPath);
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-        await writeFile(dbPath, 'updated');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
-        await writeFile(`${dbPath}-wal`, 'wal');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(3));
-        await rm(`${dbPath}-wal`);
-        await writeFile(`${dbPath}-wal`, 'new wal');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(4));
-    });
-
-    it('starts watching login data created after QQ process discovery', async () => {
-        const dbPath = path.join(root, 'QQ', 'global', 'nt_db', 'login.db');
-        const { changed } = subscribe([dbPath]);
-        await mkdir(path.dirname(dbPath), { recursive: true });
-        await writeFile(dbPath, 'initial');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-        await writeFile(`${dbPath}-wal`, 'login');
-        await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
-    });
-
-    it('closes watchers and cancels pending notifications on disposal', async () => {
-        const { changed, stop } = subscribe();
-        await writeFile(path.join(root, 'login.db'), 'initial');
-        await delay(30);
-        stop();
-        await writeFile(path.join(root, 'login.db'), 'later');
-        await delay(350);
+        expect(files.watch).toHaveBeenCalledExactlyOnceWith(
+            root,
+            { persistent: false },
+            expect.any(Function),
+        );
+        const watcher = watchers[0]!;
+        watcher.emit('change', 'change', 'login.db');
+        vi.advanceTimersByTime(100);
+        watcher.emit('change', 'change', 'login.db-wal');
+        vi.advanceTimersByTime(249);
         expect(changed).not.toHaveBeenCalled();
+        watcher.emit('change', 'change', 'nt_msg.db');
+        watcher.emit('change', 'change', 'login.db-shm');
+        vi.advanceTimersByTime(1);
+        expect(changed).toHaveBeenCalledOnce();
+        vi.advanceTimersByTime(1000);
+        expect(changed).toHaveBeenCalledOnce();
     });
 
-    it('reports watch failures without starting a polling fallback', async () => {
-        vi.mocked(fs.watch).mockImplementationOnce(() => {
+    it('keeps the directory watch across database replacement and WAL recreation', () => {
+        const { changed } = subscribe();
+        const watcher = watchers[0]!;
+        watcher.emit('change', 'rename', 'replacement');
+        vi.advanceTimersByTime(250);
+        expect(changed).not.toHaveBeenCalled();
+        watcher.emit('change', 'rename', 'login.db');
+        vi.advanceTimersByTime(250);
+        watcher.emit('change', 'change', 'login.db');
+        vi.advanceTimersByTime(250);
+        watcher.emit('change', 'rename', 'login.db-wal');
+        vi.advanceTimersByTime(250);
+        watcher.emit('change', 'rename', 'login.db-wal');
+        watcher.emit('change', 'rename', 'login.db-wal');
+        vi.advanceTimersByTime(250);
+        expect(changed).toHaveBeenCalledTimes(4);
+        expect(files.watch).toHaveBeenCalledOnce();
+        expect(watcher.close).not.toHaveBeenCalled();
+    });
+
+    it('moves to newly created directories one level at a time', () => {
+        const dbDirectory = path.join(root, 'QQ', 'global', 'nt_db');
+        const { changed } = subscribe([path.join(dbDirectory, 'login.db')]);
+        const ancestor = watchers[0]!;
+        const attempts = files.watch.mock.calls.length;
+        ancestor.emit('change', 'rename', 'unrelated');
+        ancestor.emit('change', 'change', 'login.db-wal');
+        expect(files.watch).toHaveBeenCalledTimes(attempts);
+        expect(vi.getTimerCount()).toBe(0);
+
+        let directory = root;
+
+        for (const segment of ['QQ', 'global', 'nt_db']) {
+            directory = path.join(directory, segment);
+            directories.add(directory);
+            const previous = watchers.at(-1)!;
+            previous.emit('change', 'rename', segment);
+            expect(previous.close).toHaveBeenCalledOnce();
+            expect(files.watch).toHaveBeenLastCalledWith(
+                directory,
+                { persistent: false },
+                expect.any(Function),
+            );
+        }
+
+        vi.advanceTimersByTime(250);
+        expect(changed).toHaveBeenCalledOnce();
+        watchers.at(-1)!.emit('change', 'change', 'login.db-wal');
+        vi.advanceTimersByTime(250);
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['QQ', null])(
+        'observes an entire new directory tree from a %s ancestor event',
+        (filename) => {
+            const dbDirectory = path.join(root, 'QQ', 'global', 'nt_db');
+            const { changed, warning } = subscribe([path.join(dbDirectory, 'login.db')]);
+            const ancestor = watchers[0]!;
+            directories.add(dbDirectory);
+            ancestor.emit('change', 'rename', filename);
+            expect(ancestor.close).toHaveBeenCalledOnce();
+            expect(files.watch).toHaveBeenLastCalledWith(
+                dbDirectory,
+                { persistent: false },
+                expect.any(Function),
+            );
+            const attempts = files.watch.mock.calls.length;
+            vi.advanceTimersByTime(250);
+            expect(changed).toHaveBeenCalledOnce();
+
+            ancestor.emit('change', 'rename', 'QQ');
+            ancestor.emit('error', new Error('late error'));
+            vi.advanceTimersByTime(250);
+            expect(files.watch).toHaveBeenCalledTimes(attempts);
+            expect(changed).toHaveBeenCalledOnce();
+            expect(warning).not.toHaveBeenCalled();
+            watchers.at(-1)!.emit('change', 'change', 'login.db-wal');
+            vi.advanceTimersByTime(250);
+            expect(changed).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it('notifies when the filesystem does not supply a filename', () => {
+        const { changed } = subscribe();
+        watchers[0]!.emit('change', 'change', null);
+        vi.advanceTimersByTime(250);
+        expect(changed).toHaveBeenCalledOnce();
+    });
+
+    it('closes every watcher and cancels pending notifications on disposal', () => {
+        const { changed, stop, warning } = subscribe([
+            path.join(root, 'login.db'),
+            path.join(root, 'other', 'login.db'),
+        ]);
+        expect(watchers).toHaveLength(2);
+        watchers[0]!.emit('change', 'change', 'login.db');
+        vi.advanceTimersByTime(30);
+        expect(vi.getTimerCount()).toBe(1);
+        stop();
+        expect(vi.getTimerCount()).toBe(0);
+
+        for (const watcher of watchers) {
+            expect(watcher.close).toHaveBeenCalledOnce();
+            watcher.emit('change', 'rename', null);
+            watcher.emit('error', new Error('late error'));
+        }
+
+        vi.advanceTimersByTime(1000);
+        expect(changed).not.toHaveBeenCalled();
+        expect(warning).not.toHaveBeenCalled();
+    });
+
+    it('reports watch failures without starting a polling fallback', () => {
+        files.watch.mockImplementationOnce(() => {
             throw Object.assign(new Error('access denied'), { code: 'EACCES' });
         });
         const { changed, warning } = subscribe();
@@ -98,22 +221,33 @@ describe('account file changes', () => {
             path.join(root, 'login.db'),
             'access denied',
         );
-        await delay(350);
-        expect(fs.watch).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+        vi.advanceTimersByTime(1000);
+        expect(files.watch).toHaveBeenCalledOnce();
         expect(changed).not.toHaveBeenCalled();
     });
 
     it('reports asynchronous watch errors and closes the failed watcher', () => {
         const { changed, warning } = subscribe();
-        const watcher = vi.mocked(fs.watch).mock.results[0]!.value;
-        const close = vi.spyOn(watcher, 'close');
+        const watcher = watchers[0]!;
         watcher.emit('error', new Error('watch unavailable'));
-        expect(close).toHaveBeenCalledOnce();
+        expect(watcher.close).toHaveBeenCalledOnce();
         expect(warning).toHaveBeenCalledWith(
             'account watch failed: path=%s err=%s',
             path.join(root, 'login.db'),
             'watch unavailable',
         );
+        watcher.emit('change', 'change', 'login.db');
+        vi.advanceTimersByTime(250);
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it('does not start account file watchers through the production entry point on macOS', () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+        const changed = vi.fn();
+        subscriptions.push(watchAccountChangesForPids([123], changed));
+        expect(files.watch).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
         expect(changed).not.toHaveBeenCalled();
     });
 });
