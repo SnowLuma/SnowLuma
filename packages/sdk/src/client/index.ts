@@ -4,6 +4,7 @@ export { SnowLumaWebSocketClient, createWebSocketClient } from './websocket-clie
 
 export type { SnowLumaHttpClientOptions } from './http-client.js';
 export type {
+    EventWaitOptions,
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,

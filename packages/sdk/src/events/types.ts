@@ -4,6 +4,7 @@ import type {
     OneBotMessageEvent,
     OutgoingMessage,
     RequestOptions,
+    SendMessageResult,
     SnowLumaEvent,
 } from '../types/index.js';
 
@@ -14,14 +15,14 @@ export type EventPredicate<TEvent extends SnowLumaEvent = SnowLumaEvent> = (
     event: SnowLumaEvent,
 ) => event is TEvent;
 
-export type EventHandler<TEvent extends SnowLumaEvent = SnowLumaEvent> = (
-    event: TEvent,
-    context: SnowLumaEventContext<TEvent>,
-) => MaybePromise;
+export type EventHandler<
+    TEvent extends SnowLumaEvent = SnowLumaEvent,
+    TContext extends SnowLumaEventContext<TEvent> = SnowLumaEventContext<TEvent>,
+> = (event: TEvent, context: TContext) => MaybePromise;
 
-export type EventMiddleware = (
+export type EventMiddleware<TContext extends SnowLumaEventContext = SnowLumaEventContext> = (
     event: SnowLumaEvent,
-    context: SnowLumaEventContext,
+    context: TContext,
     next: EventNext,
 ) => MaybePromise;
 
@@ -44,6 +45,17 @@ export interface SnowLumaEventContext<TEvent extends SnowLumaEvent = SnowLumaEve
     quickOperation(operation: JsonObject, options?: RequestOptions): Promise<unknown>;
 }
 
+/** Contexts supplied by the SDK include explicit quoted replies. */
+export interface SnowLumaEventContextWithQuote<
+    TEvent extends SnowLumaEvent = SnowLumaEvent,
+> extends SnowLumaEventContext<TEvent> {
+    /** Quotes this message and sends the body to the same group or private conversation. */
+    quote(
+        message: OutgoingMessage,
+        options?: RequestOptions & { autoEscape?: boolean },
+    ): Promise<SendMessageResult>;
+}
+
 export interface CommandOptions {
     prefixes?: string | string[];
     trim?: boolean;
@@ -59,8 +71,11 @@ export interface CommandMatch {
     match: RegExpMatchArray | null;
 }
 
-export type CommandHandler<TEvent extends OneBotMessageEvent = OneBotMessageEvent> = (
+export type CommandHandler<
+    TEvent extends OneBotMessageEvent = OneBotMessageEvent,
+    TContext extends SnowLumaEventContext<TEvent> = SnowLumaEventContext<TEvent>,
+> = (
     event: TEvent,
-    context: SnowLumaEventContext<TEvent> & { command: CommandMatch },
+    context: TContext & { command: CommandMatch },
     match: CommandMatch,
 ) => MaybePromise;

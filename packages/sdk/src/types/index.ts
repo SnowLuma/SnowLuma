@@ -5,3 +5,4 @@ export * from './params.js';
 export * from './actions.js';
 export * from './events.js';
 export * from './streaming.js';
+export * from './media.js';

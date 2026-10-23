@@ -11,6 +11,7 @@ export {
     SnowLumaAuthError,
     SnowLumaConnectionError,
     SnowLumaError,
+    SnowLumaMediaSendError,
     SnowLumaParseError,
     SnowLumaTimeoutError,
     SnowLumaTransportError,
@@ -49,6 +50,7 @@ export {
     normalizeMessage,
     parseSegments,
     poke,
+    quoteMessage,
     raw,
     record,
     reply,
@@ -60,6 +62,7 @@ export {
 } from './messages/index.js';
 
 export type {
+    EventWaitOptions,
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,
@@ -78,6 +81,7 @@ export type {
     MaybePromise,
     RequestDecisionOptions,
     SnowLumaEventContext,
+    SnowLumaEventContextWithQuote,
 } from './events/index.js';
 
 export type * from './types/index.js';

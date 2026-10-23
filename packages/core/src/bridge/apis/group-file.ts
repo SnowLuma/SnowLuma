@@ -400,14 +400,11 @@ export class GroupFileApi {
                 try {
                     await this.publish(groupId, fileId);
                 } catch (err) {
-                    // The bytes are already on the server and the fileId is valid —
-                    // fail loud but don't lose the upload result the action handler
-                    // committed to returning. Callers can still resolve the file by
-                    // id; they'll just have to re-publish it themselves.
-                    log.warn(
-                        'group file uploaded (fileId=%s) but chat post failed: %s',
-                        fileId,
-                        err instanceof Error ? err.message : String(err),
+                    // Keep the completed upload identifiable, but a requested chat
+                    // publication must not be reported as a successful send.
+                    throw new Error(
+                        `group file uploaded (fileId=${fileId}) but chat post failed: ${err instanceof Error ? err.message : String(err)}`,
+                        { cause: err },
                     );
                 }
             }

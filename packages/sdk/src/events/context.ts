@@ -1,15 +1,16 @@
 import type { SnowLumaApiClient } from '../client/api-client.js';
 import type { SnowLumaEvent } from '../types/index.js';
+import { quoteMessage } from '../messages/quote.js';
 import { isGroupMessageEvent, isPrivateMessageEvent, isRequestEvent } from './guards.js';
-import type { SnowLumaEventContext } from './types.js';
+import type { SnowLumaEventContextWithQuote } from './types.js';
 
 export function createEventContext<TEvent extends SnowLumaEvent>(
     event: TEvent,
     client: SnowLumaApiClient,
-): SnowLumaEventContext<TEvent> {
+): SnowLumaEventContextWithQuote<TEvent> {
     let stopped = false;
 
-    const context: SnowLumaEventContext<TEvent> = {
+    const context: SnowLumaEventContextWithQuote<TEvent> = {
         event,
         client,
         get stopped() {
@@ -28,6 +29,25 @@ export function createEventContext<TEvent extends SnowLumaEvent>(
             }
 
             throw new Error('reply() is only available for message events');
+        },
+        async quote(message, options) {
+            if (isGroupMessageEvent(event)) {
+                return client.sendGroupMessage(
+                    event.group_id,
+                    quoteMessage(event.message_id, message, options),
+                    options,
+                );
+            }
+
+            if (isPrivateMessageEvent(event)) {
+                return client.sendPrivateMessage(
+                    event.user_id,
+                    quoteMessage(event.message_id, message, options),
+                    options,
+                );
+            }
+
+            throw new Error('quote() is only available for message events');
         },
         async approve(options) {
             if (!isRequestEvent(event)) {

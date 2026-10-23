@@ -26,6 +26,7 @@ export {
 } from './chain.js';
 export { escapeCqParam, escapeCqText } from './cq-format.js';
 export { fromCQString, parseSegments, toCQString } from './cq.js';
+export { quoteMessage } from './quote.js';
 export { segments };
 
 export const message = {

@@ -40,6 +40,14 @@ export interface SnowLumaWebSocketClientOptions extends SnowLumaClientOptions {
     reconnect?: boolean | ReconnectOptions;
 }
 
+/** Controls one wait for a future event, without opening a connection. */
+export interface EventWaitOptions {
+    /** Defaults to the client's requestTimeoutMs. Set to 0 to wait without a deadline. */
+    timeoutMs?: number;
+    /** Cancels the wait without closing the connection. */
+    signal?: AbortSignal;
+}
+
 export interface WebSocketCloseInfo {
     code?: number;
     reason?: string;

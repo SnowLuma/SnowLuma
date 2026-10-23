@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     SnowLumaApiError,
     SnowLumaHttpClient,
@@ -13,6 +13,7 @@ import {
 import type { ApiActionContext } from '../src/api-handler';
 import { actions as uploadActions, __test as uploadTest } from '../src/actions/stream-file';
 import { actions as downloadActions } from '../src/actions/stream-download';
+import { actions as messageActions } from '../src/actions/message';
 import { HttpServerAdapter } from '../src/network/http-server-adapter';
 import { okResponse, type HttpServerNetwork } from '../src/types';
 import { createCompiledTestHandler, testAction } from './helpers/compiled-action-handler';
@@ -34,10 +35,16 @@ describe('SDK streaming against OneBot', () => {
         }
     });
 
-    async function connect(transport: 'http' | 'ws'): Promise<SnowLumaApiClient> {
-        const api = createCompiledTestHandler({} as ApiActionContext, [
+    async function connect(
+        transport: 'http' | 'ws',
+        context = {} as ApiActionContext,
+    ): Promise<SnowLumaApiClient> {
+        const api = createCompiledTestHandler(context, [
             ...uploadActions,
             ...downloadActions,
+            ...messageActions.filter((action) =>
+                action.names.some((name) => ['send_group_msg', 'send_private_msg'].includes(name)),
+            ),
             testAction('sdk_ping', () => okResponse({ pong: true })),
         ]);
         const config: HttpServerNetwork = {
@@ -143,6 +150,38 @@ describe('SDK streaming against OneBot', () => {
             value: { total_bytes: 0, total_chunks: 0 },
         });
     });
+
+    it.each(['http', 'ws'] as const)(
+        '%s sends staged media through the real upload handler and message parser',
+        async (transport) => {
+            const sent: unknown[] = [];
+            const send = vi.fn(async (id: number, message: unknown, autoEscape: boolean) => {
+                expect(id).toBe(12345);
+                expect(autoEscape).toBe(false);
+                const segments = message as Array<{ type: string; data: { file: string } }>;
+                expect(segments).toHaveLength(1);
+                expect(segments[0].type).toBe('image');
+                expect(await readFile(segments[0].data.file)).toEqual(Buffer.from([1, 2, 3]));
+                sent.push(message);
+                return { messageId: -42 };
+            });
+            const client = await connect(transport, {
+                sendGroupMessage: send,
+                sendPrivateMessage: send,
+            } as unknown as ApiActionContext);
+
+            await expect(
+                client.sendGroupImage(12345, new Uint8Array([1, 2, 3]), {
+                    chunkSize: 2,
+                    filename: 'picture.bin',
+                }),
+            ).resolves.toEqual({ message_id: -42 });
+            await expect(
+                client.sendPrivateImage(12345, new Blob([new Uint8Array([1, 2, 3])])),
+            ).resolves.toEqual({ message_id: -42 });
+            expect(sent).toHaveLength(2);
+        },
+    );
 
     it.each(['http', 'ws'] as const)(
         '%s preserves a server error after partial download output',

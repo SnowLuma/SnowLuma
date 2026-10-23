@@ -1,10 +1,26 @@
-import type { ApiResponse } from './types/index.js';
+import type { ApiResponse, UploadFileStreamComplete } from './types/index.js';
 
 /** Base error for every exception intentionally thrown by the SnowLuma SDK. */
 export class SnowLumaError extends Error {
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = 'SnowLumaError';
+    }
+}
+
+/** A one-step media operation failed. The original error is preserved as cause. */
+export class SnowLumaMediaSendError extends SnowLumaError {
+    readonly stage: 'upload' | 'send';
+    /** Present after a completed upload, even when sending fails or is cancelled. */
+    readonly upload?: UploadFileStreamComplete;
+
+    constructor(stage: 'upload' | 'send', cause: unknown, upload?: UploadFileStreamComplete) {
+        super(`Media ${stage} failed${cause instanceof Error ? `: ${cause.message}` : ''}`, {
+            cause,
+        });
+        this.name = 'SnowLumaMediaSendError';
+        this.stage = stage;
+        this.upload = upload;
     }
 }
 

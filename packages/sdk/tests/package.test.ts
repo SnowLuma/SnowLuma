@@ -49,6 +49,10 @@ beforeAll(() => {
         path.join(sdkRoot, 'tests', 'fixtures', 'action-contracts.ts'),
         path.join(consumerRoot, 'action-contracts.ts'),
     );
+    copyFileSync(
+        path.join(sdkRoot, 'tests', 'fixtures', 'messaging-types.mts'),
+        path.join(consumerRoot, 'messaging-types.mts'),
+    );
 
     // Compile fresh output outside the workspace so neither stale dist files nor
     // Vitest's source resolver can hide a broken published entry point.
@@ -117,8 +121,10 @@ import * as actions from '@snowluma/sdk/actions';
 assert.equal(sdk.SnowLumaHttpClient, client.SnowLumaHttpClient);
 assert.equal(sdk.SnowLumaWebSocketClient, client.SnowLumaWebSocketClient);
 assert.equal(sdk.MessageChain, messages.MessageChain);
+assert.equal(sdk.quoteMessage, messages.quoteMessage);
 assert.equal(sdk.isMessageEvent, events.isMessageEvent);
 assert.equal(sdk.SnowLumaApiError, errors.SnowLumaApiError);
+assert.equal(sdk.SnowLumaMediaSendError, errors.SnowLumaMediaSendError);
 assert.equal(sdk.SNOWLUMA_ACTIONS, actions.SNOWLUMA_ACTIONS);
 assert.equal(sdk.isSnowLumaAction, actions.isSnowLumaAction);
 assert.ok(sdk.text('hello') instanceof messages.MessageChain);
@@ -148,6 +154,7 @@ assert.equal(actions.isSnowLumaAction('consumer_extension'), false);
                 resolution,
                 path.join(consumerRoot, 'consumer.mts'),
                 path.join(consumerRoot, 'action-types.mts'),
+                path.join(consumerRoot, 'messaging-types.mts'),
             ]);
         },
         30_000,

@@ -17,11 +17,12 @@ import {
     matchCommand,
     noticeType,
     requestType,
-    type CommandHandler,
+    type CommandHandler as BaseCommandHandler,
     type CommandOptions,
-    type EventHandler,
-    type EventMiddleware,
+    type EventHandler as BaseEventHandler,
+    type EventMiddleware as BaseEventMiddleware,
     type EventPredicate,
+    type SnowLumaEventContextWithQuote,
 } from '../events/index.js';
 import { SnowLumaApiClient, toJsonObject } from './api-client.js';
 import { createRequestAbortState, raceWithAbort, throwIfAborted } from '../internal/abort.js';
@@ -68,6 +69,7 @@ import type {
     WsRole,
 } from '../types/index.js';
 import type {
+    EventWaitOptions,
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,
@@ -76,6 +78,7 @@ import type {
 } from './websocket-types.js';
 
 export type {
+    EventWaitOptions,
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,
@@ -95,6 +98,16 @@ interface PendingRequest {
     reject(error: Error): void;
 }
 
+type EventHandler<TEvent extends SnowLumaEvent = SnowLumaEvent> = BaseEventHandler<
+    TEvent,
+    SnowLumaEventContextWithQuote<TEvent>
+>;
+type EventMiddleware = BaseEventMiddleware<SnowLumaEventContextWithQuote>;
+type CommandHandler = BaseCommandHandler<
+    OneBotMessageEvent,
+    SnowLumaEventContextWithQuote<OneBotMessageEvent>
+>;
+
 /** OneBot WebSocket client for SnowLuma APIs and realtime events. */
 export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     readonly url: string;
@@ -107,6 +120,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     private readonly reconnect: ReconnectOptions | null;
     private readonly emitter = new Emitter<SnowLumaWebSocketEvents>();
     private readonly pending = new Map<string, PendingRequest>();
+    private readonly eventWaits = new Set<(error: Error) => void>();
     private readonly middlewares: EventMiddleware[] = [];
     private connection: SocketConnection | null = null;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -161,6 +175,129 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     /** Subscribes to every SnowLuma event packet. */
     onEvent(listener: (event: SnowLumaEvent) => void): () => void {
         return this.on('event', listener);
+    }
+
+    /** Waits for a future public event after middleware, without connecting or replaying events. */
+    waitForEvent<TEvent extends SnowLumaEvent>(
+        predicate: EventPredicate<TEvent>,
+        options?: EventWaitOptions,
+    ): Promise<TEvent>;
+    waitForEvent(
+        predicate: ((event: SnowLumaEvent) => boolean) | undefined,
+        options?: EventWaitOptions,
+    ): Promise<SnowLumaEvent>;
+    waitForEvent(options?: EventWaitOptions): Promise<SnowLumaEvent>;
+    waitForEvent(
+        predicateOrOptions?: ((event: SnowLumaEvent) => boolean) | EventWaitOptions,
+        requestedOptions?: EventWaitOptions,
+    ): Promise<SnowLumaEvent> {
+        const predicate = typeof predicateOrOptions === 'function' ? predicateOrOptions : undefined;
+        const options =
+            typeof predicateOrOptions === 'function'
+                ? requestedOptions
+                : (predicateOrOptions ?? requestedOptions);
+        const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
+
+        return new Promise((resolve, reject) => {
+            throwIfAborted(options?.signal, 'SnowLuma event wait aborted');
+
+            if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2_147_483_647) {
+                throw new RangeError('Event wait timeoutMs must be between 0 and 2147483647');
+            }
+
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+
+            const cleanup = (): void => {
+                off();
+                this.eventWaits.delete(fail);
+                clearTimeout(timer);
+                options?.signal?.removeEventListener('abort', onAbort);
+            };
+
+            const fail = (error: unknown): void => {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                cleanup();
+                reject(error);
+            };
+
+            const onAbort = (): void => {
+                fail(
+                    new SnowLumaAbortError('SnowLuma event wait aborted', {
+                        cause: options?.signal?.reason,
+                    }),
+                );
+            };
+
+            const off = this.onEvent((event) => {
+                if (settled) {
+                    return;
+                }
+
+                try {
+                    const matched = predicate ? predicate(event) : true;
+
+                    if (typeof matched !== 'boolean') {
+                        throw new TypeError(
+                            'Event wait predicates must return a boolean synchronously',
+                        );
+                    }
+
+                    if (matched && !settled) {
+                        settled = true;
+                        cleanup();
+                        resolve(event);
+                    }
+                } catch (error) {
+                    fail(error);
+                }
+            });
+
+            this.eventWaits.add(fail);
+            options?.signal?.addEventListener('abort', onAbort, { once: true });
+
+            if (timeoutMs > 0) {
+                timer = setTimeout(() => {
+                    fail(
+                        new SnowLumaTimeoutError(
+                            `SnowLuma event wait timed out after ${timeoutMs}ms`,
+                            timeoutMs,
+                        ),
+                    );
+                }, timeoutMs);
+            }
+        });
+    }
+
+    /** Waits for a future message or message_sent event that passes the optional predicate. */
+    waitForMessage<TEvent extends OneBotMessageEvent>(
+        predicate: (event: OneBotMessageEvent) => event is TEvent,
+        options?: EventWaitOptions,
+    ): Promise<TEvent>;
+    waitForMessage(
+        predicate: ((event: OneBotMessageEvent) => boolean) | undefined,
+        options?: EventWaitOptions,
+    ): Promise<OneBotMessageEvent>;
+    waitForMessage(options?: EventWaitOptions): Promise<OneBotMessageEvent>;
+    waitForMessage(
+        predicateOrOptions?: ((event: OneBotMessageEvent) => boolean) | EventWaitOptions,
+        requestedOptions?: EventWaitOptions,
+    ): Promise<OneBotMessageEvent> {
+        const predicate = typeof predicateOrOptions === 'function' ? predicateOrOptions : undefined;
+        const options =
+            typeof predicateOrOptions === 'function'
+                ? requestedOptions
+                : (predicateOrOptions ?? requestedOptions);
+
+        return this.waitForEvent(
+            (event): event is OneBotMessageEvent =>
+                isMessageEvent(event) && (predicate ? predicate(event) : true),
+            options,
+        );
     }
 
     /** Adds event middleware to the dispatch pipeline. */
@@ -341,6 +478,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         this.connection = null;
         connection?.dispose(error);
         this.rejectPending(error);
+        this.rejectEventWaits(error);
 
         if (connection && connection.socket.readyState !== WEBSOCKET_CLOSED) {
             const off = addSocketListener(connection.socket, 'close', (...args) => {
@@ -642,7 +780,9 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
 
     private handleClose(args: unknown[]): void {
         const info = closeInfo(args);
-        this.rejectPending(new SnowLumaConnectionError('SnowLuma WebSocket closed'));
+        const error = new SnowLumaConnectionError('SnowLuma WebSocket closed');
+        this.rejectPending(error);
+        this.rejectEventWaits(error);
         this.emitter.emit('close', info);
 
         if (!this.closedByUser && this.reconnect) {
@@ -686,6 +826,12 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     private rejectPending(error: Error): void {
         for (const pending of this.pending.values()) {
             pending.reject(error);
+        }
+    }
+
+    private rejectEventWaits(error: Error): void {
+        for (const fail of this.eventWaits) {
+            fail(error);
         }
     }
 }

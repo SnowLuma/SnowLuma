@@ -287,7 +287,7 @@ describe('apis/group-file', () => {
         expect(publishSpy).not.toHaveBeenCalled();
     });
 
-    it('upload returns success even when the chat post fails (file is still uploaded)', async () => {
+    it('upload reports chat publication failure while retaining the completed file identity', async () => {
         const bridge = mockBridge();
         bridge.sendRawPacket.mockResolvedValueOnce(
             packResponse(
@@ -297,12 +297,16 @@ describe('apis/group-file', () => {
             ),
         );
         const api = new GroupFileApi(bridge as any);
-        const publishSpy = vi
-            .spyOn(api, 'publish')
-            .mockRejectedValueOnce(new Error('message rejected'));
-        const out = await api.upload(12345, '/path/file.bin');
-        expect(out).toEqual({ fileId: 'fid-tolerant' });
+        const cause = new Error('message rejected');
+        const publishSpy = vi.spyOn(api, 'publish').mockRejectedValueOnce(cause);
+        await expect(api.upload(12345, '/path/file.bin')).rejects.toMatchObject({
+            message:
+                'group file uploaded (fileId=fid-tolerant) but chat post failed: message rejected',
+            cause,
+        });
         expect(publishSpy).toHaveBeenCalledOnce();
+        const staged = await vi.mocked(stageMod.stageSourceToDisk).mock.results.at(-1)!.value;
+        expect(staged.cleanup).toHaveBeenCalledOnce();
     });
 
     it.each([true, false])(

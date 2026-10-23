@@ -57,6 +57,10 @@
       "types": "./dist/actions.d.ts",
       "import": "./dist/actions.js"
     },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -68,10 +72,12 @@
     "dist/index.*",
     "dist/internal",
     "dist/messages",
+    "dist/node",
     "dist/types",
     "README.md",
     "CHANGELOG.md",
     "STREAMING.md",
+    "MESSAGING.md",
     "VERSIONING.md"
   ],
   "scripts": {
