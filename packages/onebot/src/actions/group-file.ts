@@ -20,6 +20,26 @@ function busidOr102(raw: unknown): number {
 export const actions = [
     groupAction({
         name: 'upload_group_file',
+        examples: [
+            {
+                summary: '上传群文件',
+                params: {
+                    group_id: 20001,
+                    file: 'file:///path/to/report.pdf',
+                    name: '报告.pdf',
+                },
+                notes: '示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                file_id: {
+                    type: 'string',
+                },
+            },
+            required: ['file_id'],
+        },
         summary: '上传群文件',
         returns: '{ file_id: string }',
         // `folder` / `folder_id` are two aliases for one target dir; the first
@@ -47,6 +67,26 @@ export const actions = [
 
     defineAction({
         name: 'upload_private_file',
+        examples: [
+            {
+                summary: '上传私聊文件',
+                params: {
+                    user_id: 10001,
+                    file: 'file:///path/to/report.pdf',
+                    name: '报告.pdf',
+                },
+                notes: '示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。 默认上传并发送给该好友。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                file_id: {
+                    type: 'string',
+                },
+            },
+            required: ['file_id'],
+        },
         summary: '上传私聊文件',
         returns: '{ file_id: string }',
         params: {
@@ -101,6 +141,16 @@ export const actions = [
 
     groupAction({
         name: 'get_group_file_url',
+        examples: [
+            {
+                summary: '获取群文件下载链接',
+                params: {
+                    group_id: 20001,
+                    file_id: '<file-id-from-get_group_root_files>',
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群文件下载链接',
         readOnly: true,
         returns: '群文件下载链接。',
@@ -125,6 +175,15 @@ export const actions = [
 
     groupAction({
         name: 'get_group_root_files',
+        examples: [
+            {
+                summary: '获取群根目录文件列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群根目录文件列表',
         readOnly: true,
         returns: '群文件系统信息（文件与文件夹列表）。',
@@ -180,6 +239,16 @@ export const actions = [
 
     groupAction({
         name: 'get_group_files_by_folder',
+        examples: [
+            {
+                summary: '获取群子目录文件列表',
+                params: {
+                    group_id: 20001,
+                    folder_id: '<folder-id-from-get_group_root_files>',
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群子目录文件列表',
         readOnly: true,
         returns: '群文件系统信息（文件与文件夹列表）。',
@@ -238,6 +307,20 @@ export const actions = [
 
     groupAction({
         name: 'delete_group_file',
+        examples: [
+            {
+                summary: '删除群文件',
+                params: {
+                    group_id: 20001,
+                    file_id: '<file-id-from-get_group_root_files>',
+                },
+                notes: '替换群文件列表中的实际 file_id；需要对应文件操作权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除群文件',
         params: { file_id: f.fileId() },
         run: async (p, ctx) => {
@@ -248,6 +331,22 @@ export const actions = [
 
     groupAction({
         name: 'move_group_file',
+        examples: [
+            {
+                summary: '移动群文件',
+                params: {
+                    group_id: 20001,
+                    file_id: '<file-id>',
+                    parent_directory: '/',
+                    target_directory: '<target-folder-id>',
+                },
+                notes: '目录和文件标识均来自该群文件列表。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '移动群文件',
         params: {
             file_id: f.fileId(),
@@ -269,6 +368,27 @@ export const actions = [
     // （文件当前所在目录）+ new_name。SnowLuma 的 file_id 即原始 fileId，无需 UUID 解码。
     groupAction({
         name: 'rename_group_file',
+        examples: [
+            {
+                summary: '重命名群文件',
+                params: {
+                    group_id: 20001,
+                    file_id: '<file-id>',
+                    current_parent_directory: '/',
+                    new_name: '新文件名.pdf',
+                },
+                notes: 'file_id 来自群文件列表，目录必须是文件当前所在目录。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                ok: {
+                    const: true,
+                },
+            },
+            required: ['ok'],
+        },
         summary: '重命名群文件',
         params: {
             file_id: f.fileId(),
@@ -290,6 +410,76 @@ export const actions = [
 
     groupAction({
         name: 'create_group_file_folder',
+        examples: [
+            {
+                summary: '创建群文件夹',
+                params: {
+                    group_id: 20001,
+                    name: '共享资料',
+                    parent_id: '/',
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                result: {
+                    type: 'object',
+                    properties: {
+                        retCode: {
+                            const: 0,
+                        },
+                        retMsg: {
+                            const: 'success',
+                        },
+                    },
+                    required: ['retCode', 'retMsg'],
+                },
+                groupItem: {
+                    type: 'object',
+                    properties: {
+                        folderInfo: {
+                            type: 'object',
+                            properties: {
+                                folderId: {
+                                    type: 'string',
+                                },
+                                folderName: {
+                                    type: 'string',
+                                },
+                                folderPath: {
+                                    type: 'string',
+                                },
+                                createTime: {
+                                    type: 'integer',
+                                },
+                                modifyTime: {
+                                    type: 'integer',
+                                },
+                                createUin: {
+                                    type: 'integer',
+                                },
+                                modifyUin: {
+                                    type: 'integer',
+                                },
+                            },
+                            required: [
+                                'folderId',
+                                'folderName',
+                                'folderPath',
+                                'createTime',
+                                'modifyTime',
+                                'createUin',
+                                'modifyUin',
+                            ],
+                        },
+                    },
+                    required: ['folderInfo'],
+                },
+            },
+            required: ['result', 'groupItem'],
+        },
         summary: '创建群文件夹',
         // NapCat-aligned data so callers can read back the new folderId (#195):
         // { result, groupItem: { folderInfo: { folderId, folderName, … } } }.
@@ -311,6 +501,20 @@ export const actions = [
 
     groupAction({
         name: 'delete_group_file_folder',
+        examples: [
+            {
+                summary: '删除群文件夹',
+                params: {
+                    group_id: 20001,
+                    folder_id: '<folder-id-from-get_group_root_files>',
+                },
+                notes: '会删除指定群文件夹，确认资源后调用。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除群文件夹',
         params: { folder_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -321,6 +525,21 @@ export const actions = [
 
     groupAction({
         name: 'rename_group_file_folder',
+        examples: [
+            {
+                summary: '重命名群文件夹',
+                params: {
+                    group_id: 20001,
+                    folder_id: '<folder-id>',
+                    new_folder_name: '课程资料',
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '重命名群文件夹',
         // new_folder_name / name are aliases; first non-empty wins and must be
         // non-empty (legacy `asString(new_folder_name) || asString(name)` + `!newName`).
@@ -346,6 +565,16 @@ export const actions = [
 
     defineAction({
         name: 'get_private_file_url',
+        examples: [
+            {
+                summary: '获取私聊文件下载链接',
+                params: {
+                    user_id: 10001,
+                    file_id: '<file-id-from-private-message>',
+                },
+                notes: '使用私聊文件消息段中的 file_id，必要时原样传 file_hash。',
+            },
+        ],
         summary: '获取私聊文件下载链接',
         readOnly: true,
         returns: '私聊文件下载链接。',

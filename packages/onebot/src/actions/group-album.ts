@@ -46,9 +46,70 @@ const albumCoverSchema = {
     required: ['type', 'image'],
 };
 
+// Media-list entries are passed through rather than normalized like covers.
+// Missing fields can be absent; decoded undefined values become null.
+const mediaUrlSchema = {
+    type: ['object', 'null'],
+    properties: {
+        url: { type: ['string', 'null'] },
+        width: { type: ['integer', 'null'] },
+        height: { type: ['integer', 'null'] },
+    },
+};
+const mediaPhotoUrlsSchema = {
+    type: ['array', 'null'],
+    items: {
+        type: 'object',
+        properties: { spec: { type: ['integer', 'null'] }, url: mediaUrlSchema },
+    },
+};
+const mediaImageSchema = {
+    type: ['object', 'null'],
+    properties: {
+        name: { type: ['string', 'null'] },
+        sloc: { type: ['string', 'null'] },
+        lloc: { type: ['string', 'null'], description: '图片长定位标识，供评论、删除等操作使用' },
+        photoUrls: mediaPhotoUrlsSchema,
+        defaultUrl: mediaUrlSchema,
+        isGif: { type: ['boolean', 'null'] },
+        hasRaw: { type: ['boolean', 'null'] },
+    },
+};
+const albumMediaSchema = {
+    type: 'object',
+    properties: {
+        type: { type: ['integer', 'null'] },
+        image: mediaImageSchema,
+        video: {
+            type: ['object', 'null'],
+            properties: {
+                id: { type: ['string', 'null'], description: '视频标识，供评论、删除等操作使用' },
+                url: { type: ['string', 'null'] },
+                cover: mediaImageSchema,
+                width: { type: ['integer', 'null'] },
+                height: { type: ['integer', 'null'] },
+                videoTime: { type: ['string', 'null'], description: '时长，十进制字符串' },
+                videoUrl: mediaPhotoUrlsSchema,
+            },
+        },
+        uploader: { type: ['string', 'null'] },
+        batchId: { type: ['string', 'null'], description: '上传批次，十进制字符串' },
+        uploadTime: { type: ['string', 'null'], description: '上传时间，十进制字符串' },
+    },
+};
+
 export const actions = [
     groupAction({
         name: 'get_group_album_list',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         readOnly: true,
         returns: '群相册列表数组，每项为一个相册的基本信息。',
         returnsSchema: {
@@ -90,6 +151,16 @@ export const actions = [
     // get_qun_album_list — NapCat-compatible view of QQ NT's AlbumService.
     groupAction({
         name: 'get_qun_album_list',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    attach_info: '',
+                },
+                notes: '后续页原样传回上一页的 attach_info；has_more=false 表示结束。',
+            },
+        ],
         readOnly: true,
         returns: 'NapCat 风格的相册列表封套：{album_list, attach_info, has_more}。',
         returnsSchema: {
@@ -153,6 +224,22 @@ export const actions = [
 
     groupAction({
         name: 'upload_image_to_qun_album',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    album_name: '活动照片',
+                    file: 'file:///path/to/photo.png',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。 示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         params: {
             album_id: f.string({ allowEmpty: false }),
             album_name: f.string({ allowEmpty: false }),
@@ -166,6 +253,18 @@ export const actions = [
 
     groupAction({
         name: 'upload_video_to_qun_album',
+        examples: [
+            {
+                summary: '上传视频到群相册',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    album_name: '活动视频',
+                    file: 'file:///path/to/video.mp4',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。 示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。',
+            },
+        ],
         summary: '上传视频到群相册',
         returns: '{ id: string }',
         returnsSchema: {
@@ -193,6 +292,17 @@ export const actions = [
 
     groupAction({
         name: 'get_group_album_media_list',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    attach_info: '',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。 下一页传回 nextAttachInfo。',
+            },
+        ],
         readOnly: true,
         returns:
             '相册图片/视频列表及下一页分页游标；视频项包含 id、url、cover、尺寸、时长和多规格地址。',
@@ -201,8 +311,8 @@ export const actions = [
             properties: {
                 mediaList: {
                     type: 'array',
-                    description: '相册媒体项列表（各项字段不固定）',
-                    items: { type: 'object' },
+                    description: '相册图片或视频，未返回的字段可省略或为 null',
+                    items: albumMediaSchema,
                 },
                 nextAttachInfo: { type: 'string', description: '下一页分页游标（空串表示无更多）' },
             },
@@ -224,6 +334,58 @@ export const actions = [
 
     groupAction({
         name: 'do_group_album_comment',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    lloc: '<media-lloc-or-video-id>',
+                    content: '拍得很好',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                },
+                user: {
+                    type: 'object',
+                    properties: {
+                        uin: {
+                            type: 'string',
+                        },
+                    },
+                    required: ['uin'],
+                },
+                content: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            type: {
+                                type: 'integer',
+                            },
+                            content: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['type', 'content'],
+                    },
+                },
+                time: {
+                    type: 'string',
+                    description: '十进制时间字符串',
+                },
+                clientKey: {
+                    type: 'string',
+                },
+            },
+            required: ['id', 'user', 'content', 'time', 'clientKey'],
+        },
         params: {
             album_id: f.string({ allowEmpty: false }),
             lloc: f.string({ allowEmpty: false }),
@@ -242,6 +404,28 @@ export const actions = [
 
     groupAction({
         name: 'set_group_album_media_like',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    batch_id: '1700000000',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。 batch_id 必须是实际批次的十进制字符串。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: ['string', 'null'],
+                },
+                status: {
+                    type: ['integer', 'null'],
+                },
+            },
+        },
         params: {
             album_id: f.string({ allowEmpty: false }),
             batch_id: f.string({ allowEmpty: false }),
@@ -262,6 +446,28 @@ export const actions = [
     // 取消点赞群相册媒体
     groupAction({
         name: 'cancel_group_album_media_like',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    batch_id: '1700000000',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。 batch_id 必须是实际批次的十进制字符串。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                id: {
+                    type: ['string', 'null'],
+                },
+                status: {
+                    type: ['integer', 'null'],
+                },
+            },
+        },
         params: {
             album_id: f.string({ allowEmpty: false }),
             batch_id: f.string({ allowEmpty: false }),
@@ -281,6 +487,26 @@ export const actions = [
 
     groupAction({
         name: 'del_group_album_media',
+        examples: [
+            {
+                summary: '删除群相册图片或视频',
+                params: {
+                    group_id: 20001,
+                    album_id: '<album-id>',
+                    lloc: '<media-lloc-or-video-id>',
+                },
+                notes: 'album_id 来自 get_group_album_list；lloc 或视频 id、batch_id 来自 get_group_album_media_list。替换群号及对应资源标识。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                success: {
+                    const: true,
+                },
+            },
+            required: ['success'],
+        },
         summary: '删除群相册图片或视频',
         params: {
             album_id: f.string({ allowEmpty: false }),

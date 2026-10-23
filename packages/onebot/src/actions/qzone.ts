@@ -41,6 +41,16 @@ export const actions = [
     // 复用 qzone.qq.com 的 cookie/g_tk 基建（与群相册同源），纯 web，无 trpc。
     defineAction({
         name: 'get_qzone_msg_list',
+        examples: [
+            {
+                summary: '获取 QQ 空间说说列表（默认机器人自己的空间）',
+                params: {
+                    pos: 0,
+                    num: 20,
+                },
+                notes: '默认读取当前账号；指定 target_uin 时需有访问权限。',
+            },
+        ],
         readOnly: true,
         returns: '说说列表对象，含说说总数与本页说说数组。',
         returnsSchema: {
@@ -87,6 +97,17 @@ export const actions = [
 
     defineAction({
         name: 'get_qzone_msg_detail',
+        examples: [
+            {
+                summary: '获取 QQ 空间说说详情与一页评论（含服务端内联回复，需有访问权限）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                    pos: 0,
+                    num: 20,
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。 replies 仅为服务端内联回复，不保证完整。',
+            },
+        ],
         readOnly: true,
         summary: '获取 QQ 空间说说详情与一页评论（含服务端内联回复，需有访问权限）',
         returns:
@@ -139,6 +160,17 @@ export const actions = [
     // 每条 feed 含结构化字段 + 预渲染 html 原样透传（深度解析交由调用方）。
     defineAction({
         name: 'get_qzone_feeds',
+        examples: [
+            {
+                summary:
+                    '获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）',
+                params: {
+                    page_num: 1,
+                    count: 10,
+                },
+                notes: '目前仅首页可靠，不应假设任意页码均能完整翻页。',
+            },
+        ],
         readOnly: true,
         returns: '好友动态对象，含本页 feed 数组与是否有更多页。',
         returnsSchema: {
@@ -187,6 +219,29 @@ export const actions = [
     // 注意：发说说为主动行为，高频会被 Qzone 风控，调用方需自行限流。
     defineAction({
         name: 'send_qzone_msg',
+        examples: [
+            {
+                summary:
+                    '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传；可设置查看权限）',
+                params: {
+                    content: '今天的学习记录',
+                    ugc_right: 64,
+                },
+                notes: '会发布说说；ugc_right=64 仅自己可见。16/128 还必须提供 target_uins。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                tid: {
+                    type: 'string',
+                },
+                time: {
+                    type: 'integer',
+                },
+            },
+            required: ['tid', 'time'],
+        },
         summary: '发表说说（QQ 空间，支持纯文字或带图；传 images 自动上传；可设置查看权限）',
         params: {
             content: f.string({ allowEmpty: false }).describe('说说正文'),
@@ -241,6 +296,19 @@ export const actions = [
     // delete_qzone_msg — 删除机器人自己空间的一条说说（按 tid）。写操作。
     defineAction({
         name: 'delete_qzone_msg',
+        examples: [
+            {
+                summary: '删除一条说说（QQ 空间，按 tid）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除一条说说（QQ 空间，按 tid）',
         params: {
             tid: f
@@ -257,6 +325,17 @@ export const actions = [
     // 写操作；ugc_right/target_uins 语义与 send_qzone_msg 一致。
     defineAction({
         name: 'set_qzone_msg_right',
+        examples: [
+            {
+                summary: '修改一条已发说说的查看权限（QQ 空间，按 tid）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                    ugc_right: 16,
+                    target_uins: [10001],
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。 16 表示仅所选好友可见。',
+            },
+        ],
         returns: '更新后的权限对象。',
         returnsSchema: {
             type: 'object',
@@ -304,6 +383,20 @@ export const actions = [
     // 传真实值更可靠；不传按 0。写操作；高频点赞会被 Qzone 风控，调用方需限流。
     defineAction({
         name: 'like_qzone',
+        examples: [
+            {
+                summary: '给一条说说点赞（QQ 空间）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                    target_uin: 10001,
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '给一条说说点赞（QQ 空间）',
         params: {
             tid: f.string({ allowEmpty: false }).describe('说说 tid'),
@@ -324,6 +417,20 @@ export const actions = [
     // 注意：取消赞端点（internal_unlike_app）暂未经真机核实，待抓包确认。
     defineAction({
         name: 'unlike_qzone',
+        examples: [
+            {
+                summary: '取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                    target_uin: 10001,
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '取消对一条说说的点赞（QQ 空间；取消赞端点待真机核实）',
         params: {
             tid: f.string({ allowEmpty: false }).describe('说说 tid'),
@@ -345,6 +452,27 @@ export const actions = [
     // 写操作；高频评论会被 Qzone 风控，调用方需限流。
     defineAction({
         name: 'comment_qzone',
+        examples: [
+            {
+                summary: '评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_list>',
+                    target_uin: 10001,
+                    content: '感谢分享',
+                },
+                notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                comment_id: {
+                    type: 'string',
+                    description: '服务端未提供评论 ID 时为空串',
+                },
+            },
+            required: ['comment_id'],
+        },
         summary: '评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
         params: {
             tid: f.string({ allowEmpty: false }).describe('说说 tid'),
@@ -377,6 +505,21 @@ export const actions = [
     // enable=true 拉黑，enable=false 解除拉黑。
     defineAction({
         name: 'set_qzone_ban',
+        examples: [
+            {
+                summary:
+                    '拉黑或解除拉黑某人（修改机器人自身 QQ 空间黑名单；enable=true 拉黑，false 解除）',
+                params: {
+                    user_id: 10001,
+                    enable: true,
+                },
+                notes: '修改当前账号空间黑名单。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '拉黑或解除拉黑某人（修改机器人自身 QQ 空间黑名单；enable=true 拉黑，false 解除）',
         params: {
             user_id: f.userId().describe('目标 QQ 号'),

@@ -2,6 +2,7 @@ import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
 import { defineAction, groupAction, f, type Field } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
+import { messageResultSchema, messageIdSchema, messageDataSchema } from '../action-result-schemas';
 
 /** send_msg only (#426). Some clients send `group_id: ""` on private chats.
  *  Treat that exact empty string as absent. Do not change `f.groupId()`. */
@@ -23,6 +24,17 @@ const log = createLogger('OneBot');
 export const actions = [
     defineAction({
         name: 'send_custom_face',
+        examples: [
+            {
+                summary: '发送账号收藏表情（emoji_id 或 MD5），保留表情显示样式',
+                params: {
+                    group_id: 20001,
+                    emoji_id: '<emoji-id-from-fetch_custom_face_detail>',
+                },
+                notes: '群聊和私聊目标只能提供一个；emoji_id 来自 fetch_custom_face_detail。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '发送账号收藏表情（emoji_id 或 MD5），保留表情显示样式',
         returns: '{ message_id: number }',
         params: {
@@ -68,6 +80,18 @@ export const actions = [
     // validated by the spec; message_type is left lenient for parity.
     defineAction({
         name: 'send_msg',
+        examples: [
+            {
+                summary: '发送消息（按 message_type/群号 自动路由群聊或私聊）',
+                params: {
+                    message_type: 'group',
+                    group_id: 20001,
+                    message: '你好',
+                },
+                notes: '必须提供对应目标；私聊使用 message_type=private 和 user_id。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '发送消息（按 message_type/群号 自动路由群聊或私聊）',
         returns: '{ message_id: number }',
         params: {
@@ -109,6 +133,17 @@ export const actions = [
 
     defineAction({
         name: 'send_private_msg',
+        examples: [
+            {
+                summary: '发送私聊消息',
+                params: {
+                    user_id: 10001,
+                    message: '你好',
+                },
+                notes: '替换目标好友 QQ 号；临时会话需另传来源 group_id。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '发送私聊消息',
         returns: '{ message_id: number }',
         params: {
@@ -135,6 +170,24 @@ export const actions = [
 
     groupAction({
         name: 'send_group_msg',
+        examples: [
+            {
+                summary: '发送群消息',
+                params: {
+                    group_id: 20001,
+                    message: [
+                        {
+                            type: 'text',
+                            data: {
+                                text: '你好',
+                            },
+                        },
+                    ],
+                },
+                notes: '替换目标群号；成功返回的 message_id 可为负值。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '发送群消息',
         returns: '{ message_id: number }',
         params: { message: f.message(), auto_escape: f.bool().default(false) },
@@ -146,6 +199,28 @@ export const actions = [
 
     defineAction({
         name: 'get_msg',
+        examples: [
+            {
+                summary: '获取消息',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            allOf: [
+                messageDataSchema,
+                {
+                    type: 'object',
+                    properties: {
+                        real_id: messageIdSchema,
+                    },
+                    required: ['real_id'],
+                },
+            ],
+            description: '消息事件去除 post_type/self_id 并增加 real_id；群聊和私聊字段有所不同',
+        },
         summary: '获取消息',
         readOnly: true,
         returns:
@@ -170,6 +245,19 @@ export const actions = [
 
     defineAction({
         name: 'delete_msg',
+        examples: [
+            {
+                summary: '撤回消息',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '撤回消息',
         params: { message_id: f.messageId() },
         run: async (p, ctx) => {

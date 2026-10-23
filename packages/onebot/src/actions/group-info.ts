@@ -33,6 +33,16 @@ export const groupInfoReturnsSchema = {
 export const actions = [
     groupAction({
         name: 'get_group_share_link',
+        examples: [
+            {
+                summary: '获取群分享链接',
+                params: {
+                    group_id: 20001,
+                    need_short_url: true,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群分享链接',
         readOnly: true,
         params: {
@@ -59,6 +69,14 @@ export const actions = [
 
     defineAction({
         name: 'get_group_list',
+        examples: [
+            {
+                summary: '获取群列表',
+                params: {
+                    no_cache: false,
+                },
+            },
+        ],
         summary: '获取群列表',
         readOnly: true,
         returns: '群信息对象数组。',
@@ -112,6 +130,15 @@ export const actions = [
 
     groupAction({
         name: 'get_group_info',
+        examples: [
+            {
+                summary: '获取群信息',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群信息',
         readOnly: true,
         returns: '群信息对象。',
@@ -144,6 +171,15 @@ export const actions = [
 
     groupAction({
         name: 'get_group_member_list',
+        examples: [
+            {
+                summary: '获取群成员列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群成员列表',
         readOnly: true,
         returns: '群成员信息对象数组。',
@@ -225,6 +261,16 @@ export const actions = [
 
     groupUserAction({
         name: 'get_group_member_info',
+        examples: [
+            {
+                summary: '获取群成员信息',
+                params: {
+                    group_id: 20001,
+                    user_id: 10001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群成员信息',
         readOnly: true,
         returns: '群成员信息对象。',
@@ -327,6 +373,164 @@ export const actions = [
 
     groupAction({
         name: 'get_group_honor_info',
+        examples: [
+            {
+                summary: '获取群荣誉信息',
+                params: {
+                    group_id: 20001,
+                    type: 'all',
+                },
+                notes: '未请求的分类仍返回空数组；当前龙王可能为 null。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                group_id: {
+                    type: 'integer',
+                },
+                current_talkative: {
+                    anyOf: [
+                        {
+                            type: 'object',
+                            properties: {
+                                user_id: {
+                                    type: ['number', 'string', 'null'],
+                                },
+                                nickname: {
+                                    type: 'string',
+                                },
+                                avatar: {
+                                    type: 'string',
+                                },
+                                description: {
+                                    type: 'string',
+                                },
+                            },
+                            required: ['user_id', 'nickname', 'avatar', 'description'],
+                        },
+                        {
+                            type: 'null',
+                        },
+                    ],
+                },
+                talkative_list: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            user_id: {
+                                type: ['number', 'string', 'null'],
+                            },
+                            nickname: {
+                                type: 'string',
+                            },
+                            avatar: {
+                                type: 'string',
+                            },
+                            description: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['user_id', 'nickname', 'avatar', 'description'],
+                    },
+                },
+                performer_list: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            user_id: {
+                                type: ['number', 'string', 'null'],
+                            },
+                            nickname: {
+                                type: 'string',
+                            },
+                            avatar: {
+                                type: 'string',
+                            },
+                            description: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['user_id', 'nickname', 'avatar', 'description'],
+                    },
+                },
+                legend_list: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            user_id: {
+                                type: ['number', 'string', 'null'],
+                            },
+                            nickname: {
+                                type: 'string',
+                            },
+                            avatar: {
+                                type: 'string',
+                            },
+                            description: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['user_id', 'nickname', 'avatar', 'description'],
+                    },
+                },
+                emotion_list: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            user_id: {
+                                type: ['number', 'string', 'null'],
+                            },
+                            nickname: {
+                                type: 'string',
+                            },
+                            avatar: {
+                                type: 'string',
+                            },
+                            description: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['user_id', 'nickname', 'avatar', 'description'],
+                    },
+                },
+                strong_newbie_list: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            user_id: {
+                                type: ['number', 'string', 'null'],
+                            },
+                            nickname: {
+                                type: 'string',
+                            },
+                            avatar: {
+                                type: 'string',
+                            },
+                            description: {
+                                type: 'string',
+                            },
+                        },
+                        required: ['user_id', 'nickname', 'avatar', 'description'],
+                    },
+                    description: '当前实现始终为空数组',
+                },
+            },
+            required: [
+                'group_id',
+                'current_talkative',
+                'talkative_list',
+                'performer_list',
+                'legend_list',
+                'emotion_list',
+                'strong_newbie_list',
+            ],
+        },
         summary: '获取群荣誉信息',
         readOnly: true,
         params: { type: f.string().optional() },
@@ -360,6 +564,17 @@ export const actions = [
 
     defineAction({
         name: 'get_group_system_msg',
+        examples: [
+            {
+                summary: '获取群系统消息',
+                params: {
+                    group_id: 20001,
+                    only_pending: true,
+                    count: 20,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群系统消息',
         readOnly: true,
         returns: '群系统消息数组，可按群号或未处理状态过滤。',

@@ -228,7 +228,7 @@ describe('set_friend_add_request describe', () => {
         expect(doc.summary).toBe('处理好友添加请求');
         expect(doc.readOnly).toBe(false);
         expect(doc.returns).toBeUndefined();
-        expect(doc.returnsSchema).toBeUndefined();
+        expect(doc.returnsSchema).toMatchObject({ type: 'null' });
         expect(doc.stream).toBeUndefined();
         expect(doc.invariants).toEqual([]);
         expect(doc.params).toEqual([
@@ -526,7 +526,7 @@ describe('set_group_add_request describe', () => {
         expect(doc.summary).toBe('处理加群请求');
         expect(doc.readOnly).toBe(false);
         expect(doc.returns).toBeUndefined();
-        expect(doc.returnsSchema).toBeUndefined();
+        expect(doc.returnsSchema).toMatchObject({ type: 'null' });
         expect(doc.stream).toBeUndefined();
         expect(doc.invariants).toEqual([]);
         expect(doc.params).toEqual([

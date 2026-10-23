@@ -62,6 +62,14 @@ const faceSchema = {
 export const actions = [
     defineAction({
         name: 'fetch_sys_faces',
+        examples: [
+            {
+                summary: '获取 QQ 系统表情目录',
+                params: {
+                    refresh: false,
+                },
+            },
+        ],
         summary: '获取 QQ 系统表情目录',
         readOnly: true,
         returns: '按分组返回完整的 QQ 系统表情映射。',
@@ -96,6 +104,14 @@ export const actions = [
 
     defineAction({
         name: 'fetch_face_entity',
+        examples: [
+            {
+                summary: '按编号查询 QQ 系统表情',
+                params: {
+                    face_id: 14,
+                },
+            },
+        ],
         summary: '按编号查询 QQ 系统表情',
         readOnly: true,
         returns: '表情详情；编号不存在时返回 null。',
@@ -112,6 +128,14 @@ export const actions = [
 
     defineAction({
         name: 'search_sys_faces',
+        examples: [
+            {
+                summary: '搜索 QQ 系统表情',
+                params: {
+                    query: '微笑',
+                },
+            },
+        ],
         summary: '搜索 QQ 系统表情',
         readOnly: true,
         returns: '匹配编号、名称、别名或分组名的表情列表。',
@@ -131,6 +155,14 @@ export const actions = [
 
     defineAction({
         name: 'fetch_super_face_id',
+        examples: [
+            {
+                summary: '判断 QQ 系统表情是否使用超级表情格式',
+                params: {
+                    face_id: 14,
+                },
+            },
+        ],
         summary: '判断 QQ 系统表情是否使用超级表情格式',
         readOnly: true,
         returns: '是否使用超级表情格式。',

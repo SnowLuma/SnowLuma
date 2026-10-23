@@ -457,6 +457,98 @@ type UploadParams = {
 
 const uploadFileStream = defineStreamAction({
     name: 'upload_file_stream',
+    examples: [
+        {
+            summary: '上传分块',
+            params: {
+                stream_id: 'example-upload-001',
+                filename: 'hello.txt',
+                total_chunks: 1,
+                file_size: 5,
+                chunk_index: 0,
+                chunk_data: 'aGVsbG8=',
+            },
+            notes: '第 1 步：每次上传生成新的 stream_id；这里上传 hello 的唯一分块。通过 invoke_action 调用，分块确认不等于整文件完成。',
+        },
+        {
+            summary: '完成同一上传',
+            params: {
+                stream_id: 'example-upload-001',
+                is_complete: true,
+            },
+            notes: '第 2 步：等待全部分块确认后，用同一个 stream_id 单独请求完成；成功时返回 file_path。MCP 的 invoke_action 也可通过 execution.input_file 自动完成上传。',
+        },
+    ],
+    returnsSchema: {
+        oneOf: [
+            {
+                type: 'object',
+                properties: {
+                    type: {
+                        const: 'stream',
+                    },
+                    stream_id: {
+                        type: 'string',
+                    },
+                    status: {
+                        enum: ['file_created', 'chunk_received'],
+                    },
+                    received_chunks: {
+                        type: 'integer',
+                    },
+                    total_chunks: {
+                        type: 'integer',
+                    },
+                },
+                required: ['type', 'stream_id', 'status', 'received_chunks', 'total_chunks'],
+            },
+            {
+                type: 'object',
+                properties: {
+                    type: {
+                        const: 'response',
+                    },
+                    stream_id: {
+                        type: 'string',
+                    },
+                    status: {
+                        const: 'file_complete',
+                    },
+                    received_chunks: {
+                        type: 'integer',
+                    },
+                    total_chunks: {
+                        type: 'integer',
+                    },
+                    file_path: {
+                        type: 'string',
+                    },
+                    file_name: {
+                        type: 'string',
+                    },
+                    file_size: {
+                        type: 'integer',
+                    },
+                    sha256: {
+                        type: 'string',
+                    },
+                },
+                required: [
+                    'type',
+                    'stream_id',
+                    'status',
+                    'received_chunks',
+                    'total_chunks',
+                    'file_path',
+                    'file_name',
+                    'file_size',
+                    'sha256',
+                ],
+            },
+        ],
+        description:
+            '分块确认与完成帧的 data；reset 和其他失败由错误帧返回。必须等到 file_complete 才能使用 file_path',
+    },
     summary: '以流式分块方式上传文件到机器人本地(返回可用于发送的本地路径)',
     returns:
         '流式帧:分块确认 type=stream、完成 type=response(含 file_path/file_name/file_size/sha256)',
@@ -496,6 +588,31 @@ function cleanDir(dir: string): number {
 
 const cleanStreamTempFile = defineAction({
     name: 'clean_stream_temp_file',
+    examples: [
+        {
+            summary: '清理流式传输临时文件(仅清理 stream 上传/下载目录)',
+            params: {},
+            notes: '清理未使用的流式临时文件；不会清理正在传输的项目。',
+        },
+    ],
+    returnsSchema: {
+        type: 'object',
+        properties: {
+            message: {
+                const: 'success',
+            },
+            removed: {
+                type: 'integer',
+            },
+            freed_bytes: {
+                type: 'integer',
+            },
+            skipped_active: {
+                type: 'integer',
+            },
+        },
+        required: ['message', 'removed', 'freed_bytes', 'skipped_active'],
+    },
     summary: '清理流式传输临时文件(仅清理 stream 上传/下载目录)',
     returns: '{ message, removed }',
     params: {},

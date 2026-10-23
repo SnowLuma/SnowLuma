@@ -18,6 +18,8 @@ it('generates src/generated/catalog.ts from the live action specs', () => {
     for (const a of actions) {
         expect(a.inputSchema).toBeTypeOf('object');
         expect(a.name).toBeTruthy();
+        expect(a.returnsSchema, `${a.name} result schema`).toBeTypeOf('object');
+        expect(a.examples?.length, `${a.name} invocation examples`).toBeGreaterThan(0);
     }
 
     const body =

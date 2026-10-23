@@ -5,6 +5,48 @@ and read/write gates. No endpoint is contacted by catalog tools or by a local
 runtime overview. The action catalog remains a bundled snapshot, not a claim
 about the connected server's capabilities.
 
+## Action result schemas and examples
+
+`get_action` and `snowluma://onebot/actions` include `returnsSchema` and
+`examples` for every bundled action, including aliases. Both are authored beside
+the OneBot action definition and copied into the generated catalog. List/search
+responses remain compact; use `get_action` to retrieve the complete contract.
+
+`returnsSchema` describes successful OneBot **`data`**, not the full OneBot
+envelope or the MCP `structuredContent` wrapper. Check `status` and `retcode`
+before reading it. For stream actions, the schema describes each successful
+frame's `data`; MCP downloads instead return saved-file metadata and generic
+streams return a frame collection. Error frames and failed envelopes are not
+successful results. Unsupported actions use `{ "not": {} }` because they have no
+successful result. Compatibility placeholders explicitly document their limits.
+
+Each example has `summary`, `params`, and optional `notes` explaining prerequisites
+and identifier sources. These are illustrative calls, never run by catalog tools.
+Replace example account/group IDs, opaque handles and paths with values from the
+current account before execution. Notes identify operations with multiple steps,
+such as completing an upload after all chunks have been acknowledged.
+
+For example, `get_action({ "name": "get_msg" })` documents signed message IDs:
+
+```json
+{
+  "action": "get_msg",
+  "params": { "message_id": -123456 }
+}
+```
+
+Pass this object to `query_action` with a real message ID. Writes and streams use
+`invoke_action` in write mode. For automatic upload, pass
+`{ "action": "upload_file_stream", "execution": { "input_file": "/allowed/hello.txt" } }`
+to `invoke_action`, with a real file inside the configured upload root. Ordinary
+action paths refer to the SnowLuma server, whereas `execution.input_file` and MCP
+download paths refer to the MCP host.
+
+Do not substitute zero for a signed message ID. Resource-only forward uploads
+and flash shares have a documented `message_id: 0` sentinel; it cannot be used
+for message lookup or recall. Also preserve `null` versus `{}`, optional fields,
+and decimal strings such as media `file_size` exactly as documented.
+
 ## Structured results
 
 Every tool advertises an `outputSchema` and returns `structuredContent` alongside

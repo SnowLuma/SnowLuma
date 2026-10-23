@@ -22,6 +22,15 @@ import {
 import { defineAction, groupAction, groupUserAction, f, type Field } from '../action-kit';
 import { groupInfoReturnsSchema } from './group-info';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
+import {
+    messageIdSchema,
+    messageDataSchema,
+    forwardNodeSchema,
+    messageSegmentSchema,
+    mediaInfoSchema,
+    messageResultSchema,
+    flashFileSchema,
+} from '../action-result-schemas';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const DEFAULT_DOWNLOAD_FILE_TIMEOUT_MS = 60_000;
@@ -547,6 +556,19 @@ export const actions = [
     // 赞
     defineAction({
         name: 'send_like',
+        examples: [
+            {
+                summary: '点赞',
+                params: {
+                    user_id: 10001,
+                    times: 1,
+                },
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '点赞',
         params: {
             user_id: f.userId(),
@@ -561,6 +583,19 @@ export const actions = [
     // 拍一拍
     defineAction({
         name: 'friend_poke',
+        examples: [
+            {
+                summary: '好友拍一拍',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '戳一戳指定好友。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '好友拍一拍',
         params: {
             user_id: f.userId(),
@@ -574,6 +609,20 @@ export const actions = [
 
     groupUserAction({
         name: 'group_poke',
+        examples: [
+            {
+                summary: '群拍一拍',
+                params: {
+                    group_id: 20001,
+                    user_id: 10001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '群拍一拍',
         run: async (p, ctx) => {
             await ctx.bridge.apis.interaction.sendPoke(true, p.group_id, p.user_id);
@@ -583,6 +632,20 @@ export const actions = [
 
     defineAction({
         name: 'send_poke',
+        examples: [
+            {
+                summary: '拍一拍（群聊/私聊自动路由）',
+                params: {
+                    group_id: 20001,
+                    user_id: 10001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '拍一拍（群聊/私聊自动路由）',
         params: {
             user_id: f.userId(),
@@ -602,6 +665,19 @@ export const actions = [
     // 精华消息
     defineAction({
         name: 'set_essence_msg',
+        examples: [
+            {
+                summary: '设置精华消息',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置精华消息',
         params: { message_id: f.messageId() },
         run: async (p, ctx) => {
@@ -612,6 +688,19 @@ export const actions = [
 
     defineAction({
         name: 'delete_essence_msg',
+        examples: [
+            {
+                summary: '移除精华消息',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '移除精华消息',
         params: { message_id: f.messageId() },
         run: async (p, ctx) => {
@@ -622,6 +711,64 @@ export const actions = [
 
     groupAction({
         name: 'get_essence_msg_list',
+        examples: [
+            {
+                summary: '获取精华消息列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    msg_seq: {
+                        type: 'integer',
+                    },
+                    msg_random: {
+                        type: 'integer',
+                    },
+                    sender_id: {
+                        type: 'integer',
+                    },
+                    sender_nick: {
+                        type: 'string',
+                    },
+                    sender_time: {
+                        type: 'integer',
+                    },
+                    operator_id: {
+                        type: 'integer',
+                    },
+                    operator_nick: {
+                        type: 'string',
+                    },
+                    operator_time: {
+                        type: 'integer',
+                    },
+                    message_id: messageIdSchema,
+                    content: {
+                        type: 'array',
+                        items: messageSegmentSchema,
+                    },
+                },
+                required: [
+                    'msg_seq',
+                    'msg_random',
+                    'sender_id',
+                    'sender_nick',
+                    'sender_time',
+                    'operator_id',
+                    'operator_nick',
+                    'operator_time',
+                    'message_id',
+                    'content',
+                ],
+            },
+        },
         summary: '获取精华消息列表',
         readOnly: true,
         run: async (p, ctx) => {
@@ -650,6 +797,22 @@ export const actions = [
     // 群聊表情回应
     defineAction({
         name: 'set_group_reaction',
+        examples: [
+            {
+                summary: '群聊表情回应',
+                params: {
+                    message_id: -123456,
+                    group_id: 20001,
+                    code: '128077',
+                    is_set: true,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '群聊表情回应',
         params: {
             group_id: f.groupId().optional(),
@@ -694,6 +857,19 @@ export const actions = [
     // 删除收藏表情（Faceroam.OpReq opType=2）
     defineAction({
         name: 'delete_custom_face',
+        examples: [
+            {
+                summary: '删除收藏表情',
+                params: {
+                    emoji_id: '<emoji-id-from-fetch_custom_face_detail>',
+                },
+                notes: 'emoji_id 来自 fetch_custom_face_detail。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除收藏表情',
         params: { emoji_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -705,6 +881,24 @@ export const actions = [
     // 添加收藏表情（ImgStore.BDHExpressionRoam + highway HTTP 上传）
     defineAction({
         name: 'add_custom_face',
+        examples: [
+            {
+                summary: '添加收藏表情',
+                params: {
+                    file: 'file:///path/to/emoji.png',
+                },
+                notes: '示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                emoji_id: {
+                    type: 'string',
+                },
+            },
+            required: ['emoji_id'],
+        },
         summary: '添加收藏表情',
         params: { file: f.image() },
         run: async (p, ctx) => {
@@ -716,6 +910,20 @@ export const actions = [
     // 修改收藏表情备注（OIDB 0x902e_1 opType=3）
     defineAction({
         name: 'modify_custom_face',
+        examples: [
+            {
+                summary: '修改收藏表情备注',
+                params: {
+                    emoji_id: '<emoji-id>',
+                    desc: '常用表情',
+                },
+                notes: 'emoji_id 来自 fetch_custom_face_detail。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '修改收藏表情备注',
         params: {
             emoji_id: f.string({ allowEmpty: false }),
@@ -734,6 +942,19 @@ export const actions = [
     // 位置变量，移到其他位置服务端不生效。所以这个 action 只做"移到最前"。
     defineAction({
         name: 'move_custom_face_to_front',
+        examples: [
+            {
+                summary: '收藏表情移到最前',
+                params: {
+                    emoji_id: '<emoji-id-from-fetch_custom_face_detail>',
+                },
+                notes: 'emoji_id 来自 fetch_custom_face_detail。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '收藏表情移到最前',
         params: { emoji_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -745,6 +966,16 @@ export const actions = [
     // 消息历史
     groupAction({
         name: 'get_group_msg_history',
+        examples: [
+            {
+                summary: '获取群消息历史',
+                params: {
+                    group_id: 20001,
+                    count: 20,
+                },
+                notes: '省略 message_id 从最新消息开始；翻页使用上一页实际 message_id，不要自行加减。',
+            },
+        ],
         summary: '获取群消息历史',
         readOnly: true,
         returns: '{ messages }：群消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。',
@@ -753,8 +984,8 @@ export const actions = [
             properties: {
                 messages: {
                     type: 'array',
-                    description: '消息事件对象数组',
-                    items: { type: 'object' },
+                    description: '消息对象数组；去除 post_type/self_id，附带 real_id',
+                    items: messageDataSchema,
                 },
             },
             required: ['messages'],
@@ -787,6 +1018,16 @@ export const actions = [
 
     defineAction({
         name: 'get_friend_msg_history',
+        examples: [
+            {
+                summary: '获取好友消息历史（无锚点时从服务器获取最新双向记录）',
+                params: {
+                    user_id: 10001,
+                    count: 20,
+                },
+                notes: '省略 message_id 从最新消息开始；只读取当前账号消息。',
+            },
+        ],
         summary: '获取好友消息历史（无锚点时从服务器获取最新双向记录）',
         readOnly: true,
         returns: '{ messages }：好友消息事件对象数组（每项为 OneBot 消息事件，内部字段不固定）。',
@@ -795,8 +1036,8 @@ export const actions = [
             properties: {
                 messages: {
                     type: 'array',
-                    description: '消息事件对象数组',
-                    items: { type: 'object' },
+                    description: '消息对象数组；去除 post_type/self_id，附带 real_id',
+                    items: messageDataSchema,
                 },
             },
             required: ['messages'],
@@ -832,6 +1073,20 @@ export const actions = [
     // 标记消息已读
     defineAction({
         name: 'mark_group_msg_as_read',
+        examples: [
+            {
+                summary: '标记群消息已读',
+                params: {
+                    message_id: -123456,
+                    group_id: 20001,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '标记群消息已读',
         params: {
             message_id: f.messageId(),
@@ -861,6 +1116,20 @@ export const actions = [
 
     defineAction({
         name: 'mark_private_msg_as_read',
+        examples: [
+            {
+                summary: '标记私聊消息已读',
+                params: {
+                    message_id: -123456,
+                    user_id: 10001,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '标记私聊消息已读',
         params: {
             message_id: f.messageId(),
@@ -890,6 +1159,19 @@ export const actions = [
 
     defineAction({
         name: 'mark_msg_as_read',
+        examples: [
+            {
+                summary: '标记消息已读（群聊/私聊自动路由）',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '标记消息已读（群聊/私聊自动路由）',
         params: {
             message_id: f.messageId(),
@@ -922,6 +1204,22 @@ export const actions = [
     // 群公告
     groupAction({
         name: '_send_group_notice',
+        examples: [
+            {
+                summary: '发送群公告（支持置顶、弹窗、新成员、群昵称引导与确认）',
+                params: {
+                    group_id: 20001,
+                    content: '欢迎参加本周讨论',
+                    type: 1,
+                    pinned: 0,
+                },
+                notes: '需要群公告管理权限；普通公告 type=1，新成员公告 type=20。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '发送群公告（支持置顶、弹窗、新成员、群昵称引导与确认）',
         params: {
             content: f.string({ allowEmpty: false }).describe('公告正文'),
@@ -983,6 +1281,110 @@ export const actions = [
 
     groupAction({
         name: '_get_group_notice',
+        examples: [
+            {
+                summary: '获取群公告',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    notice_id: {
+                        type: 'string',
+                    },
+                    sender_id: {
+                        type: 'number',
+                    },
+                    publish_time: {
+                        type: 'number',
+                    },
+                    message: {
+                        type: 'object',
+                        properties: {
+                            text: {
+                                type: 'string',
+                            },
+                            image: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        id: {
+                                            type: 'string',
+                                        },
+                                        url: {
+                                            type: 'string',
+                                        },
+                                        height: {
+                                            type: 'number',
+                                        },
+                                        width: {
+                                            type: 'number',
+                                        },
+                                    },
+                                    required: ['id', 'url', 'height', 'width'],
+                                },
+                            },
+                            images: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        id: {
+                                            type: 'string',
+                                        },
+                                        url: {
+                                            type: 'string',
+                                        },
+                                        height: {
+                                            type: 'number',
+                                        },
+                                        width: {
+                                            type: 'number',
+                                        },
+                                    },
+                                    required: ['id', 'url', 'height', 'width'],
+                                },
+                                description: '与 image 相同的图片列表，保留两个兼容字段',
+                            },
+                        },
+                        required: ['text', 'image', 'images'],
+                    },
+                    settings: {
+                        description: '服务端公告设置，原样透传，可为 null',
+                    },
+                    read_num: {
+                        type: 'number',
+                    },
+                    type: {
+                        type: 'number',
+                    },
+                    pinned: {
+                        type: 'number',
+                    },
+                    send_to_new_members: {
+                        type: 'boolean',
+                    },
+                },
+                required: [
+                    'notice_id',
+                    'sender_id',
+                    'publish_time',
+                    'message',
+                    'settings',
+                    'read_num',
+                    'type',
+                    'pinned',
+                    'send_to_new_members',
+                ],
+            },
+        },
         summary: '获取群公告',
         returns:
             '普通公告与新成员公告的合并数组；send_to_new_members 标识后者；图片含 id、url、宽高',
@@ -996,6 +1398,52 @@ export const actions = [
     // 转发消息。messages/message 互为别名键，两者皆缺省视为未提供。
     defineAction({
         name: 'upload_forward_msg',
+        examples: [
+            {
+                summary: '上传转发消息',
+                params: {
+                    group_id: 20001,
+                    messages: [
+                        {
+                            type: 'node',
+                            data: {
+                                user_id: 10001,
+                                nickname: '示例用户',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        data: {
+                                            text: '转发内容',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                notes: '仅上传合并转发资源，不发送聊天消息；message_id=0 是占位值，后续使用 res_id。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                res_id: {
+                    type: 'string',
+                },
+                forward_id: {
+                    type: 'string',
+                },
+                message_id: {
+                    const: 0,
+                    description: '仅上传资源，不代表已发送消息；0 不能用于消息查询或撤回',
+                },
+                group_id: {
+                    type: 'integer',
+                    description: '仅请求提供正数 group_id 时出现',
+                },
+            },
+            required: ['res_id', 'forward_id', 'message_id'],
+        },
         summary: '上传转发消息',
         params: {
             messages: forwardMessagesField,
@@ -1028,6 +1476,47 @@ export const actions = [
 
     defineAction({
         name: 'upload_foward_msg',
+        examples: [
+            {
+                summary: '上传转发消息（别名拼写）',
+                params: {
+                    messages: [
+                        {
+                            type: 'node',
+                            data: {
+                                user_id: 10001,
+                                nickname: '示例用户',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        data: {
+                                            text: '转发内容',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                notes: '历史拼写兼容接口，仅上传资源；message_id=0，返回值没有 group_id。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                res_id: {
+                    type: 'string',
+                },
+                forward_id: {
+                    type: 'string',
+                },
+                message_id: {
+                    const: 0,
+                    description: '仅上传资源，不代表已发送消息；0 不能用于消息查询或撤回',
+                },
+            },
+            required: ['res_id', 'forward_id', 'message_id'],
+        },
         summary: '上传转发消息（别名拼写）',
         params: {
             messages: forwardMessagesField,
@@ -1054,6 +1543,16 @@ export const actions = [
     // 文件信息
     defineAction({
         name: 'get_image',
+        examples: [
+            {
+                summary: '获取图片信息',
+                params: {
+                    file: '<image-file-from-message>',
+                },
+                notes: 'file 或 file_id 原样取自图片消息段，须在当前账号媒体缓存中存在。',
+            },
+        ],
+        returnsSchema: mediaInfoSchema,
         summary: '获取图片信息',
         readOnly: true,
         params: {
@@ -1079,6 +1578,36 @@ export const actions = [
 
     defineAction({
         name: 'get_record',
+        examples: [
+            {
+                summary: '获取语音信息；传 out_format 则服务端转码并附带 base64',
+                params: {
+                    file: '<record-file-from-message>',
+                    out_format: 'mp3',
+                },
+                notes: 'file 来自语音消息段；格式转换依赖服务端可用的转换工具，成功时增加 out_format 和 base64。',
+            },
+        ],
+        returnsSchema: {
+            allOf: [
+                mediaInfoSchema,
+                {
+                    type: 'object',
+                    properties: {
+                        out_format: {
+                            type: 'string',
+                            enum: ['mp3', 'amr', 'wma', 'm4a', 'spx', 'ogg', 'wav', 'flac'],
+                        },
+                        base64: {
+                            type: 'string',
+                            description: '转换后音频的 Base64，未请求 out_format 时省略',
+                        },
+                    },
+                },
+            ],
+            description:
+                '未转换时只有媒体信息；指定 out_format 成功转换后同时增加 out_format 和 base64，file_size 仍为原媒体大小',
+        },
         summary: '获取语音信息；传 out_format 则服务端转码并附带 base64',
         readOnly: true,
         returns:
@@ -1131,6 +1660,15 @@ export const actions = [
     defineAction({
         // Primary name matches NapCat for drop-in migration; the rest are aliases.
         name: ['fetch_ptt_text', 'get_ptt_text', 'get_record_text'],
+        examples: [
+            {
+                summary: '获取语音转文字结果',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
         summary: '获取语音转文字结果',
         readOnly: true,
         returns: '{ text }：语音识别出的文本。',
@@ -1152,6 +1690,15 @@ export const actions = [
     // Cookie、CSRF 令牌和账号信息
     defineAction({
         name: 'get_cookies',
+        examples: [
+            {
+                summary: '获取 Cookies',
+                params: {
+                    domain: 'qun.qq.com',
+                },
+                notes: '返回登录凭据，仅在有明确用途时读取，请勿公开。',
+            },
+        ],
         summary: '获取 Cookies',
         readOnly: true,
         returns: '{ cookies }：指定域名的 Cookie 字符串。',
@@ -1171,6 +1718,12 @@ export const actions = [
 
     defineAction({
         name: 'get_csrf_token',
+        examples: [
+            {
+                summary: '获取 CSRF 令牌',
+                params: {},
+            },
+        ],
         summary: '获取 CSRF 令牌',
         readOnly: true,
         returns: '{ token }：CSRF 令牌（bkn，数值）。',
@@ -1190,6 +1743,15 @@ export const actions = [
 
     defineAction({
         name: 'get_credentials',
+        examples: [
+            {
+                summary: '获取凭证',
+                params: {
+                    domain: 'qun.qq.com',
+                },
+                notes: '返回登录凭据，仅在有明确用途时读取，请勿公开。',
+            },
+        ],
         summary: '获取凭证',
         readOnly: true,
         returns:
@@ -1213,6 +1775,17 @@ export const actions = [
     // 重启和清理缓存
     defineAction({
         name: 'set_restart',
+        examples: [
+            {
+                summary: '重启（不支持）',
+                params: {},
+                notes: '当前未实现，调用返回失败；不要将其当作可用能力。',
+            },
+        ],
+        returnsSchema: {
+            not: {},
+            description: '当前始终返回失败，没有成功 data；失败响应 data 为 null，原因见 wording',
+        },
         summary: '重启（不支持）',
         params: {},
         run: async () => {
@@ -1222,6 +1795,17 @@ export const actions = [
 
     defineAction({
         name: 'clean_cache',
+        examples: [
+            {
+                summary: '清理缓存',
+                params: {},
+                notes: '兼容占位接口，当前返回成功但不执行清理。流式临时文件清理请使用 clean_stream_temp_file。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '清理缓存',
         params: {},
         run: async () => {
@@ -1232,6 +1816,19 @@ export const actions = [
     // 以下接口在方便用户迁移和兼容现有的 OneBot/NapCat 客户端。
     defineAction({
         name: 'set_friend_remark',
+        examples: [
+            {
+                summary: '设置好友备注',
+                params: {
+                    user_id: 10001,
+                    remark: '同学',
+                },
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置好友备注',
         params: {
             user_id: f.userId(),
@@ -1245,6 +1842,20 @@ export const actions = [
 
     defineAction({
         name: 'set_group_remark',
+        examples: [
+            {
+                summary: '设置群备注',
+                params: {
+                    group_id: 20001,
+                    remark: '学习小组',
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置群备注',
         params: {
             group_id: f.groupId(),
@@ -1258,6 +1869,21 @@ export const actions = [
 
     defineAction({
         name: 'set_msg_emoji_like',
+        examples: [
+            {
+                summary: '设置消息表情回应',
+                params: {
+                    message_id: -123456,
+                    emoji_id: '128077',
+                    set: true,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置消息表情回应',
         params: {
             message_id: f.messageId(),
@@ -1272,6 +1898,17 @@ export const actions = [
 
     defineAction({
         name: '_mark_all_as_read',
+        examples: [
+            {
+                summary: '标记全部已读',
+                params: {},
+                notes: '会将当前账号的会话标记为已读。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '标记全部已读',
         params: {},
         run: async (_p, ctx) => {
@@ -1283,6 +1920,15 @@ export const actions = [
 
     groupAction({
         name: 'get_group_file_system_info',
+        examples: [
+            {
+                summary: '获取群文件系统信息',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群文件系统信息',
         readOnly: true,
         returns:
@@ -1314,6 +1960,13 @@ export const actions = [
 
     defineAction({
         name: 'check_url_safely',
+        examples: [
+            {
+                summary: '检查链接安全性',
+                params: {},
+                notes: '兼容占位接口，当前固定返回 level=1，不能用来证明某个链接安全。',
+            },
+        ],
         summary: '检查链接安全性',
         readOnly: true,
         returns: '{ level }：安全等级（占位实现，恒为 1）。',
@@ -1332,6 +1985,19 @@ export const actions = [
 
     defineAction({
         name: 'set_qq_profile',
+        examples: [
+            {
+                summary: '设置 QQ 资料',
+                params: {
+                    nickname: '示例昵称',
+                },
+                notes: '会修改当前账号的资料；只传入需要修改的字段。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置 QQ 资料',
         params: {
             nickname: f.string().optional(),
@@ -1346,6 +2012,21 @@ export const actions = [
 
     defineAction({
         name: 'set_online_status',
+        examples: [
+            {
+                summary: '设置在线状态',
+                params: {
+                    status: 11,
+                    ext_status: 0,
+                    battery_status: 100,
+                },
+                notes: '修改当前账号状态；具体状态码须与目标状态对应。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置在线状态',
         params: {
             // 原实现用 asNumber+`status===0` 拒绝，等价于必填非零整数。
@@ -1364,6 +2045,20 @@ export const actions = [
     // face_id 和 face_type 可接受数字或数字字符串，以兼容 NapCat；wording 是图标旁展示的可读文本。
     defineAction({
         name: 'set_diy_online_status',
+        examples: [
+            {
+                summary: '设置自定义在线状态',
+                params: {
+                    face_id: 14,
+                    face_type: 1,
+                    wording: '学习中',
+                },
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置自定义在线状态',
         params: {
             face_id: f.faceId(),
@@ -1379,6 +2074,12 @@ export const actions = [
 
     defineAction({
         name: 'get_group_ignored_notifies',
+        examples: [
+            {
+                summary: '获取被过滤的入群请求',
+                params: {},
+            },
+        ],
         summary: '获取被过滤的入群请求',
         readOnly: true,
         returns: '被过滤的入群请求数组，每项含群号、申请人、邀请人、留言与处理标记。',
@@ -1440,6 +2141,12 @@ export const actions = [
     // eventType 已经在当前流水线中编码了请求类别。
     defineAction({
         name: 'get_group_ignore_add_request',
+        examples: [
+            {
+                summary: '获取被忽略的入群请求（NapCat）',
+                params: {},
+            },
+        ],
         summary: '获取被忽略的入群请求（NapCat）',
         readOnly: true,
         returns:
@@ -1499,6 +2206,15 @@ export const actions = [
     // 刚下/解的禁言可能在该窗口内未反映，属可接受的低频运维查询取舍。
     groupAction({
         name: 'get_group_shut_list',
+        examples: [
+            {
+                summary: '获取群禁言列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群禁言列表',
         readOnly: true,
         returns: '仍在禁言中的成员数组，每项含 QQ 号、昵称与禁言到期时间戳（秒）。',
@@ -1529,6 +2245,36 @@ export const actions = [
     // 现有 web cookie/bkn 基建（与群公告/精华同套路），故无需 RE。失败/无打卡返回空表。
     groupAction({
         name: 'get_group_signed_list',
+        examples: [
+            {
+                summary: '获取群今日打卡列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    user_id: {
+                        type: 'integer',
+                    },
+                    nick: {
+                        type: 'string',
+                    },
+                    time: {
+                        type: 'integer',
+                    },
+                    rank: {
+                        type: 'integer',
+                    },
+                },
+                required: ['user_id', 'nick', 'time', 'rank'],
+            },
+        },
         summary: '获取群今日打卡列表',
         readOnly: true,
         run: async (p, ctx) => {
@@ -1539,6 +2285,17 @@ export const actions = [
 
     defineAction({
         name: 'forward_friend_single_msg',
+        examples: [
+            {
+                summary: '转发单条消息给好友',
+                params: {
+                    message_id: -123456,
+                    user_id: 10001,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '转发单条消息给好友',
         params: {
             message_id: f.messageId(),
@@ -1552,6 +2309,17 @@ export const actions = [
 
     defineAction({
         name: 'forward_group_single_msg',
+        examples: [
+            {
+                summary: '转发单条消息到群',
+                params: {
+                    message_id: -123456,
+                    group_id: 20001,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '转发单条消息到群',
         params: {
             message_id: f.messageId(),
@@ -1565,6 +2333,16 @@ export const actions = [
 
     defineAction({
         name: 'get_profile_like',
+        examples: [
+            {
+                summary: '获取资料点赞',
+                params: {
+                    user_id: 10001,
+                    start: 0,
+                    count: 10,
+                },
+            },
+        ],
         summary: '获取资料点赞',
         readOnly: true,
         returns: '点赞资料：uid、最近点赞时间、收藏与点赞统计及用户明细。',
@@ -1619,6 +2397,15 @@ export const actions = [
 
     defineAction({
         name: 'fetch_custom_face',
+        examples: [
+            {
+                summary: '获取自定义表情',
+                params: {
+                    count: 10,
+                    return_type: 'url',
+                },
+            },
+        ],
         summary: '获取自定义表情',
         readOnly: true,
         returns: '字符串数组：return_type=url 时为图片 URL，return_type=id 时为 emoji_id。',
@@ -1643,6 +2430,14 @@ export const actions = [
 
     defineAction({
         name: 'fetch_custom_face_detail',
+        examples: [
+            {
+                summary: '获取自定义表情详情',
+                params: {
+                    count: 10,
+                },
+            },
+        ],
         summary: '获取自定义表情详情',
         readOnly: true,
         returns: '自定义表情详情数组，包含资源标识、图片地址、摘要与描述。',
@@ -1682,6 +2477,16 @@ export const actions = [
 
     defineAction({
         name: 'get_emoji_likes',
+        examples: [
+            {
+                summary: '获取表情回应用户',
+                params: {
+                    message_id: -123456,
+                    emoji_id: '128077',
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
         summary: '获取表情回应用户',
         readOnly: true,
         returns: '{ emoji_like_list }：回应该表情的用户列表（nick_name 恒为空串）。',
@@ -1720,6 +2525,17 @@ export const actions = [
 
     defineAction({
         name: 'fetch_emoji_like',
+        examples: [
+            {
+                summary: '获取表情回应用户（NapCat 分页）',
+                params: {
+                    message_id: -123456,
+                    emojiId: '128077',
+                    count: 10,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。 后续页原样传回上页 cookie。',
+            },
+        ],
         summary: '获取表情回应用户（NapCat 分页）',
         readOnly: true,
         returns: '分页的表情回应用户列表（NapCat 形状），含分页游标 cookie 与首/末页标记。',
@@ -1775,6 +2591,15 @@ export const actions = [
 
     defineAction({
         name: 'get_msg_emoji_likes',
+        examples: [
+            {
+                summary: '获取一条消息的全部表情回应',
+                params: {
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。',
+            },
+        ],
         summary: '获取一条消息的全部表情回应',
         readOnly: true,
         returns: '该消息上每个表情回应的编号、数量与用户列表。',
@@ -1814,6 +2639,12 @@ export const actions = [
 
     defineAction({
         name: 'get_friends_with_category',
+        examples: [
+            {
+                summary: '获取分组好友列表',
+                params: {},
+            },
+        ],
         summary: '获取分组好友列表',
         readOnly: true,
         returns: '好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList。',
@@ -1863,6 +2694,20 @@ export const actions = [
 
     defineAction({
         name: 'set_friends_category',
+        examples: [
+            {
+                summary: '移动好友到指定分组',
+                params: {
+                    uin: 10001,
+                    categoryName: '同学',
+                },
+                notes: 'categoryId 与 categoryName 二选一。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '移动好友到指定分组',
         returns: '成功时返回空数据。',
         params: {
@@ -1891,6 +2736,15 @@ export const actions = [
     // 用同名接口给出语义有偏差的近似），接受 count 入参以兼容客户端盲调。
     defineAction({
         name: 'get_recent_contact',
+        examples: [
+            {
+                summary: '获取最近会话（占位）',
+                notes: '兼容占位接口，当前始终返回空数组，不能据此判断真实会话列表。',
+                params: {
+                    count: 10,
+                },
+            },
+        ],
         summary: '获取最近会话（占位）',
         readOnly: true,
         returns: '占位实现，恒返回空数组。',
@@ -1905,6 +2759,14 @@ export const actions = [
 
     defineAction({
         name: 'get_online_clients',
+        examples: [
+            {
+                summary: '获取在线客户端',
+                params: {
+                    no_cache: false,
+                },
+            },
+        ],
         summary: '获取在线客户端',
         readOnly: true,
         returns: '{ clients }：QQ 本次会话最近推送的在线设备快照。',
@@ -1977,6 +2839,15 @@ export const actions = [
     // 'snowluma'），对调用方更有信息量。属有意的行为分歧，仅形状对齐。
     defineAction({
         name: '_get_model_show',
+        examples: [
+            {
+                summary: '获取机型展示（兼容 mock）',
+                params: {
+                    model: '示例机型',
+                },
+                notes: '兼容占位接口，仅将传入的 model（或默认值）放进展示结构，不查询设备机型。',
+            },
+        ],
         summary: '获取机型展示（兼容 mock）',
         readOnly: true,
         returns: '数组，每项含 variants（回显请求的机型名与 need_pay 标记）。',
@@ -2011,6 +2882,17 @@ export const actions = [
 
     defineAction({
         name: '_set_model_show',
+        examples: [
+            {
+                summary: '设置机型展示（占位）',
+                params: {},
+                notes: '兼容占位接口，当前返回成功但不修改机型展示。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置机型展示（占位）',
         params: {},
         run: async () => {
@@ -2020,6 +2902,15 @@ export const actions = [
 
     groupAction({
         name: 'get_group_at_all_remain',
+        examples: [
+            {
+                summary: '获取群 @全体成员 剩余次数',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群 @全体成员 剩余次数',
         readOnly: true,
         returns:
@@ -2051,6 +2942,21 @@ export const actions = [
 
     defineAction({
         name: 'get_unidirectional_friend_list',
+        examples: [
+            {
+                summary: '获取单向好友列表',
+                params: {},
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                additionalProperties: true,
+                description:
+                    '服务端列表项原样透传，目前未归一化字段，不能假定与 get_friend_list 相同',
+            },
+        },
         summary: '获取单向好友列表',
         readOnly: true,
         params: {},
@@ -2062,6 +2968,13 @@ export const actions = [
 
     defineAction({
         name: 'get_clientkey',
+        examples: [
+            {
+                summary: '获取 clientkey',
+                params: {},
+                notes: '返回值可能包含凭据或临时下载密钥，请勿公开或记录到不受控日志。',
+            },
+        ],
         summary: '获取 clientkey',
         readOnly: true,
         returns: '{ clientKey, expireTime, keyIndex }：clientkey 及其过期时间与索引。',
@@ -2096,6 +3009,15 @@ export const actions = [
     // which id is present; we mirror that. Returns the server-built ark JSON.
     defineAction({
         name: 'share_peer',
+        examples: [
+            {
+                summary: '分享用户/群 Ark 卡片',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '生成联系人分享卡片；返回卡片数据，不等同于发送到聊天。',
+            },
+        ],
         summary: '分享用户/群 Ark 卡片',
         readOnly: true,
         returns: '{ arkMsg }：服务端生成的推荐联系人 Ark 卡片 JSON 字符串。',
@@ -2132,6 +3054,15 @@ export const actions = [
     }),
     defineAction({
         name: 'send_ark_share',
+        examples: [
+            {
+                summary: '分享用户/群 Ark 卡片（NapCat 标准名）',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '生成联系人分享卡片；返回卡片数据，不等同于发送到聊天。',
+            },
+        ],
         summary: '分享用户/群 Ark 卡片（NapCat 标准名）',
         readOnly: true,
         returns: '{ arkMsg }：服务端生成的推荐联系人 Ark 卡片 JSON 字符串。',
@@ -2174,6 +3105,19 @@ export const actions = [
     // 本 action 发送固定图文 ark 模板，返回 null（无法用于撤回/设精华）。
     defineAction({
         name: 'send_tuwen_ark',
+        examples: [
+            {
+                summary: '发送图文 Ark 卡片（私聊/群聊）',
+                params: {
+                    group_id: 20001,
+                    title: '学习资料',
+                    desc: '本周课程资料',
+                    jump_url: 'https://example.com/course',
+                    preview_url: 'https://example.com/cover.png',
+                },
+                notes: '替换目标群号及实际链接；会发送分享卡片。',
+            },
+        ],
         summary: '发送图文 Ark 卡片（私聊/群聊）',
         readOnly: false,
         returns: 'null',
@@ -2228,6 +3172,15 @@ export const actions = [
     // confident equivalent. The card may differ slightly from NapCat's.
     defineAction({
         name: 'share_group_ex',
+        examples: [
+            {
+                summary: '分享群 Ark 卡片',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '生成群分享卡片；返回卡片数据，不等同于发送到聊天。',
+            },
+        ],
         summary: '分享群 Ark 卡片',
         readOnly: true,
         returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
@@ -2239,6 +3192,15 @@ export const actions = [
     }),
     defineAction({
         name: 'send_group_ark_share',
+        examples: [
+            {
+                summary: '分享群 Ark 卡片（NapCat 标准名）',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '生成群分享卡片；返回卡片数据，不等同于发送到聊天。',
+            },
+        ],
         summary: '分享群 Ark 卡片（NapCat 标准名）',
         readOnly: true,
         returns: '服务端生成的群推荐 Ark 卡片 JSON 字符串。',
@@ -2253,6 +3215,14 @@ export const actions = [
     // The list item's `uid` is what set_doubt_friends_add_request takes as flag.
     defineAction({
         name: 'get_doubt_friends_add_request',
+        examples: [
+            {
+                summary: '获取可疑好友申请',
+                params: {
+                    count: 20,
+                },
+            },
+        ],
         summary: '获取可疑好友申请',
         readOnly: true,
         returns: '可疑好友申请数组，每项含 uid（作为处理用 flag）、昵称、来源、留言与申请时间。',
@@ -2295,6 +3265,20 @@ export const actions = [
     // Approval and rejection use their respective friend API operations.
     defineAction({
         name: 'set_doubt_friends_add_request',
+        examples: [
+            {
+                summary: '处理可疑好友申请',
+                params: {
+                    flag: '<uid-from-doubt-request>',
+                    approve: true,
+                },
+                notes: 'flag 使用 get_doubt_friends_add_request 返回项的 uid。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '处理可疑好友申请',
         params: {
             flag: f.string({ allowEmpty: false }),
@@ -2315,6 +3299,21 @@ export const actions = [
     // ext-info (0xf00_3). Omitted params leave the field unchanged.
     groupAction({
         name: 'set_group_robot_add_option',
+        examples: [
+            {
+                summary: '设置群机器人加群选项',
+                params: {
+                    group_id: 20001,
+                    robot_member_switch: 1,
+                    robot_member_examine: 1,
+                },
+                notes: '替换群号和成员 QQ 号；操作是否允许取决于当前账号在该群的权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置群机器人加群选项',
         run: async (p, ctx) => {
             await ctx.bridge.apis.groupAdmin.setRobotAddOption(
@@ -2332,6 +3331,15 @@ export const actions = [
 
     defineAction({
         name: 'get_collection_list',
+        examples: [
+            {
+                summary: '获取收藏列表',
+                params: {
+                    category: 0,
+                    count: 20,
+                },
+            },
+        ],
         summary: '获取收藏列表',
         readOnly: true,
         returns: '返回收藏条目、是否还有更多数据及底部时间游标。',
@@ -2440,6 +3448,17 @@ export const actions = [
 
     defineAction({
         name: 'create_collection',
+        examples: [
+            {
+                summary: '创建收藏（未实现）',
+                params: {},
+                notes: '当前未实现，调用返回失败；不要将其当作可用能力。',
+            },
+        ],
+        returnsSchema: {
+            not: {},
+            description: '当前始终返回失败，没有成功 data；失败响应 data 为 null，原因见 wording',
+        },
         summary: '创建收藏（未实现）',
         params: {},
         run: async () => {
@@ -2449,6 +3468,17 @@ export const actions = [
 
     defineAction({
         name: '.get_word_slices',
+        examples: [
+            {
+                summary: '分词（未实现）',
+                params: {},
+                notes: '当前未实现，调用返回失败；不要将其当作可用能力。',
+            },
+        ],
+        returnsSchema: {
+            not: {},
+            description: '当前始终返回失败，没有成功 data；失败响应 data 为 null，原因见 wording',
+        },
         summary: '分词（未实现）',
         readOnly: true,
         params: {},
@@ -2459,6 +3489,19 @@ export const actions = [
 
     defineAction({
         name: 'set_qq_avatar',
+        examples: [
+            {
+                summary: '设置 QQ 头像',
+                params: {
+                    file: 'file:///path/to/avatar.png',
+                },
+                notes: '示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置 QQ 头像',
         params: { file: f.image() },
         run: async (p, ctx) => {
@@ -2469,6 +3512,21 @@ export const actions = [
 
     defineAction({
         name: 'set_input_status',
+        examples: [
+            {
+                summary: '设置输入状态',
+                params: {
+                    user_id: 10001,
+                    event_type: 0,
+                },
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+            description: '成功时为空对象 {}，不是 null',
+        },
         summary: '设置输入状态',
         params: {
             user_id: f.userId(),
@@ -2483,6 +3541,15 @@ export const actions = [
 
     defineAction({
         name: 'get_group_info_ex',
+        examples: [
+            {
+                summary: '获取群信息（扩展）',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群信息（扩展）',
         readOnly: true,
         returnsSchema: groupInfoReturnsSchema,
@@ -2501,6 +3568,15 @@ export const actions = [
 
     defineAction({
         name: 'get_group_detail_info',
+        examples: [
+            {
+                summary: '获取群详细信息',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取群详细信息',
         readOnly: true,
         returnsSchema: groupInfoReturnsSchema,
@@ -2519,6 +3595,25 @@ export const actions = [
 
     defineAction({
         name: 'trans_group_file',
+        examples: [
+            {
+                summary: '转存群文件',
+                params: {
+                    group_id: 20001,
+                    file_id: '<file-id-from-get_group_root_files>',
+                },
+                notes: '替换群文件列表中的实际 file_id；需要对应文件操作权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                ok: {
+                    const: true,
+                },
+            },
+            required: ['ok'],
+        },
         summary: '转存群文件',
         returns: '{ ok: true }',
         params: {
@@ -2543,6 +3638,16 @@ export const actions = [
     // 而非武断断言"不支持"。（summary 仅进离线文档，调用方运行时只看到 wording。）
     defineAction({
         name: 'get_file',
+        examples: [
+            {
+                summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
+                params: {
+                    file_id: '<media-file-id-from-message>',
+                },
+                notes: '仅查询已缓存的图片或语音，先尝试图片，再尝试语音。',
+            },
+        ],
+        returnsSchema: mediaInfoSchema,
         summary: '获取文件信息（仅图片/语音缓存；群文件请用 get_group_file_url）',
         readOnly: true,
         params: {
@@ -2579,6 +3684,17 @@ export const actions = [
     // 机器人生命周期（兼容 NapCat）。
     defineAction({
         name: 'bot_exit',
+        examples: [
+            {
+                summary: '退出机器人',
+                params: {},
+                notes: '会退出 SnowLuma 进程，仅在明确需要停止服务时调用。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '退出机器人',
         params: {},
         run: async () => {
@@ -2589,6 +3705,13 @@ export const actions = [
 
     defineAction({
         name: 'nc_get_packet_status',
+        examples: [
+            {
+                summary: '获取 packet 状态（占位）',
+                notes: '兼容占位接口，当前始终返回 null，不提供实际收发统计。',
+                params: {},
+            },
+        ],
         summary: '获取 packet 状态（占位）',
         readOnly: true,
         returns: '占位实现，恒返回 null。',
@@ -2604,6 +3727,20 @@ export const actions = [
     // 添加别名以便遵循 NapCat 文档的客户端无需重写载荷。
     groupAction({
         name: 'delete_group_folder',
+        examples: [
+            {
+                summary: '删除群文件夹',
+                params: {
+                    group_id: 20001,
+                    folder_id: '<folder-id-from-get_group_root_files>',
+                },
+                notes: '会删除指定群文件夹，确认资源后调用。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除群文件夹',
         params: { folder_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -2615,6 +3752,15 @@ export const actions = [
     // 用户在线/扩展状态（NapCat：nc_get_user_status）。
     defineAction({
         name: 'nc_get_user_status',
+        examples: [
+            {
+                summary: '获取用户在线/扩展状态',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '替换为需要查询的 QQ 号。',
+            },
+        ],
         summary: '获取用户在线/扩展状态',
         readOnly: true,
         returns: '{ status, ext_status }：用户在线状态码与扩展状态码。',
@@ -2641,6 +3787,16 @@ export const actions = [
     // AI 语音（oidb 0x929D / 0x929B）。
     groupAction({
         name: 'get_ai_characters',
+        examples: [
+            {
+                summary: '获取 AI 语音角色',
+                params: {
+                    group_id: 20001,
+                    chat_type: 1,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
         summary: '获取 AI 语音角色',
         readOnly: true,
         returns: '按分类分组的 AI 语音角色列表，每组含分类名与角色（id、名称、试听 URL）。',
@@ -2685,6 +3841,22 @@ export const actions = [
 
     groupAction({
         name: 'get_ai_record',
+        examples: [
+            {
+                summary: '生成 AI 语音',
+                params: {
+                    group_id: 20001,
+                    character: '<character-id-from-get_ai_characters>',
+                    text: '你好',
+                    chat_type: 1,
+                },
+                notes: 'character 原样使用 get_ai_characters 的 character_id；send_group_ai_record 会直接发送语音。',
+            },
+        ],
+        returnsSchema: {
+            type: 'string',
+            description: '生成的下载或分享 URL 字符串，不是含 url 字段的对象',
+        },
         summary: '生成 AI 语音',
         params: {
             character: f.string({ allowEmpty: false }),
@@ -2705,6 +3877,19 @@ export const actions = [
 
     groupAction({
         name: 'send_group_ai_record',
+        examples: [
+            {
+                summary: '发送 AI 语音到群',
+                params: {
+                    group_id: 20001,
+                    character: '<character-id-from-get_ai_characters>',
+                    text: '你好',
+                    chat_type: 1,
+                },
+                notes: 'character 原样使用 get_ai_characters 的 character_id；send_group_ai_record 会直接发送语音。',
+            },
+        ],
+        returnsSchema: messageResultSchema,
         summary: '发送 AI 语音到群',
         returns: '{ message_id }：已发送 AI 语音的 OneBot 消息 ID。',
         params: {
@@ -2727,6 +3912,25 @@ export const actions = [
 
     defineAction({
         name: 'request_decrypt_key',
+        examples: [
+            {
+                summary: '请求数据库解密密钥',
+                params: {
+                    db_path: '/path/to/account/nt_msg.db',
+                },
+                notes: '路径位于 SnowLuma 服务端，必须指向当前账号可用的数据库；返回值是敏感密钥。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                db_key: {
+                    type: 'string',
+                    description: '数据库密钥，敏感信息',
+                },
+            },
+            required: ['db_key'],
+        },
         summary: '请求数据库解密密钥',
         params: { db_path: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -2757,6 +3961,37 @@ export const actions = [
 
     defineAction({
         name: ['get_rkey', 'nc_get_rkey'],
+        examples: [
+            {
+                summary: '获取下载 rkey',
+                params: {},
+                notes: '返回值可能包含凭据或临时下载密钥，请勿公开或记录到不受控日志。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    rkey: {
+                        type: 'string',
+                        description: '下载密钥，敏感信息',
+                    },
+                    type: {
+                        type: 'integer',
+                    },
+                    ttl: {
+                        type: 'integer',
+                        description: '有效时长，秒',
+                    },
+                    create_time: {
+                        type: 'integer',
+                        description: '创建时间，Unix 秒',
+                    },
+                },
+                required: ['rkey', 'type', 'ttl', 'create_time'],
+            },
+        },
         summary: '获取下载 rkey',
         readOnly: true,
         params: {},
@@ -2770,6 +4005,13 @@ export const actions = [
     // 收敛成 NapCat 的 server 形状。expired_time = now + 在场 rkey ttl 的最小值。
     defineAction({
         name: 'get_rkey_server',
+        examples: [
+            {
+                summary: '获取 rkey 服务器信息',
+                params: {},
+                notes: '返回值可能包含凭据或临时下载密钥，请勿公开或记录到不受控日志。',
+            },
+        ],
         summary: '获取 rkey 服务器信息',
         readOnly: true,
         returns:
@@ -2831,6 +4073,15 @@ export const actions = [
     // 上传换 URL，本实现不覆盖（NapCat 走的是 Windows-only 内核 OCR，不可移植）。
     defineAction({
         name: ['ocr_image', '.ocr_image'],
+        examples: [
+            {
+                summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
+                params: {
+                    image: 'https://example.com/image.png',
+                },
+                notes: '替换为实际可访问的图片地址或已缓存图片标识；不支持本地路径和 base64。',
+            },
+        ],
         summary: 'OCR 图片（服务端，需图片 URL 或已缓存的图片 file_id）',
         readOnly: true,
         returns: '{ texts, language }：识别文本数组（含置信度与坐标）与识别语言。',
@@ -2898,6 +4149,20 @@ export const actions = [
 
     groupAction({
         name: '_del_group_notice',
+        examples: [
+            {
+                summary: '删除群公告（fid 或 notice_id 二选一）',
+                params: {
+                    group_id: 20001,
+                    notice_id: '<notice-id-from-_get_group_notice>',
+                },
+                notes: 'notice_id 来自 _get_group_notice；删除需要管理权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除群公告（fid 或 notice_id 二选一）',
         params: { fid: f.string().optional(), notice_id: f.string().optional() },
         run: async (p, ctx) => {
@@ -2917,6 +4182,53 @@ export const actions = [
 
     defineAction({
         name: 'send_forward_msg',
+        examples: [
+            {
+                summary: '发送合并转发（按 message_type/群号自动路由）',
+                params: {
+                    group_id: 20001,
+                    messages: [
+                        {
+                            type: 'node',
+                            data: {
+                                user_id: 10001,
+                                nickname: '示例用户',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        data: {
+                                            text: '转发内容',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                notes: '替换目标群号；nodes 是自定义转发节点数组。send_forward_msg 不提供目标时仅上传资源并返回 message_id=0。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                message_id: {
+                    anyOf: [
+                        messageIdSchema,
+                        {
+                            const: 0,
+                        },
+                    ],
+                    description: '已发送时是非零有符号消息 ID；未提供目标、仅上传资源时为 0',
+                },
+                res_id: {
+                    type: 'string',
+                },
+                forward_id: {
+                    type: 'string',
+                },
+            },
+            required: ['message_id', 'res_id', 'forward_id'],
+        },
         summary: '发送合并转发（按 message_type/群号自动路由）',
         returns: '{ message_id, res_id, forward_id }',
         // group_id/user_id are routing hints, not identity: 0 means "this branch
@@ -2977,6 +4289,45 @@ export const actions = [
 
     groupAction({
         name: 'send_group_forward_msg',
+        examples: [
+            {
+                summary: '发送群合并转发',
+                params: {
+                    group_id: 20001,
+                    messages: [
+                        {
+                            type: 'node',
+                            data: {
+                                user_id: 10001,
+                                nickname: '示例用户',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        data: {
+                                            text: '转发内容',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                notes: '替换目标群号；nodes 是自定义转发节点数组。send_forward_msg 不提供目标时仅上传资源并返回 message_id=0。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                message_id: messageIdSchema,
+                res_id: {
+                    type: 'string',
+                },
+                forward_id: {
+                    type: 'string',
+                },
+            },
+            required: ['message_id', 'res_id', 'forward_id'],
+        },
         summary: '发送群合并转发',
         returns: '{ message_id, res_id, forward_id }',
         params: {
@@ -3006,6 +4357,45 @@ export const actions = [
 
     defineAction({
         name: 'send_private_forward_msg',
+        examples: [
+            {
+                summary: '发送私聊合并转发',
+                params: {
+                    user_id: 10001,
+                    messages: [
+                        {
+                            type: 'node',
+                            data: {
+                                user_id: 10001,
+                                nickname: '示例用户',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        data: {
+                                            text: '转发内容',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                notes: '替换目标好友 QQ 号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                message_id: messageIdSchema,
+                res_id: {
+                    type: 'string',
+                },
+                forward_id: {
+                    type: 'string',
+                },
+            },
+            required: ['message_id', 'res_id', 'forward_id'],
+        },
         summary: '发送私聊合并转发',
         returns: '{ message_id, res_id, forward_id }',
         params: {
@@ -3036,6 +4426,15 @@ export const actions = [
 
     defineAction({
         name: 'get_forward_msg',
+        examples: [
+            {
+                summary: '获取合并转发消息（id 或 message_id）',
+                params: {
+                    id: '<res-id-from-forward-message>',
+                },
+                notes: 'id 是合并转发资源标识，通常来自转发消息段或上传结果 res_id，不是普通数值 message_id。',
+            },
+        ],
         summary: '获取合并转发消息（id 或 message_id）',
         readOnly: true,
         returns:
@@ -3045,8 +4444,8 @@ export const actions = [
             properties: {
                 messages: {
                     type: 'array',
-                    description: '转发消息节点数组',
-                    items: { type: 'object' },
+                    description: '转发消息节点数组；节点标识与本地消息 ID 不是同一契约',
+                    items: forwardNodeSchema,
                 },
             },
             required: ['messages'],
@@ -3107,6 +4506,26 @@ export const actions = [
 
     defineAction({
         name: 'download_file',
+        examples: [
+            {
+                summary: '下载文件（url 或 base64）到 data/downloads',
+                params: {
+                    base64: 'aGVsbG8=',
+                    name: 'hello.txt',
+                },
+                notes: '保存到 SnowLuma 服务端临时目录，返回服务端路径；不是 MCP 主机下载路径。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                file: {
+                    type: 'string',
+                    description: '保存到 SnowLuma 服务端的本地文件路径',
+                },
+            },
+            required: ['file'],
+        },
         summary: '下载文件（url 或 base64）到 data/downloads',
         returns: '{ file }',
         params: {
@@ -3167,6 +4586,14 @@ export const actions = [
 
     defineAction({
         name: 'translate_en2zh',
+        examples: [
+            {
+                summary: '英译中',
+                params: {
+                    words: ['Hello'],
+                },
+            },
+        ],
         summary: '英译中',
         readOnly: true,
         returns: '{ words }：与输入等长的中文译文字符串数组。',
@@ -3186,6 +4613,20 @@ export const actions = [
 
     defineAction({
         name: 'set_self_longnick',
+        examples: [
+            {
+                summary: '设置个性签名（longNick/long_nick，严格 string）',
+                params: {
+                    long_nick: '学习中',
+                },
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+            description: '成功时为空对象 {}，不是 null',
+        },
         summary: '设置个性签名（longNick/long_nick，严格 string）',
         params: { longNick: optionalExactString(), long_nick: optionalExactString() },
         run: async (p, ctx) => {
@@ -3202,6 +4643,55 @@ export const actions = [
 
     defineAction({
         name: 'get_mini_app_ark',
+        examples: [
+            {
+                summary: '获取小程序卡片 ark',
+                params: {
+                    type: 'bili',
+                    title: '示例视频',
+                    desc: '视频介绍',
+                    pic_url: 'https://example.com/cover.png',
+                    jump_url: 'https://www.bilibili.com/video/<video-id>',
+                },
+                notes: '替换为实际分享地址；当前仅支持 bili 和 weibo。返回的 data 是卡片对象，不会自动发送。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                data: {
+                    type: 'object',
+                    properties: {
+                        ver: {
+                            description: '服务端卡片版本，原样透传',
+                        },
+                        prompt: {
+                            description: '服务端提示文本，原样透传',
+                        },
+                        config: {
+                            description: '服务端卡片配置，原样透传',
+                        },
+                        app: {
+                            description: '服务端应用名，原样透传',
+                        },
+                        view: {
+                            description: '服务端视图，原样透传',
+                        },
+                        meta: {
+                            description: '服务端卡片元数据，原样透传',
+                        },
+                        miniappShareOrigin: {
+                            const: 3,
+                        },
+                        miniappOpenRefer: {
+                            const: '10002',
+                        },
+                    },
+                    required: ['miniappShareOrigin', 'miniappOpenRefer'],
+                },
+            },
+            required: ['data'],
+        },
         summary: '获取小程序卡片 ark',
         readOnly: true,
         params: {
@@ -3232,6 +4722,44 @@ export const actions = [
 
     groupAction({
         name: 'click_inline_keyboard_button',
+        examples: [
+            {
+                summary: '点击内联键盘按钮',
+                params: {
+                    group_id: 20001,
+                    bot_appid: 10001,
+                    msg_seq: 42,
+                    button_id: '<button-id>',
+                    callback_data: '<callback-data>',
+                },
+                notes: '参数必须来自同一条机器人按钮消息；msg_seq 是消息序号，不是 message_id。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                result: {
+                    type: 'number',
+                    description: '按钮业务结果码，需单独检查',
+                },
+                errMsg: {
+                    type: 'string',
+                },
+                status: {
+                    const: 0,
+                },
+                promptText: {
+                    type: 'string',
+                },
+                promptType: {
+                    const: 0,
+                },
+                promptIcon: {
+                    const: 0,
+                },
+            },
+            required: ['result', 'errMsg', 'status', 'promptText', 'promptType', 'promptIcon'],
+        },
         summary: '点击内联键盘按钮',
         params: {
             bot_appid: f.uint(),
@@ -3253,6 +4781,21 @@ export const actions = [
 
     groupAction({
         name: ['set_group_sign', 'send_group_sign'],
+        examples: [
+            {
+                summary: '群签到',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+            description: '成功时为空对象 {}，不是 null',
+        },
         summary: '群签到',
         run: async (p, ctx) => {
             await ctx.bridge.apis.misc.sendGroupSign(p.group_id);
@@ -3262,6 +4805,29 @@ export const actions = [
 
     defineAction({
         name: ['send_packet', '.send_packet'],
+        examples: [
+            {
+                summary: '发送原始 SSO 包（cmd + hex data）',
+                params: {
+                    cmd: '<command-from-validated-request>',
+                    data: '<hex-encoded-request>',
+                    rsp: true,
+                },
+                notes: '仅供有协议经验的调用方：cmd 和 data 必须成对替换为已验证的命令与十六进制请求；示例占位符不可直接发送。',
+            },
+        ],
+        returnsSchema: {
+            anyOf: [
+                {
+                    type: 'string',
+                    description: 'rsp=true 时返回的十六进制响应正文',
+                },
+                {
+                    type: 'null',
+                    description: 'rsp=false 时不等待响应，data 为 null',
+                },
+            ],
+        },
         summary: '发送原始 SSO 包（cmd + hex data）',
         params: {
             cmd: f.string({ allowEmpty: false }),
@@ -3294,6 +4860,60 @@ export const actions = [
 
     groupAction({
         name: 'get_group_todo_list',
+        examples: [
+            {
+                summary: '获取群待办列表',
+                params: {
+                    group_id: 20001,
+                },
+                notes: '将 group_id 替换为当前账号可访问的群号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    message_id: messageIdSchema,
+                    message_seq: {
+                        type: 'integer',
+                    },
+                    message_random: {
+                        type: 'integer',
+                    },
+                    message: {
+                        anyOf: [
+                            {
+                                type: 'array',
+                                items: messageSegmentSchema,
+                            },
+                            {
+                                type: 'null',
+                            },
+                        ],
+                        description: '本地缓存中的消息段；未缓存时为 null',
+                    },
+                    text: {
+                        type: 'string',
+                    },
+                    create_time: {
+                        type: 'integer',
+                    },
+                    update_time: {
+                        type: 'integer',
+                    },
+                },
+                required: [
+                    'message_id',
+                    'message_seq',
+                    'message_random',
+                    'message',
+                    'text',
+                    'create_time',
+                    'update_time',
+                ],
+            },
+        },
         summary: '获取群待办列表',
         returns: '群待办数组，包含可用于待办操作的消息标识、服务端摘要与时间',
         readOnly: true,
@@ -3344,6 +4964,20 @@ export const actions = [
 
     groupAction({
         name: 'set_group_todo',
+        examples: [
+            {
+                summary: '设置群待办',
+                params: {
+                    group_id: 20001,
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。 必须是该群的消息。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '设置群待办',
         params: { message_id: f.messageId() },
         run: (p, ctx) => groupTodoRun(p, ctx, (g, s) => ctx.bridge.apis.extras.setGroupTodo(g, s)),
@@ -3351,6 +4985,20 @@ export const actions = [
 
     groupAction({
         name: 'complete_group_todo',
+        examples: [
+            {
+                summary: '完成群待办',
+                params: {
+                    group_id: 20001,
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。 必须是该群的消息。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '完成群待办',
         params: { message_id: f.messageId() },
         run: (p, ctx) =>
@@ -3359,6 +5007,20 @@ export const actions = [
 
     groupAction({
         name: 'cancel_group_todo',
+        examples: [
+            {
+                summary: '取消群待办',
+                params: {
+                    group_id: 20001,
+                    message_id: -123456,
+                },
+                notes: '使用消息事件或发送结果中的真实 message_id，负值合法；消息须在当前账号的消息存储中可查询。 必须是该群的消息。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '取消群待办',
         params: { message_id: f.messageId() },
         run: (p, ctx) =>
@@ -3369,6 +5031,34 @@ export const actions = [
 
     defineAction({
         name: 'create_flash_task',
+        examples: [
+            {
+                summary: '创建闪传任务',
+                params: {
+                    files: [
+                        {
+                            file: 'file:///path/to/report.pdf',
+                            name: '报告.pdf',
+                        },
+                    ],
+                    name: '资料包',
+                },
+                notes: '示例路径位于 SnowLuma 服务端，须替换为该服务可读取的实际文件。 files 不能为空。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                fileset_id: {
+                    type: 'string',
+                },
+                task_id: {
+                    type: 'string',
+                    description: '与 fileset_id 相同的兼容字段',
+                },
+            },
+            required: ['fileset_id', 'task_id'],
+        },
         summary: '创建闪传任务',
         params: {
             // 路径、{ file, name }，或它们的数组；name 是该文件在闪传里的显示名
@@ -3394,6 +5084,28 @@ export const actions = [
 
     defineAction({
         name: 'get_fileset_info',
+        examples: [
+            {
+                summary: '获取文件集信息',
+                params: {
+                    fileset_id: '<fileset-id>',
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                fileset_id: {
+                    type: 'string',
+                },
+                file_list: {
+                    type: 'array',
+                    items: flashFileSchema,
+                },
+            },
+            required: ['fileset_id', 'file_list'],
+        },
         summary: '获取文件集信息',
         params: { fileset_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -3407,6 +5119,19 @@ export const actions = [
 
     defineAction({
         name: 'get_flash_file_list',
+        examples: [
+            {
+                summary: '获取闪传文件列表',
+                params: {
+                    fileset_id: '<fileset-id>',
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。',
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: flashFileSchema,
+        },
         summary: '获取闪传文件列表',
         params: { fileset_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -3417,6 +5142,16 @@ export const actions = [
 
     defineAction({
         name: 'list_filesets',
+        examples: [
+            {
+                summary: '列出当前账号的所有闪传文件集',
+                params: {},
+            },
+        ],
+        returnsSchema: {
+            type: 'array',
+            items: flashFileSchema,
+        },
         summary: '列出当前账号的所有闪传文件集',
         params: {},
         run: async (_p, ctx) => {
@@ -3427,6 +5162,25 @@ export const actions = [
 
     defineAction({
         name: 'get_flash_file_url',
+        examples: [
+            {
+                summary: '获取闪传文件链接',
+                params: {
+                    fileset_id: '<fileset-id>',
+                    file_index: 0,
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。 file_index 从 0 开始。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                url: {
+                    type: 'string',
+                },
+            },
+            required: ['url'],
+        },
         summary: '获取闪传文件链接',
         params: {
             fileset_id: f.string({ allowEmpty: false }),
@@ -3444,6 +5198,19 @@ export const actions = [
 
     defineAction({
         name: 'get_share_link',
+        examples: [
+            {
+                summary: '获取文件分享链接',
+                params: {
+                    fileset_id: '<fileset-id>',
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。',
+            },
+        ],
+        returnsSchema: {
+            type: 'string',
+            description: '生成的下载或分享 URL 字符串，不是含 url 字段的对象',
+        },
         summary: '获取文件分享链接',
         params: { fileset_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -3454,6 +5221,19 @@ export const actions = [
 
     defineAction({
         name: 'delete_flash_file',
+        examples: [
+            {
+                summary: '删除闪传文件',
+                params: {
+                    fileset_id: '<fileset-id>',
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除闪传文件',
         params: { fileset_id: f.string({ allowEmpty: false }) },
         run: async (p, ctx) => {
@@ -3464,6 +5244,20 @@ export const actions = [
 
     defineAction({
         name: 'rename_flash_file',
+        examples: [
+            {
+                summary: '重命名闪传文件',
+                params: {
+                    fileset_id: '<fileset-id>',
+                    new_name: '新资料包',
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '重命名闪传文件',
         params: {
             fileset_id: f.string({ allowEmpty: false }),
@@ -3477,6 +5271,31 @@ export const actions = [
 
     defineAction({
         name: 'download_fileset',
+        examples: [
+            {
+                summary: '解析闪传文件下载直链（不下载，由调用方实现下载）',
+                params: {
+                    fileset_id: '<fileset-id>',
+                    file_index: 0,
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。 file_index 从 0 开始。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                url: {
+                    type: 'string',
+                },
+                file_name: {
+                    type: 'string',
+                },
+                file_size: {
+                    type: 'number',
+                },
+            },
+            required: ['url', 'file_name', 'file_size'],
+        },
         summary: '解析闪传文件下载直链（不下载，由调用方实现下载）',
         returns: '{ url, file_name, file_size }',
         params: {
@@ -3499,6 +5318,26 @@ export const actions = [
 
     defineAction({
         name: 'send_flash_msg',
+        examples: [
+            {
+                summary: '发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）',
+                params: {
+                    fileset_id: '<fileset-id>',
+                    user_id: 10001,
+                },
+                notes: 'fileset_id 来自 create_flash_task、get_fileset_id 或 list_filesets，替换为当前账号可访问的文件集。 会发送分享消息；message_id=0 是占位值，不能用于撤回或查消息。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                message_id: {
+                    const: 0,
+                    description: '闪传分享不返回普通消息 ID，0 是占位值，不能用于查询或撤回',
+                },
+            },
+            required: ['message_id'],
+        },
         summary: '发送闪传消息（私聊或群聊，引用 fileset_id 让对端下载）',
         returns: '{ message_id }',
         params: {
@@ -3522,6 +5361,15 @@ export const actions = [
 
     defineAction({
         name: 'get_fileset_id',
+        examples: [
+            {
+                summary: '从 QQ 闪传分享码或官方分享链接获取 fileset_id',
+                params: {
+                    share_code: '<share-link-or-code>',
+                },
+                notes: 'share_code 使用实际闪传分享链接或提取码。',
+            },
+        ],
         summary: '从 QQ 闪传分享码或官方分享链接获取 fileset_id',
         readOnly: true,
         returns: '{ fileset_id }：解析出的文件集 ID。',
@@ -3546,6 +5394,68 @@ export const actions = [
     // 好友个性装扮
     defineAction({
         name: '_get_friend_dress',
+        examples: [
+            {
+                summary: '获取指定 QQ 号正在使用的个性装扮（挂件/名片/来电/输入状态等）',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '替换为需要查询的 QQ 号。',
+            },
+        ],
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                target_uin: {
+                    type: 'string',
+                },
+                is_svip: {
+                    type: 'boolean',
+                },
+                avatar_url: {
+                    type: 'string',
+                },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            app_id: {
+                                type: 'integer',
+                            },
+                            kind: {
+                                type: 'string',
+                            },
+                            item_id: {
+                                type: 'integer',
+                            },
+                            name: {
+                                type: 'string',
+                            },
+                            preview_url: {
+                                type: 'string',
+                            },
+                            video_url: {
+                                type: 'string',
+                            },
+                            price: {
+                                type: 'number',
+                            },
+                        },
+                        required: [
+                            'app_id',
+                            'kind',
+                            'item_id',
+                            'name',
+                            'preview_url',
+                            'video_url',
+                            'price',
+                        ],
+                    },
+                },
+            },
+            required: ['target_uin', 'is_svip', 'avatar_url', 'items'],
+        },
         summary: '获取指定 QQ 号正在使用的个性装扮（挂件/名片/来电/输入状态等）',
         returns:
             '装扮信息；目标未使用任何可查询装扮时 items 为空数组。网络失败、未登录态/风控、页面改版、返回账号与请求不一致时返回失败并附具体原因',

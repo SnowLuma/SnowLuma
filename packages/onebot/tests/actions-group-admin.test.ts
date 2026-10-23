@@ -403,7 +403,7 @@ describe('set_group_ban describe', () => {
         expect(doc.summary).toBe('禁言群成员（duration=0 解除）');
         expect(doc.readOnly).toBe(false);
         expect(doc.returns).toBeUndefined();
-        expect(doc.returnsSchema).toBeUndefined();
+        expect(doc.returnsSchema).toMatchObject({ type: 'null' });
         expect(doc.stream).toBeUndefined();
         expect(doc.invariants).toEqual([]);
         expect(doc.params).toEqual([

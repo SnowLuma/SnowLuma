@@ -26,8 +26,15 @@ export interface CatalogAction {
     category?: string;
     summary?: string;
     returns?: string;
-    /** JSON Schema for the action's `data` payload (absent when undocumented). */
+    /** Successful OneBot `data`, or one successful stream frame's `data`.
+     *  Does not describe the envelope or MCP's aggregated stream result. */
     returnsSchema?: Record<string, unknown>;
+    /** Illustrative OneBot params; identifiers/paths must be replaced before use. */
+    examples?: ReadonlyArray<{
+        summary: string;
+        params: Record<string, unknown>;
+        notes?: string;
+    }>;
     /** True only for pure data-fetch actions (no side effects). Drives the
      *  read/write tool routing: read-only → query_action, else → invoke_action.
      *  Classified at the source spec by what the action's `run` actually does. */

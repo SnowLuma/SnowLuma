@@ -5,6 +5,12 @@ import { okResponse } from '../types';
 export const actions = [
     defineAction({
         name: 'get_login_info',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {},
+            },
+        ],
         readOnly: true,
         returns: '当前登录账号的 QQ 号与昵称。',
         returnsSchema: {
@@ -24,6 +30,12 @@ export const actions = [
 
     defineAction({
         name: 'get_status',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {},
+            },
+        ],
         readOnly: true,
         returns:
             '运行状态。`online` 表示账号在线；`good` 表示已确认的收发链路健康状态；`time` 为当前账号服务实例运行秒数，与 #sl 同源。',
@@ -55,6 +67,12 @@ export const actions = [
 
     defineAction({
         name: 'get_version_info',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {},
+            },
+        ],
         readOnly: true,
         returns: '实现与协议版本信息。',
         returnsSchema: {
@@ -78,6 +96,12 @@ export const actions = [
 
     defineAction({
         name: 'can_send_image',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {},
+            },
+        ],
         readOnly: true,
         returns: '能力查询结果。',
         returnsSchema: {
@@ -93,6 +117,12 @@ export const actions = [
 
     defineAction({
         name: 'can_send_record',
+        examples: [
+            {
+                summary: '基本调用',
+                params: {},
+            },
+        ],
         readOnly: true,
         returns: '能力查询结果。',
         returnsSchema: {

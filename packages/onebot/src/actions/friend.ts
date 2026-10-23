@@ -4,6 +4,12 @@ import { okResponse } from '../types';
 export const actions = [
     defineAction({
         name: 'get_friend_list',
+        examples: [
+            {
+                summary: '获取好友列表',
+                params: {},
+            },
+        ],
         summary: '获取好友列表',
         readOnly: true,
         returns: '好友列表数组，每项含 QQ 号、昵称与备注。',
@@ -31,6 +37,15 @@ export const actions = [
 
     defineAction({
         name: 'get_stranger_info',
+        examples: [
+            {
+                summary: '获取陌生人信息',
+                params: {
+                    user_id: 10001,
+                },
+                notes: '替换为需要查询的 QQ 号。',
+            },
+        ],
         summary: '获取陌生人信息',
         readOnly: true,
         returns:
@@ -109,6 +124,20 @@ export const actions = [
 
     defineAction({
         name: 'delete_friend',
+        examples: [
+            {
+                summary: '删除好友',
+                params: {
+                    user_id: 10001,
+                    block: false,
+                },
+                notes: '会删除指定好友；仅在明确需要删除时调用。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
         summary: '删除好友',
         params: { user_id: f.userId().describe('QQ 号'), block: f.bool().default(false) },
         run: async (p, ctx) => {

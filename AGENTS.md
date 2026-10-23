@@ -101,7 +101,9 @@ WebUI deployment targets use a reversible presentation overlay. Read [the host a
 
 ## Generated files and related changes
 
-OneBot action definitions own validation and catalog metadata. After changing an action name, parameter, result description or execution mode:
+OneBot action definitions own validation and catalog metadata. Each bundled action supplies a `returnsSchema` for successful OneBot `data` and at least one `examples` entry with valid parameters and any required identifier sources. Stream schemas describe individual successful frames, not MCP aggregated results. Keep undocumented upstream fields open rather than inventing a structure, and label unsupported or placeholder behavior explicitly.
+
+After changing an action name, parameter, result description/schema, example or execution mode:
 
 1. Update the owning definition in `packages/onebot/src/actions` and its tests.
 2. Run `pnpm --filter @snowluma/mcp gen`.

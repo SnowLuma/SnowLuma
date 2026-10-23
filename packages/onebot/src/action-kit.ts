@@ -629,6 +629,16 @@ const RULES: RuleBuilders<Record<string, unknown>> = {
 export interface ParamDoc extends FieldDoc {
     name: string;
 }
+
+/** Documentation only: never execute examples while collecting the catalog. */
+export interface ActionExample {
+    summary: string;
+    /** OneBot params, also passed as the MCP action tool's `params`. */
+    params: JsonObject;
+    /** Prerequisites, placeholder sources, or ordering within a workflow. */
+    notes?: string;
+}
+
 export interface ActionDoc {
     name: string;
     aliases: string[];
@@ -636,10 +646,11 @@ export interface ActionDoc {
     category?: string;
     summary?: string;
     returns?: string;
-    /** JSON Schema for the `data` payload inside the OneBot envelope (NOT the
-     *  whole envelope). Optional + authored incrementally; absent ⇒ data shape
-     *  is documented only by the prose `returns`. */
+    /** JSON Schema for successful OneBot `data`, not the envelope. For streams,
+     *  describes each successful frame, not an MCP aggregated tool result.
+     *  Optional for third-party specs; the bundled catalog requires coverage. */
     returnsSchema?: JsonSchema;
+    examples?: readonly ActionExample[];
     /** True only for pure data-fetch actions (no side effects). Drives the MCP's
      *  read/write tool routing; defaults to false (treated as a write). */
     readOnly: boolean;
@@ -687,6 +698,7 @@ interface ActionDef<S extends Spec> {
     returns?: string;
     /** JSON Schema for the `data` payload (NOT the envelope). See ActionDoc. */
     returnsSchema?: JsonSchema;
+    examples?: readonly ActionExample[];
     /** Mark true ONLY for pure data-fetch actions with no side effects. Default
      *  false = write. Surfaced via describe() into the catalog for the MCP's
      *  read/write routing. Classify by what `run` actually does, not the name. */
@@ -775,6 +787,7 @@ export function defineAction<S extends Spec>(def: ActionDef<S>): ActionSpec<S> {
                 summary: def.summary,
                 returns: def.returns,
                 returnsSchema: def.returnsSchema,
+                ...(def.examples ? { examples: def.examples } : {}),
                 readOnly: def.readOnly ?? false,
                 params: entries.map(([name, field]) => ({ name, ...field.doc })),
                 invariants: rules.map((rule) => rule.doc),
@@ -797,6 +810,7 @@ interface StreamActionDef<S extends Spec> {
     summary?: string;
     returns?: string;
     returnsSchema?: JsonSchema;
+    examples?: readonly ActionExample[];
     readOnly?: boolean;
     params: S;
     rules?: (r: RuleBuilders<InferParams<S>>) => readonly CrossFieldRule[];
@@ -823,6 +837,7 @@ export function defineStreamAction<S extends Spec>(def: StreamActionDef<S>): Str
         summary: def.summary,
         returns: def.returns,
         returnsSchema: def.returnsSchema,
+        examples: def.examples,
         readOnly: def.readOnly,
         params: def.params,
         rules: def.rules,
@@ -865,6 +880,7 @@ interface PresetDef<S extends Spec, Extra> {
     summary?: string;
     returns?: string;
     returnsSchema?: JsonSchema;
+    examples?: readonly ActionExample[];
     readOnly?: boolean;
     params?: S;
     rules?: (r: RuleBuilders<InferParams<S> & Extra>) => readonly CrossFieldRule[];

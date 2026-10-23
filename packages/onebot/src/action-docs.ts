@@ -68,6 +68,21 @@ function renderAction(doc: ActionDoc): string {
         lines.push('', `**返回:** \`${doc.returns}\``);
     }
 
+    for (const example of doc.examples ?? []) {
+        lines.push('', `**示例：${example.summary}**`);
+
+        if (example.notes) {
+            lines.push('', example.notes);
+        }
+
+        lines.push(
+            '',
+            '```json',
+            JSON.stringify({ action: doc.name, params: example.params }, null, 2),
+            '```',
+        );
+    }
+
     return lines.join('\n');
 }
 

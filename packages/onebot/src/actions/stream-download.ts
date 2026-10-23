@@ -28,6 +28,89 @@ import { okResponse, type ApiResponse, type JsonObject, type JsonValue } from '.
 import { type StreamSink, StreamStatus } from '../streaming';
 import { STREAM_ROOT, ensureStreamDirectory, registerActiveStreamItem } from '../stream-storage';
 
+const downloadFrameSchema = {
+    oneOf: [
+        {
+            type: 'object',
+            properties: {
+                type: {
+                    const: 'stream',
+                },
+                data_type: {
+                    const: 'file_info',
+                },
+                file_name: {
+                    type: 'string',
+                },
+                file_size: {
+                    type: 'integer',
+                    description: '字节数，0 可表示未知',
+                },
+                chunk_size: {
+                    type: 'integer',
+                },
+            },
+            required: ['type', 'data_type', 'file_name', 'file_size', 'chunk_size'],
+        },
+        {
+            type: 'object',
+            properties: {
+                type: {
+                    const: 'stream',
+                },
+                data_type: {
+                    const: 'file_chunk',
+                },
+                index: {
+                    type: 'integer',
+                },
+                data: {
+                    type: 'string',
+                    description: '该分块的 Base64 数据',
+                },
+                size: {
+                    type: 'integer',
+                },
+                progress: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 100,
+                },
+                base64_size: {
+                    type: 'integer',
+                },
+            },
+            required: ['type', 'data_type', 'index', 'data', 'size', 'progress', 'base64_size'],
+        },
+        {
+            type: 'object',
+            properties: {
+                type: {
+                    const: 'response',
+                },
+                data_type: {
+                    const: 'file_complete',
+                },
+                file_name: {
+                    type: 'string',
+                },
+                total_chunks: {
+                    type: 'integer',
+                },
+                total_bytes: {
+                    type: 'integer',
+                },
+                message: {
+                    type: 'string',
+                },
+            },
+            required: ['type', 'data_type', 'file_name', 'total_chunks', 'total_bytes', 'message'],
+        },
+    ],
+    description:
+        '每个成功流式帧的 data；失败帧另由 status/retcode/wording 与 type=error 表示，不是 MCP 保存文件后的工具结果',
+};
+
 const DEFAULT_CHUNK_BYTES = 64 * 1024;
 const MAX_CHUNK_REQUEST_BYTES = 16 * 1024 * 1024; // cap the client-requested chunk size
 const MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB total
@@ -542,6 +625,17 @@ const downloadParams = {
 
 const downloadFileStream = defineStreamAction({
     name: 'download_file_stream',
+    examples: [
+        {
+            summary: '以流式方式下载文件(stream 目录本地文件 / URL / 缓存媒体)',
+            params: {
+                file: 'https://example.com/report.pdf',
+                chunk_size: 65536,
+            },
+            notes: '替换实际公开可访问地址；经 invoke_action 调用，文件保存到 MCP 下载目录。',
+        },
+    ],
+    returnsSchema: downloadFrameSchema,
     summary: '以流式方式下载文件(stream 目录本地文件 / URL / 缓存媒体)',
     returns: '流式帧:file_info → file_chunk* → file_complete',
     params: downloadParams,
@@ -550,6 +644,17 @@ const downloadFileStream = defineStreamAction({
 
 const downloadFileImageStream = defineStreamAction({
     name: 'download_file_image_stream',
+    examples: [
+        {
+            summary: '以流式方式下载图片(缓存图片 id / URL / stream 目录本地文件)',
+            params: {
+                file_id: '<image-file-from-message>',
+                chunk_size: 65536,
+            },
+            notes: 'file_id 来自当前账号图片消息；经 invoke_action 调用。',
+        },
+    ],
+    returnsSchema: downloadFrameSchema,
     summary: '以流式方式下载图片(缓存图片 id / URL / stream 目录本地文件)',
     returns: '流式帧:file_info → file_chunk* → file_complete',
     params: downloadParams,
@@ -558,6 +663,17 @@ const downloadFileImageStream = defineStreamAction({
 
 const downloadFileRecordStream = defineStreamAction({
     name: 'download_file_record_stream',
+    examples: [
+        {
+            summary: '以流式方式下载语音(缓存语音 id / URL / stream 目录本地文件)',
+            params: {
+                file_id: '<record-file-from-message>',
+                chunk_size: 65536,
+            },
+            notes: 'file_id 来自当前账号语音消息；经 invoke_action 调用。',
+        },
+    ],
+    returnsSchema: downloadFrameSchema,
     summary: '以流式方式下载语音(缓存语音 id / URL / stream 目录本地文件)',
     returns: '流式帧:file_info → file_chunk* → file_complete',
     params: downloadParams,
@@ -567,6 +683,50 @@ const downloadFileRecordStream = defineStreamAction({
 
 const testDownloadStream = defineStreamAction({
     name: 'test_download_stream',
+    examples: [
+        {
+            summary: '测试下载流(推送 10 个数据帧,验证流式传输,不触达 QQ)',
+            params: {
+                error: false,
+            },
+            notes: '经 invoke_action 调用，仅测试传输，不访问 QQ。',
+        },
+    ],
+    returnsSchema: {
+        oneOf: [
+            {
+                type: 'object',
+                properties: {
+                    type: {
+                        const: 'stream',
+                    },
+                    data_type: {
+                        const: 'data_chunk',
+                    },
+                    data: {
+                        type: 'string',
+                    },
+                },
+                required: ['type', 'data_type', 'data'],
+            },
+            {
+                type: 'object',
+                properties: {
+                    type: {
+                        const: 'response',
+                    },
+                    data_type: {
+                        const: 'data_complete',
+                    },
+                    data: {
+                        type: 'string',
+                    },
+                },
+                required: ['type', 'data_type', 'data'],
+            },
+        ],
+        description: '成功时 10 个 data_chunk 后接 data_complete；error=true 时最终为失败帧',
+    },
     summary: '测试下载流(推送 10 个数据帧,验证流式传输,不触达 QQ)',
     returns: '流式帧:data_chunk*10 → data_complete(error=true 时以 error 帧结束)',
     params: { error: f.bool().default(false).describe('是否触发测试错误') },

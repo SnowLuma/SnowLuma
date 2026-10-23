@@ -66,7 +66,8 @@ const DOCS_TOOLS: Tool[] = [
     },
     {
         name: 'get_action',
-        description: '获取 action 文档、参数 JSON Schema、约束和返回类型。',
+        description:
+            '获取 action 文档、参数与返回数据 JSON Schema、约束和调用示例。示例中的标识和路径需替换；流式返回结构描述单帧数据。',
         inputSchema: {
             type: 'object',
             properties: { name: { type: 'string', description: 'action 名（接受别名）' } },
