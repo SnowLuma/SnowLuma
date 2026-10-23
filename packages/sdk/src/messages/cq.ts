@@ -1,7 +1,7 @@
-import { normalizeMessage, chain } from './chain';
-import { escapeCqText, segmentsToCQString } from './cq-format';
-import { segments } from './segments';
-import type { AnyMessageSegment, FaceSegment, OutgoingMessage } from '../types/index';
+import { normalizeMessage, chain } from './chain.js';
+import { escapeCqText, segmentsToCQString } from './cq-format.js';
+import { segments } from './segments.js';
+import type { AnyMessageSegment, FaceSegment, OutgoingMessage } from '../types/index.js';
 
 const CQ_REGEX = /\[CQ:([a-zA-Z0-9_.-]+)(?:,([^\]]*))?\]/g;
 

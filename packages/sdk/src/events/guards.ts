@@ -7,8 +7,8 @@ import type {
     OneBotPrivateMessageEvent,
     OneBotRequestEvent,
     SnowLumaEvent,
-} from '../types/index';
-import type { EventPredicate } from './types';
+} from '../types/index.js';
+import type { EventPredicate } from './types.js';
 
 export function isMessageEvent(event: SnowLumaEvent): event is OneBotMessageEvent {
     return (

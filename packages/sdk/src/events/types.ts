@@ -1,11 +1,11 @@
-import type { SnowLumaApiClient } from '../client/api-client';
+import type { SnowLumaApiClient } from '../client/api-client.js';
 import type {
     JsonObject,
     OneBotMessageEvent,
     OutgoingMessage,
     RequestOptions,
     SnowLumaEvent,
-} from '../types/index';
+} from '../types/index.js';
 
 export type MaybePromise<T = void> = T | Promise<T>;
 export type EventNext = () => Promise<void>;

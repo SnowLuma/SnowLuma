@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from './json';
+import type { JsonObject, JsonValue } from './json.js';
 
 export interface SendMsgParams extends JsonObject {
     message_type?: 'private' | 'group' | string;

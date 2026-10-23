@@ -1,4 +1,4 @@
-import type { ApiResponse, SnowLumaClientOptions, SnowLumaEvent, WsRole } from '../types/index';
+import type { ApiResponse, SnowLumaClientOptions, SnowLumaEvent, WsRole } from '../types/index.js';
 
 export interface WebSocketLike {
     readyState: number;

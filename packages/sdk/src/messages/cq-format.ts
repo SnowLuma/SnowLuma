@@ -1,4 +1,4 @@
-import type { AnyMessageSegment } from '../types/index';
+import type { AnyMessageSegment } from '../types/index.js';
 
 export function escapeCqText(text: string): string {
     return text.replaceAll('&', '&amp;').replaceAll('[', '&#91;').replaceAll(']', '&#93;');

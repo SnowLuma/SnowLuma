@@ -1,7 +1,7 @@
-import type { SnowLumaApiClient } from '../client/api-client';
-import type { SnowLumaEvent } from '../types/index';
-import { isGroupMessageEvent, isPrivateMessageEvent, isRequestEvent } from './guards';
-import type { SnowLumaEventContext } from './types';
+import type { SnowLumaApiClient } from '../client/api-client.js';
+import type { SnowLumaEvent } from '../types/index.js';
+import { isGroupMessageEvent, isPrivateMessageEvent, isRequestEvent } from './guards.js';
+import type { SnowLumaEventContext } from './types.js';
 
 export function createEventContext<TEvent extends SnowLumaEvent>(
     event: TEvent,

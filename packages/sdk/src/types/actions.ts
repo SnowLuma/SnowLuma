@@ -1,4 +1,4 @@
-import type { JsonArray, JsonObject, JsonValue } from './json';
+import type { JsonArray, JsonObject, JsonValue } from './json.js';
 import type {
     CreateGroupFileFolderParams,
     DeleteFriendParams,
@@ -79,7 +79,7 @@ import type {
     SendPacketParams,
     SearchSysFacesParams,
     GetQzoneMsgDetailParams,
-} from './params';
+} from './params.js';
 import type {
     CapabilityInfo,
     ClientKeyInfo,
@@ -117,7 +117,7 @@ import type {
     SystemFaceInfo,
     SystemFaceSearchInfo,
     QzoneMsgDetailResult,
-} from './results';
+} from './results.js';
 
 export type ActionData = JsonValue;
 

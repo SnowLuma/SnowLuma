@@ -13,9 +13,9 @@ import type {
     ShareSegment,
     VideoSegment,
     XmlSegment,
-} from '../types/index';
-import { segmentsToCQString } from './cq-format';
-import { segments } from './segments';
+} from '../types/index.js';
+import { segmentsToCQString } from './cq-format.js';
+import { segments } from './segments.js';
 
 export interface MessageChainSender {
     sendGroupMessage(

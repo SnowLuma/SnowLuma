@@ -1,4 +1,4 @@
-import type { JsonObject } from './json';
+import type { JsonObject } from './json.js';
 
 export interface MessageSegment<
     TType extends string = string,

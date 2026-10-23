@@ -1,5 +1,5 @@
-import { isJsonObject } from '../internal/json';
-import type { ReconnectOptions, WebSocketCloseInfo, WebSocketLike } from './websocket-types';
+import { isJsonObject } from '../internal/json.js';
+import type { ReconnectOptions, WebSocketCloseInfo, WebSocketLike } from './websocket-types.js';
 
 export const WEBSOCKET_OPEN = 1;
 export const WEBSOCKET_CLOSED = 3;

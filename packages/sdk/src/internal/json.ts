@@ -1,4 +1,4 @@
-import type { ApiResponse, JsonObject, JsonValue } from '../types/index';
+import type { ApiResponse, JsonObject, JsonValue } from '../types/index.js';
 
 export function isJsonObject(value: unknown): value is JsonObject {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

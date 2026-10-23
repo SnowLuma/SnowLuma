@@ -4,10 +4,10 @@ import {
     SnowLumaParseError,
     SnowLumaTimeoutError,
     SnowLumaTransportError,
-} from '../errors';
-import { SnowLumaApiClient, toJsonObject } from './api-client';
-import { createRequestAbortState, isAbortError } from '../internal/abort';
-import { assertApiResponse } from '../internal/json';
+} from '../errors.js';
+import { SnowLumaApiClient, toJsonObject } from './api-client.js';
+import { createRequestAbortState, isAbortError } from '../internal/abort.js';
+import { assertApiResponse } from '../internal/json.js';
 import type {
     ActionParams,
     ActionResult,
@@ -16,7 +16,7 @@ import type {
     RequestOptions,
     SnowLumaAction,
     SnowLumaClientOptions,
-} from '../types/index';
+} from '../types/index.js';
 
 /** Options for the HTTP transport client. */
 export interface SnowLumaHttpClientOptions extends SnowLumaClientOptions {

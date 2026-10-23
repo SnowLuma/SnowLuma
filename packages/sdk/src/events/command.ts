@@ -1,5 +1,5 @@
-import type { OneBotMessageEvent } from '../types/index';
-import type { CommandMatch, CommandOptions } from './types';
+import type { OneBotMessageEvent } from '../types/index.js';
+import type { CommandMatch, CommandOptions } from './types.js';
 
 export function matchCommand(
     event: OneBotMessageEvent,

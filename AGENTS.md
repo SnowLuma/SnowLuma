@@ -74,6 +74,7 @@ Use focused tests while iterating. Before handing off a code change, run the ful
 
 - **Documentation-only changes:** verify links, paths, commands and `git diff --check`; runtime tests do not validate prose.
 - **Shared types or actions:** run workspace typechecking as well as behavior tests. A passing Vitest run does not prove type correctness.
+- **SDK packaging:** keep the SDK's `NodeNext` build and explicit `.js` relative imports, including type-only exports. Its package tests compile fresh output and check native Node.js imports and consumer declarations. The SDK action catalog must match OneBot's executable names; `packages/onebot/tests/sdk-actions.test.ts` checks this without adding a runtime dependency on server code.
 - **Protocol codecs:** keep the existing Proton integration in tests so they exercise the same transformations as production. Import real implementations; do not duplicate the algorithm in the test.
 - **Native coverage:** `pnpm test:native` is separate from default protocol tests and requires compatible native artifacts. A missing artifact or unavailable target is a reported limitation, not permission to bypass the check.
 - **Live QQ behavior:** fixture tests and a successful API response do not prove delivery or client rendering. State what was tested locally and what still needs a real client.

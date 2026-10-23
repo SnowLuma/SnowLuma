@@ -1,4 +1,4 @@
-import type { JsonArray, JsonObject, JsonValue } from './json';
+import type { JsonArray, JsonObject, JsonValue } from './json.js';
 
 export interface QzoneCommentReply {
     uin: number;

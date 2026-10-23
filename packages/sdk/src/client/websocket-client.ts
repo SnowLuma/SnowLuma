@@ -3,8 +3,8 @@ import {
     SnowLumaConnectionError,
     SnowLumaParseError,
     SnowLumaTimeoutError,
-} from '../errors';
-import { Emitter } from '../emitter';
+} from '../errors.js';
+import { Emitter } from '../emitter.js';
 import {
     createEventContext,
     isBotStatusEvent,
@@ -22,16 +22,16 @@ import {
     type EventHandler,
     type EventMiddleware,
     type EventPredicate,
-} from '../events/index';
-import { SnowLumaApiClient, toJsonObject } from './api-client';
-import { raceWithAbort, throwIfAborted } from '../internal/abort';
+} from '../events/index.js';
+import { SnowLumaApiClient, toJsonObject } from './api-client.js';
+import { raceWithAbort, throwIfAborted } from '../internal/abort.js';
 import {
     appendAccessToken,
     assertApiResponse,
     createEcho,
     echoKey,
     isJsonObject,
-} from '../internal/json';
+} from '../internal/json.js';
 import {
     addSocketListener,
     closeInfo,
@@ -41,7 +41,7 @@ import {
     unwrapMessagePayload,
     WEBSOCKET_CLOSED,
     WEBSOCKET_OPEN,
-} from './websocket-utils';
+} from './websocket-utils.js';
 import type {
     ActionParams,
     ActionResult,
@@ -57,14 +57,14 @@ import type {
     SnowLumaAction,
     SnowLumaEvent,
     WsRole,
-} from '../types/index';
+} from '../types/index.js';
 import type {
     ReconnectOptions,
     SnowLumaWebSocketClientOptions,
     SnowLumaWebSocketEvents,
     WebSocketConstructor,
     WebSocketLike,
-} from './websocket-types';
+} from './websocket-types.js';
 
 export type {
     ReconnectOptions,
@@ -72,7 +72,7 @@ export type {
     SnowLumaWebSocketEvents,
     WebSocketCloseInfo,
     WebSocketConstructor,
-} from './websocket-types';
+} from './websocket-types.js';
 
 interface SocketConnection {
     socket: WebSocketLike;

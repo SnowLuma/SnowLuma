@@ -1,6 +1,6 @@
-import { segments } from './segments';
+import { segments } from './segments.js';
 
-export { MessageChain } from './chain';
+export { MessageChain } from './chain.js';
 export {
     at,
     atAll,
@@ -23,9 +23,9 @@ export {
     text,
     video,
     xml,
-} from './chain';
-export { escapeCqParam, escapeCqText } from './cq-format';
-export { fromCQString, parseSegments, toCQString } from './cq';
+} from './chain.js';
+export { escapeCqParam, escapeCqText } from './cq-format.js';
+export { fromCQString, parseSegments, toCQString } from './cq.js';
 export { segments };
 
 export const message = {

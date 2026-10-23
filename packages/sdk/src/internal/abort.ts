@@ -1,4 +1,4 @@
-import { SnowLumaAbortError } from '../errors';
+import { SnowLumaAbortError } from '../errors.js';
 
 export interface RequestAbortState {
     signal: AbortSignal;

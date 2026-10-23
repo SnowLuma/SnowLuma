@@ -19,7 +19,7 @@ import type {
     TextSegment,
     VideoSegment,
     XmlSegment,
-} from '../types/index';
+} from '../types/index.js';
 
 function seg<TType extends string, TData extends Record<string, unknown>>(
     type: TType,

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix native Node.js ESM imports for the package root and all supported subpaths without requiring a bundler.
+- Restore `@snowluma/sdk/actions` and the root exports `SNOWLUMA_ACTIONS`, `isSnowLumaAction`, and `SnowLumaKnownAction`, including current action names and compatibility aliases.
 - Require patched Node.js releases: 24.22.1 or newer in the 24.x line, or 26.12.1 and newer.
 
 ## 2.0.0

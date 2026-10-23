@@ -1,4 +1,4 @@
-import type { ApiResponse } from './types/index';
+import type { ApiResponse } from './types/index.js';
 
 /** Base error for every exception intentionally thrown by the SnowLuma SDK. */
 export class SnowLumaError extends Error {

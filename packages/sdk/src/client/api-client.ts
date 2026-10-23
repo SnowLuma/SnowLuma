@@ -1,5 +1,5 @@
-import { createSnowLumaApiError } from '../errors';
-import { normalizeMessage } from '../messages/index';
+import { createSnowLumaApiError } from '../errors.js';
+import { normalizeMessage } from '../messages/index.js';
 import type {
     ActionParams,
     ActionResult,
@@ -19,7 +19,7 @@ import type {
     SendMsgParams,
     SetGroupReactionParams,
     SnowLumaAction,
-} from '../types/index';
+} from '../types/index.js';
 
 /**
  * Base class for SnowLuma API clients.
