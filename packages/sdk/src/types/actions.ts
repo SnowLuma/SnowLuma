@@ -79,6 +79,46 @@ import type {
     SendPacketParams,
     SearchSysFacesParams,
     GetQzoneMsgDetailParams,
+    ActionGroupIdParams,
+    ActionMessageIdParams,
+    ActionUserIdParams,
+    AddCustomFaceParams,
+    CommentQzoneParams,
+    CreateFlashTaskParams,
+    CustomFaceIdParams,
+    DownloadFileStreamParams,
+    DownloadFilesetParams,
+    FetchCustomFaceDetailParams,
+    FilesetIdParams,
+    GetDoubtFriendsAddRequestParams,
+    GetFilesetIdParams,
+    GetFlashFileUrlParams,
+    GetGroupAlbumMediaListParams,
+    GetQunAlbumListParams,
+    GetQzoneFeedsParams,
+    GetQzoneMsgListParams,
+    GroupAlbumCommentParams,
+    GroupAlbumMediaLikeParams,
+    GroupAlbumMediaParams,
+    LikeQzoneParams,
+    ModifyCustomFaceParams,
+    QzoneMsgIdParams,
+    RenameFlashFileParams,
+    RequestDecryptKeyParams,
+    SendFlashMsgParams,
+    SendQzoneMsgParams,
+    SendTuwenArkParams,
+    SetDoubtFriendsAddRequestParams,
+    SetGroupMemberInvitePolicyParams,
+    SetGroupMemberPermissionsParams,
+    SetGroupNewMemberHistoryVisibilityParams,
+    SetGroupRobotAddOptionParams,
+    SetQzoneBanParams,
+    SetQzoneMsgRightParams,
+    SharePeerParams,
+    TestDownloadStreamParams,
+    UploadFileStreamParams,
+    UploadGroupAlbumMediaParams,
 } from './params.js';
 import type {
     CapabilityInfo,
@@ -117,6 +157,39 @@ import type {
     SystemFaceInfo,
     SystemFaceSearchInfo,
     QzoneMsgDetailResult,
+    AddCustomFaceResult,
+    ArkShareResult,
+    CleanStreamTempFileResult,
+    CreateFlashTaskResult,
+    CustomFaceDetail,
+    DecryptKeyResult,
+    DeleteGroupAlbumMediaResult,
+    DoubtFriendsAddRequest,
+    DownloadFileStreamResult,
+    DownloadFilesetResult,
+    FilesetIdResult,
+    FilesetInfo,
+    FlashFileInfo,
+    FlashFileUrl,
+    FriendDressResult,
+    GroupAlbumCommentResult,
+    GroupAlbumInfo,
+    GroupAlbumMediaLikeResult,
+    GroupAlbumMediaResult,
+    GroupSignedMember,
+    MessageEmojiLikeInfo,
+    PttTextResult,
+    QunAlbumListResult,
+    QzoneCommentResult,
+    QzoneFeedsResult,
+    QzoneMsgListResult,
+    QzonePublishResult,
+    QzoneUpdateRightResult,
+    RkeyServerResult,
+    SendFlashMsgResult,
+    TestDownloadStreamResult,
+    UploadFileStreamResult,
+    UploadGroupAlbumVideoResult,
 } from './results.js';
 
 export type ActionData = JsonValue;
@@ -276,6 +349,91 @@ export interface SnowLumaActionMap {
     get_ai_characters: { params: GetAiCharactersParams; data: AiCharacterCategory[] };
     get_ai_record: { params: AiVoiceParams; data: string };
     send_group_ai_record: { params: AiVoiceParams; data: SendGroupAiRecordResult };
+    // Additional executable actions and compatibility aliases.
+    _get_friend_dress: { params: ActionUserIdParams; data: FriendDressResult };
+    add_custom_face: { params: AddCustomFaceParams; data: AddCustomFaceResult };
+    cancel_group_album_media_like: {
+        params: GroupAlbumMediaLikeParams;
+        data: GroupAlbumMediaLikeResult;
+    };
+    clean_stream_temp_file: { params: JsonObject; data: CleanStreamTempFileResult };
+    comment_qzone: { params: CommentQzoneParams; data: QzoneCommentResult };
+    create_flash_task: { params: CreateFlashTaskParams; data: CreateFlashTaskResult };
+    del_group_album_media: { params: GroupAlbumMediaParams; data: DeleteGroupAlbumMediaResult };
+    delete_custom_face: { params: CustomFaceIdParams; data: EmptyData };
+    delete_flash_file: { params: FilesetIdParams; data: EmptyData };
+    delete_qzone_msg: { params: QzoneMsgIdParams; data: EmptyData };
+    do_group_album_comment: { params: GroupAlbumCommentParams; data: GroupAlbumCommentResult };
+    download_file_image_stream: {
+        params: DownloadFileStreamParams;
+        data: DownloadFileStreamResult;
+    };
+    download_file_record_stream: {
+        params: DownloadFileStreamParams;
+        data: DownloadFileStreamResult;
+    };
+    download_file_stream: { params: DownloadFileStreamParams; data: DownloadFileStreamResult };
+    download_fileset: { params: DownloadFilesetParams; data: DownloadFilesetResult };
+    fetch_custom_face_detail: { params: FetchCustomFaceDetailParams; data: CustomFaceDetail[] };
+    fetch_ptt_text: { params: ActionMessageIdParams; data: PttTextResult };
+    get_ptt_text: { params: ActionMessageIdParams; data: PttTextResult };
+    get_record_text: { params: ActionMessageIdParams; data: PttTextResult };
+    get_doubt_friends_add_request: {
+        params: GetDoubtFriendsAddRequestParams;
+        data: DoubtFriendsAddRequest[];
+    };
+    get_fileset_id: { params: GetFilesetIdParams; data: FilesetIdResult };
+    get_fileset_info: { params: FilesetIdParams; data: FilesetInfo };
+    get_flash_file_list: { params: FilesetIdParams; data: FlashFileInfo[] };
+    get_flash_file_url: { params: GetFlashFileUrlParams; data: FlashFileUrl };
+    get_group_album_list: { params: ActionGroupIdParams; data: GroupAlbumInfo[] };
+    get_group_album_media_list: {
+        params: GetGroupAlbumMediaListParams;
+        data: GroupAlbumMediaResult;
+    };
+    get_group_signed_list: { params: ActionGroupIdParams; data: GroupSignedMember[] };
+    get_msg_emoji_likes: { params: ActionMessageIdParams; data: MessageEmojiLikeInfo[] };
+    get_qun_album_list: { params: GetQunAlbumListParams; data: QunAlbumListResult };
+    get_qzone_feeds: { params: GetQzoneFeedsParams; data: QzoneFeedsResult };
+    get_qzone_msg_list: { params: GetQzoneMsgListParams; data: QzoneMsgListResult };
+    get_rkey_server: { params: JsonObject; data: RkeyServerResult };
+    get_share_link: { params: FilesetIdParams; data: string };
+    like_qzone: { params: LikeQzoneParams; data: EmptyData };
+    list_filesets: { params: JsonObject; data: FlashFileInfo[] };
+    modify_custom_face: { params: ModifyCustomFaceParams; data: EmptyData };
+    move_custom_face_to_front: { params: CustomFaceIdParams; data: EmptyData };
+    rename_flash_file: { params: RenameFlashFileParams; data: EmptyData };
+    request_decrypt_key: { params: RequestDecryptKeyParams; data: DecryptKeyResult };
+    send_ark_share: { params: SharePeerParams; data: ArkShareResult };
+    send_flash_msg: { params: SendFlashMsgParams; data: SendFlashMsgResult };
+    send_group_ark_share: { params: ActionGroupIdParams; data: string };
+    send_qzone_msg: { params: SendQzoneMsgParams; data: QzonePublishResult };
+    send_tuwen_ark: { params: SendTuwenArkParams; data: EmptyData };
+    set_doubt_friends_add_request: { params: SetDoubtFriendsAddRequestParams; data: EmptyData };
+    set_group_album_media_like: {
+        params: GroupAlbumMediaLikeParams;
+        data: GroupAlbumMediaLikeResult;
+    };
+    set_group_member_invite_policy: { params: SetGroupMemberInvitePolicyParams; data: EmptyData };
+    set_group_member_permissions: { params: SetGroupMemberPermissionsParams; data: EmptyData };
+    set_group_new_member_history_visibility: {
+        params: SetGroupNewMemberHistoryVisibilityParams;
+        data: EmptyData;
+    };
+    set_group_robot_add_option: { params: SetGroupRobotAddOptionParams; data: EmptyData };
+    set_qzone_ban: { params: SetQzoneBanParams; data: EmptyData };
+    set_qzone_msg_right: { params: SetQzoneMsgRightParams; data: QzoneUpdateRightResult };
+    share_group_ex: { params: ActionGroupIdParams; data: string };
+    share_peer: { params: SharePeerParams; data: ArkShareResult };
+    test_download_stream: { params: TestDownloadStreamParams; data: TestDownloadStreamResult };
+    unlike_qzone: { params: LikeQzoneParams; data: EmptyData };
+    upload_file_stream: { params: UploadFileStreamParams; data: UploadFileStreamResult };
+    upload_image_to_qun_album: { params: UploadGroupAlbumMediaParams; data: EmptyData };
+    upload_video_to_qun_album: {
+        params: UploadGroupAlbumMediaParams;
+        data: UploadGroupAlbumVideoResult;
+    };
+    '.handle_quick_operation_async': { params: QuickOperationParams; data: EmptyData };
 }
 
 export type SnowLumaAction = keyof SnowLumaActionMap | (string & {});

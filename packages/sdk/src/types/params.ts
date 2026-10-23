@@ -433,3 +433,244 @@ export interface GetQzoneMsgDetailParams extends JsonObject {
     /** Requested page size, 1–100 (default 20); Qzone may return fewer. */
     num?: number | string;
 }
+
+/** Numeric action fields also accept numeric strings; bounds are checked by the server. */
+export type ActionNumberInput = number | string;
+/** String action fields preserve the server's number/boolean coercion. */
+export type ActionStringInput = string | number | boolean;
+/** Boolean fields accept numbers and strings such as true/false, yes/no and on/off. */
+export type ActionBooleanInput = boolean | number | string;
+
+export interface ActionGroupIdParams extends JsonObject {
+    group_id: ActionNumberInput;
+}
+
+export interface ActionUserIdParams extends JsonObject {
+    user_id: ActionNumberInput;
+}
+
+export interface ActionMessageIdParams extends JsonObject {
+    /** Non-zero signed message ID; negative values are valid. */
+    message_id: ActionNumberInput;
+}
+
+/** Both IDs may be supplied; these actions give group_id precedence. */
+export type ActionPeerParams = JsonObject &
+    (
+        | { group_id: ActionNumberInput; user_id?: ActionNumberInput }
+        | { user_id: ActionNumberInput; group_id?: ActionNumberInput }
+    );
+
+export interface AddCustomFaceParams extends JsonObject {
+    file: ActionStringInput;
+}
+
+export interface CustomFaceIdParams extends JsonObject {
+    emoji_id: ActionStringInput;
+}
+
+export interface ModifyCustomFaceParams extends CustomFaceIdParams {
+    desc?: ActionStringInput;
+}
+
+export interface FetchCustomFaceDetailParams extends JsonObject {
+    count?: ActionNumberInput;
+}
+
+export interface GetDoubtFriendsAddRequestParams extends JsonObject {
+    count?: ActionNumberInput;
+}
+
+export interface SetDoubtFriendsAddRequestParams extends JsonObject {
+    flag: ActionStringInput;
+    approve?: ActionBooleanInput;
+}
+
+export type SharePeerParams = ActionPeerParams & { phone_number?: ActionStringInput };
+
+export type SendTuwenArkParams = ActionPeerParams & {
+    title: ActionStringInput;
+    desc: ActionStringInput;
+    summary?: ActionStringInput;
+    preview_url?: ActionStringInput;
+    jump_url: ActionStringInput;
+};
+
+export interface RequestDecryptKeyParams extends JsonObject {
+    db_path: ActionStringInput;
+}
+
+export interface SetGroupMemberInvitePolicyParams extends ActionGroupIdParams {
+    policy: 'disabled' | 'require_approval' | 'no_approval' | 'no_approval_under_100';
+}
+
+export interface SetGroupNewMemberHistoryVisibilityParams extends ActionGroupIdParams {
+    visible: ActionBooleanInput;
+}
+
+export type SetGroupMemberPermissionsParams = ActionGroupIdParams &
+    (
+        | {
+              allow_member_upload_album: ActionBooleanInput;
+              allow_member_temporary_session?: ActionBooleanInput;
+              allow_member_create_group?: ActionBooleanInput;
+          }
+        | {
+              allow_member_upload_album?: ActionBooleanInput;
+              allow_member_temporary_session: ActionBooleanInput;
+              allow_member_create_group?: ActionBooleanInput;
+          }
+        | {
+              allow_member_upload_album?: ActionBooleanInput;
+              allow_member_temporary_session?: ActionBooleanInput;
+              allow_member_create_group: ActionBooleanInput;
+          }
+    );
+
+export interface SetGroupRobotAddOptionParams extends ActionGroupIdParams {
+    robot_member_switch?: ActionNumberInput;
+    robot_member_examine?: ActionNumberInput;
+}
+
+export interface GetQunAlbumListParams extends ActionGroupIdParams {
+    attach_info?: ActionStringInput;
+}
+
+export interface GroupAlbumParams extends ActionGroupIdParams {
+    album_id: ActionStringInput;
+}
+
+export interface UploadGroupAlbumMediaParams extends GroupAlbumParams {
+    album_name: ActionStringInput;
+    file: ActionStringInput;
+}
+
+export interface GetGroupAlbumMediaListParams extends GroupAlbumParams {
+    attach_info?: ActionStringInput;
+}
+
+export interface GroupAlbumMediaParams extends GroupAlbumParams {
+    /** Photo locator or video ID. */
+    lloc: ActionStringInput;
+}
+
+export interface GroupAlbumCommentParams extends GroupAlbumMediaParams {
+    content: ActionStringInput;
+}
+
+export interface GroupAlbumMediaLikeParams extends GroupAlbumParams {
+    batch_id: ActionStringInput;
+    lloc?: ActionStringInput;
+}
+
+export interface GetQzoneMsgListParams extends JsonObject {
+    target_uin?: ActionNumberInput;
+    pos?: ActionNumberInput;
+    num?: ActionNumberInput;
+}
+
+export interface GetQzoneFeedsParams extends JsonObject {
+    /** Page number starts at 1; only the first page is reliable upstream. */
+    page_num?: ActionNumberInput;
+    count?: ActionNumberInput;
+}
+
+export interface QzoneMsgIdParams extends JsonObject {
+    tid: ActionStringInput;
+}
+
+/** 1=public, 4=friends, 16=selected friends, 64=self, 128=exclude selected friends. */
+export type QzoneUgcRight = 1 | 4 | 16 | 64 | 128;
+
+export interface SendQzoneMsgParams extends JsonObject {
+    content: ActionStringInput;
+    images?: ActionStringInput[];
+    /** Defaults to 1. Values are validated as QzoneUgcRight by the server. */
+    ugc_right?: ActionNumberInput;
+    /** Required and non-empty when ugc_right is 16 or 128. */
+    target_uins?: ActionNumberInput[];
+}
+
+export interface SetQzoneMsgRightParams extends QzoneMsgIdParams {
+    /** One of the QzoneUgcRight values, also accepted as a numeric string. */
+    ugc_right: ActionNumberInput;
+    /** Required and non-empty when ugc_right is 16 or 128. */
+    target_uins?: ActionNumberInput[];
+}
+
+export interface LikeQzoneParams extends QzoneMsgIdParams {
+    target_uin?: ActionNumberInput;
+    /** Post publication time in Unix seconds. */
+    abstime?: ActionNumberInput;
+}
+
+export interface CommentQzoneParams extends QzoneMsgIdParams {
+    content: ActionStringInput;
+    target_uin?: ActionNumberInput;
+    images?: ActionStringInput[];
+}
+
+export interface SetQzoneBanParams extends ActionUserIdParams {
+    enable?: ActionBooleanInput;
+}
+
+export type FlashTaskFile = string | { file: string; name?: string };
+
+export interface CreateFlashTaskParams extends JsonObject {
+    /** A path, a named file, or a non-empty array mixing both forms. */
+    files: FlashTaskFile | FlashTaskFile[];
+    name?: ActionStringInput;
+    thumb_path?: ActionStringInput;
+}
+
+export interface FilesetIdParams extends JsonObject {
+    fileset_id: ActionStringInput;
+}
+
+export interface GetFlashFileUrlParams extends FilesetIdParams {
+    /** Accepted for compatibility; this action selects by file_index. */
+    file_name?: ActionStringInput;
+    file_index?: ActionNumberInput;
+}
+
+export interface DownloadFilesetParams extends FilesetIdParams {
+    file_name?: ActionStringInput;
+    file_index?: ActionNumberInput;
+}
+
+export interface RenameFlashFileParams extends FilesetIdParams {
+    new_name: ActionStringInput;
+}
+
+export type SendFlashMsgParams = FilesetIdParams & ActionPeerParams;
+
+export interface GetFilesetIdParams extends JsonObject {
+    share_code: ActionStringInput;
+}
+
+export interface UploadFileStreamParams extends JsonObject {
+    stream_id: ActionStringInput;
+    chunk_data?: ActionStringInput;
+    chunk_index?: ActionNumberInput;
+    /** Required when creating a stream; omitted for status, reset and later chunks. */
+    total_chunks?: ActionNumberInput;
+    file_size?: ActionNumberInput;
+    expected_sha256?: ActionStringInput;
+    is_complete?: ActionBooleanInput;
+    filename?: ActionStringInput;
+    reset?: ActionBooleanInput;
+    verify_only?: ActionBooleanInput;
+    /** Retention in milliseconds; 0 disables automatic expiry. */
+    file_retention?: ActionNumberInput;
+}
+
+export type DownloadFileStreamParams = JsonObject & {
+    chunk_size?: ActionNumberInput;
+} & (
+        | { file: ActionStringInput; file_id?: ActionStringInput }
+        | { file_id: ActionStringInput; file?: ActionStringInput }
+    );
+
+export interface TestDownloadStreamParams extends JsonObject {
+    error?: ActionBooleanInput;
+}

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add parameter and result types for the remaining 57 actions and three aliases, covering every registered action name while preserving existing client methods and type mappings.
+- Describe album pagination and media, Qzone, flash transfers, stickers, group settings, and stream frame payloads; retain numeric-string inputs and signed message IDs.
 - Fix native Node.js ESM imports for the package root and all supported subpaths without requiring a bundler.
 - Restore `@snowluma/sdk/actions` and the root exports `SNOWLUMA_ACTIONS`, `isSnowLumaAction`, and `SnowLumaKnownAction`, including current action names and compatibility aliases.
 - Require patched Node.js releases: 24.22.1 or newer in the 24.x line, or 26.12.1 and newer.

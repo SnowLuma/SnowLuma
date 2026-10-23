@@ -41,6 +41,14 @@ beforeAll(() => {
     const installed = path.join(consumerRoot, 'node_modules', '@snowluma', 'sdk');
     mkdirSync(installed, { recursive: true });
     copyFileSync(path.join(sdkRoot, 'package.json'), path.join(installed, 'package.json'));
+    copyFileSync(
+        path.join(sdkRoot, 'tests', 'fixtures', 'action-types.mts'),
+        path.join(consumerRoot, 'action-types.mts'),
+    );
+    copyFileSync(
+        path.join(sdkRoot, 'tests', 'fixtures', 'action-contracts.ts'),
+        path.join(consumerRoot, 'action-contracts.ts'),
+    );
 
     // Compile fresh output outside the workspace so neither stale dist files nor
     // Vitest's source resolver can hide a broken published entry point.
@@ -139,6 +147,7 @@ assert.equal(actions.isSnowLumaAction('consumer_extension'), false);
                 '--moduleResolution',
                 resolution,
                 path.join(consumerRoot, 'consumer.mts'),
+                path.join(consumerRoot, 'action-types.mts'),
             ]);
         },
         30_000,

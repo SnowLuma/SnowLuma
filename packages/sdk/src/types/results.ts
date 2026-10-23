@@ -301,3 +301,386 @@ export interface UserOnlineStatus {
 export interface SendGroupAiRecordResult {
     message_id: number;
 }
+
+export interface CustomFaceDetail extends JsonObject {
+    emoji_id: string;
+    resId: string;
+    url: string;
+    md5: string;
+    desc: string;
+}
+
+export interface AddCustomFaceResult extends JsonObject {
+    emoji_id: string;
+}
+
+export interface PttTextResult extends JsonObject {
+    text: string;
+}
+
+export interface MessageEmojiLikeInfo extends JsonObject {
+    emoji_id: string;
+    emoji_type: number;
+    count: number;
+    last_reaction_time: number;
+    users: Array<{ user_id: number }>;
+}
+
+export interface GroupSignedMember extends JsonObject {
+    user_id: number;
+    nick: string;
+    time: number;
+    rank: number;
+}
+
+export interface DoubtFriendsAddRequest extends JsonObject {
+    /** Pass this UID back as the request's flag. */
+    uid: string;
+    user_id: number;
+    nick: string;
+    source: string;
+    reason: string;
+    msg: string;
+    group_code: string;
+    reqTime: number;
+}
+
+export interface FriendDressItem extends JsonObject {
+    app_id: number;
+    kind: string;
+    item_id: number;
+    name: string;
+    preview_url: string;
+    video_url: string;
+    price: number;
+}
+
+export interface FriendDressResult extends JsonObject {
+    target_uin: string;
+    is_svip: boolean;
+    avatar_url: string;
+    items: FriendDressItem[];
+}
+
+export interface ArkShareResult extends JsonObject {
+    arkMsg: string;
+}
+
+export interface DecryptKeyResult extends JsonObject {
+    db_key: string;
+}
+
+export interface RkeyServerResult extends JsonObject {
+    /** Unix seconds; either key can be absent. */
+    expired_time: number;
+    name: string;
+    private_rkey?: string;
+    group_rkey?: string;
+}
+
+export interface QzoneEmotion extends JsonObject {
+    tid: string;
+    content: string;
+    /** Unix seconds. */
+    time: number;
+    comment_num: number;
+    is_private: boolean;
+    images: string[];
+}
+
+export interface QzoneMsgListResult extends JsonObject {
+    total: number;
+    msglist: QzoneEmotion[];
+}
+
+export interface QzoneFeed extends JsonObject {
+    uin: number;
+    nickname: string;
+    time: number;
+    appid: number;
+    key: string;
+    html: string;
+}
+
+export interface QzoneFeedsResult extends JsonObject {
+    feeds: QzoneFeed[];
+    has_more: boolean;
+}
+
+export interface QzonePublishResult extends JsonObject {
+    tid: string;
+    time: number;
+}
+
+export interface QzoneCommentResult extends JsonObject {
+    /** Empty string when the upstream response omits the new comment ID. */
+    comment_id: string;
+}
+
+export interface QzoneUpdateRightResult extends JsonObject {
+    ugc_right: number;
+}
+
+export interface QunAlbumCoverUrl extends JsonObject {
+    url: string;
+    width: number;
+    height: number;
+}
+
+export interface QunAlbumCoverPhotoUrl extends JsonObject {
+    spec: number;
+    url: QunAlbumCoverUrl | null;
+}
+
+export interface QunAlbumCoverImage extends JsonObject {
+    name: string;
+    sloc: string;
+    lloc: string;
+    photoUrls: QunAlbumCoverPhotoUrl[];
+    defaultUrl: QunAlbumCoverUrl | null;
+    isGif: boolean;
+    hasRaw: boolean;
+}
+
+export interface QunAlbumCover extends JsonObject {
+    type: number;
+    image: QunAlbumCoverImage | null;
+}
+
+export interface GroupAlbumInfo extends JsonObject {
+    id: string;
+    name: string;
+    picNum: number;
+    createTime: number;
+    desc: string;
+    owner: string;
+    createuin: string;
+    createnickname: string;
+    last_upload_time: number;
+    cover: QunAlbumCover | null;
+}
+
+export interface QunAlbumCreator extends JsonObject {
+    uid: string;
+    nick: string;
+    is_sweet: boolean;
+    is_special: boolean;
+    is_super_like: boolean;
+    custom_id: string;
+    poly_id: string;
+    portrait: string;
+    can_follow: number;
+    isfollowed: number;
+    uin: string;
+    ditto_uin: string;
+}
+
+export interface QunAlbumInfo extends JsonObject {
+    album_id: string;
+    owner: string;
+    name: string;
+    desc: string;
+    /** The Qun API preserves 64-bit times and counts as decimal strings. */
+    create_time: string;
+    modify_time: string;
+    last_upload_time: string;
+    upload_number: string;
+    cover: QunAlbumCover | null;
+    creator?: QunAlbumCreator;
+    top_flag: string;
+    busi_type: number;
+    status: number;
+    allow_share: boolean;
+    is_subscribe: boolean;
+    bitmap: string;
+    is_share_album: boolean;
+    qz_album_type: number;
+    cover_type: number;
+    default_desc: string;
+    sort_type: number;
+}
+
+export interface QunAlbumListResult extends JsonObject {
+    album_list: QunAlbumInfo[];
+    attach_info: string;
+    has_more: boolean;
+}
+
+// Media-list fields are passed through from QQ, unlike normalized album covers.
+// Omitted fields stay optional; explicitly undefined decoded values become null.
+export interface GroupAlbumMediaUrl extends JsonObject {
+    url?: string | null;
+    width?: number | null;
+    height?: number | null;
+}
+
+export interface GroupAlbumMediaPhotoUrl extends JsonObject {
+    spec?: number | null;
+    url?: GroupAlbumMediaUrl | null;
+}
+
+export interface GroupAlbumMediaImage extends JsonObject {
+    name?: string | null;
+    sloc?: string | null;
+    lloc?: string | null;
+    photoUrls?: GroupAlbumMediaPhotoUrl[] | null;
+    defaultUrl?: GroupAlbumMediaUrl | null;
+    isGif?: boolean | null;
+    hasRaw?: boolean | null;
+}
+
+export interface GroupAlbumMediaVideo extends JsonObject {
+    id?: string | null;
+    url?: string | null;
+    cover?: GroupAlbumMediaImage | null;
+    width?: number | null;
+    height?: number | null;
+    videoTime?: string | null;
+    videoUrl?: GroupAlbumMediaPhotoUrl[] | null;
+}
+
+export interface GroupAlbumMediaInfo extends JsonObject {
+    type?: number | null;
+    image?: GroupAlbumMediaImage | null;
+    video?: GroupAlbumMediaVideo | null;
+    uploader?: string | null;
+    batchId?: string | null;
+    uploadTime?: string | null;
+}
+
+export interface GroupAlbumMediaResult extends JsonObject {
+    mediaList: GroupAlbumMediaInfo[];
+    nextAttachInfo: string;
+}
+
+export interface GroupAlbumCommentResult extends JsonObject {
+    id: string;
+    user: { uin: string };
+    content: Array<{ type: number; content: string }>;
+    time: string;
+    clientKey: string;
+}
+
+export interface GroupAlbumMediaLikeResult extends JsonObject {
+    id?: string | null;
+    status?: number | null;
+}
+
+export interface UploadGroupAlbumVideoResult extends JsonObject {
+    id: string;
+}
+
+export interface DeleteGroupAlbumMediaResult extends JsonObject {
+    success: true;
+}
+
+export interface CreateFlashTaskResult extends JsonObject {
+    fileset_id: string;
+    task_id: string;
+}
+
+export interface FlashFileInfo extends JsonObject {
+    fileset_id: string;
+    file_name: string;
+    orig_name: string;
+    size: number;
+    share_url: string;
+    file_id: string;
+    download_url: string;
+}
+
+export interface FilesetInfo extends JsonObject {
+    fileset_id: string;
+    file_list: FlashFileInfo[];
+}
+
+export interface FlashFileUrl extends JsonObject {
+    url: string;
+}
+
+export interface DownloadFilesetResult extends FlashFileUrl {
+    file_name: string;
+    file_size: number;
+}
+
+export interface FilesetIdResult extends JsonObject {
+    fileset_id: string;
+}
+
+export interface SendFlashMsgResult extends JsonObject {
+    /** Flash sharing has no ordinary message ID; the server returns this sentinel. */
+    message_id: 0;
+}
+
+export interface CleanStreamTempFileResult extends JsonObject {
+    message: string;
+    removed: number;
+    freed_bytes: number;
+    skipped_active: number;
+}
+
+/** Stream errors are carried by failed envelopes; raw() throws for these. */
+export interface StreamErrorData extends JsonObject {
+    type: 'error';
+    data_type: 'error';
+}
+
+export interface UploadFileStreamStatus extends JsonObject {
+    type: 'stream';
+    stream_id: string;
+    status: 'file_created' | 'chunk_received';
+    received_chunks: number;
+    total_chunks: number;
+}
+
+export interface UploadFileStreamComplete extends JsonObject {
+    type: 'response';
+    stream_id: string;
+    status: 'file_complete';
+    received_chunks: number;
+    total_chunks: number;
+    file_path: string;
+    file_name: string;
+    file_size: number;
+    sha256: string;
+}
+
+export type UploadFileStreamResult =
+    UploadFileStreamStatus | UploadFileStreamComplete | StreamErrorData;
+
+export interface DownloadFileStreamInfo extends JsonObject {
+    type: 'stream';
+    data_type: 'file_info';
+    file_name: string;
+    file_size: number;
+    chunk_size: number;
+}
+
+export interface DownloadFileStreamChunk extends JsonObject {
+    type: 'stream';
+    data_type: 'file_chunk';
+    index: number;
+    /** Base64-encoded bytes. */
+    data: string;
+    size: number;
+    progress: number;
+    base64_size: number;
+}
+
+export interface DownloadFileStreamComplete extends JsonObject {
+    type: 'response';
+    data_type: 'file_complete';
+    file_name: string;
+    total_chunks: number;
+    total_bytes: number;
+    message: string;
+}
+
+/** One frame's data, not an aggregated download. A streaming transport is required. */
+export type DownloadFileStreamResult =
+    DownloadFileStreamInfo | DownloadFileStreamChunk | DownloadFileStreamComplete | StreamErrorData;
+
+export type TestDownloadStreamResult =
+    | { type: 'stream'; data_type: 'data_chunk'; data: string }
+    | { type: 'response'; data_type: 'data_complete'; data: string }
+    | StreamErrorData;
