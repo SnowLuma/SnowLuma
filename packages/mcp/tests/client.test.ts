@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { makeHttpClient, parseMaxStreamBytes, parseTimeoutMs } from '../src/client';
+import {
+    makeHttpClient,
+    parseMaxStreamBytes,
+    parseTimeoutMs,
+    type TransferProgress,
+} from '../src/client';
 
 const tempDirs: string[] = [];
 
@@ -169,7 +174,17 @@ describe('makeHttpClient — OneBot HTTP wiring', () => {
             )) as unknown as typeof fetch;
 
         const client = makeHttpClient({ endpoint: 'http://127.0.0.1:9999/', fetch: fakeFetch });
-        const result = await client.callStream('test_download_stream', {});
+        const progress: TransferProgress[] = [];
+        const result = await client.callStream(
+            'test_download_stream',
+            {},
+            {
+                onProgress: async (update) => {
+                    progress.push(update);
+                },
+            },
+        );
+        expect(progress.map((update) => update.progress)).toEqual([1, 2]);
 
         expect(result).toEqual({ frame_count: 2, frames: [frames[0]], terminal: frames[1] });
     });
@@ -225,7 +240,18 @@ describe('makeHttpClient — OneBot HTTP wiring', () => {
             streamDir,
         });
 
-        const result = await client.callStream('download_file_stream', { file: 'remote-id' });
+        const progress: TransferProgress[] = [];
+        const result = await client.callStream(
+            'download_file_stream',
+            { file: 'remote-id' },
+            {
+                onProgress: async (update) => {
+                    progress.push(update);
+                },
+            },
+        );
+        expect(progress.map((update) => update.progress)).toEqual([0, 997, content.length]);
+        expect(progress.every((update) => update.total === content.length)).toBe(true);
 
         expect(Object.keys(result).sort()).toEqual([
             'file_path',
@@ -632,11 +658,19 @@ describe('makeHttpClient — OneBot HTTP wiring', () => {
             uploadRoot: root,
         });
 
+        const progress: TransferProgress[] = [];
         const result = await client.callStream(
             'upload_file_stream',
             { file_retention: 0 },
-            { inputFile },
+            {
+                inputFile,
+                onProgress: async (update) => {
+                    progress.push(update);
+                },
+            },
         );
+        expect(progress.map((update) => update.progress)).toEqual([0, 512 * 1024, content.length]);
+        expect(progress.every((update) => update.total === content.length)).toBe(true);
 
         expect(requests).toHaveLength(3);
         expect(requests.every((request) => request.action === 'upload_file_stream')).toBe(true);
@@ -789,7 +823,21 @@ describe('makeHttpClient — OneBot HTTP wiring', () => {
             uploadRoot: root,
         });
 
-        const result = await client.callStream('upload_file_stream', {}, { inputFile });
+        const progress: TransferProgress[] = [];
+        const result = await client.callStream(
+            'upload_file_stream',
+            {},
+            {
+                inputFile,
+                onProgress: async (update) => {
+                    progress.push(update);
+                },
+            },
+        );
+        expect(
+            progress.every((update) => update.progress === 0 && update.total === undefined),
+        ).toBe(true);
+        expect(progress).toHaveLength(2);
 
         expect(requests).toHaveLength(2);
         expect(requests[0].params).toMatchObject({
@@ -941,10 +989,110 @@ describe('makeHttpClient — OneBot HTTP wiring', () => {
             streamDir,
         });
 
-        const result = await client.callStream('download_file_stream', {});
+        const progress: TransferProgress[] = [];
+        const result = await client.callStream(
+            'download_file_stream',
+            {},
+            {
+                onProgress: async (update) => {
+                    progress.push(update);
+                },
+            },
+        );
 
         expect(result.file_size).toBe(content.length);
         expect(fs.readFileSync(result.file_path).equals(content)).toBe(true);
+        expect(progress.map((update) => update.progress)).toEqual([0, content.length]);
+        expect(progress.every((update) => update.total === undefined)).toBe(true);
+    });
+
+    it('cleans partial downloads and releases admission when progress delivery fails', async () => {
+        const streamDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-mcp-progress-'));
+        tempDirs.push(streamDir);
+        const frame = {
+            status: 'ok',
+            retcode: 0,
+            data: { type: 'stream', data_type: 'file_info', file_name: 'test.bin', file_size: 3 },
+        };
+        const fakeFetch: typeof fetch = async () =>
+            new Response(`${JSON.stringify(frame)}\r\n\r\n`);
+        const client = makeHttpClient({
+            endpoint: 'http://unused.invalid',
+            streamDir,
+            maxStreamBytes: 3,
+            fetch: fakeFetch,
+        });
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+            await expect(
+                client.callStream(
+                    'download_file_stream',
+                    {},
+                    {
+                        onProgress: async () => {
+                            throw new Error('notification failed');
+                        },
+                    },
+                ),
+            ).rejects.toThrow('notification failed');
+            expect(fs.readdirSync(streamDir)).toEqual([]);
+        }
+    });
+
+    it('stops processing already-buffered frames after a cancellation during progress', async () => {
+        const streamDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snowluma-mcp-progress-'));
+        tempDirs.push(streamDir);
+        const frames = [
+            {
+                status: 'ok',
+                retcode: 0,
+                data: {
+                    type: 'stream',
+                    data_type: 'file_info',
+                    file_name: 'test.bin',
+                    file_size: 1,
+                },
+            },
+            {
+                status: 'ok',
+                retcode: 0,
+                data: { type: 'stream', data_type: 'file_chunk', index: 0, size: 1, data: 'eA==' },
+            },
+            {
+                status: 'ok',
+                retcode: 0,
+                data: {
+                    type: 'response',
+                    data_type: 'file_complete',
+                    total_bytes: 1,
+                    total_chunks: 1,
+                },
+            },
+        ];
+        const controller = new AbortController();
+        const fakeFetch: typeof fetch = async () =>
+            new Response(frames.map((frame) => `${JSON.stringify(frame)}\r\n\r\n`).join(''));
+        const client = makeHttpClient({
+            endpoint: 'http://unused.invalid',
+            streamDir,
+            fetch: fakeFetch,
+        });
+        const updates: number[] = [];
+        await expect(
+            client.callStream(
+                'download_file_stream',
+                {},
+                {
+                    signal: controller.signal,
+                    onProgress: async (update) => {
+                        updates.push(update.progress);
+                        controller.abort();
+                    },
+                },
+            ),
+        ).rejects.toThrow(/cancelled/);
+        expect(updates).toEqual([0]);
+        expect(fs.readdirSync(streamDir)).toEqual([]);
     });
 
     it('requires file_info as the first successful frame for known file-download actions', async () => {

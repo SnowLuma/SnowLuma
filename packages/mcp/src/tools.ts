@@ -8,10 +8,22 @@
 // Visibility is gated by `mode`, and `callTool` RE-checks every permission
 // (defense in depth: a client may call a tool that was never listed).
 
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ACTIONS, CATEGORIES } from './generated/catalog.js';
 import type { CatalogAction } from './types.js';
 import type { ActionClient } from './client.js';
+import { discover, FILTER_PROPERTIES } from './discovery.js';
+import {
+    asText,
+    asError,
+    envelopeDiagnostics,
+    executionError,
+    RESULT_SCHEMA,
+    type Diagnostics,
+    type StructuredResult,
+} from './results.js';
+import { VERSION } from './version.js';
+import type { TransferProgress } from './client.js';
 
 export type Mode = 'docs' | 'read' | 'write';
 
@@ -38,26 +50,15 @@ for (const a of ACTIONS) {
     }
 }
 
-/** Lightweight index entry (keeps list/search payloads small). */
-function lite(a: CatalogAction) {
-    return {
-        name: a.name,
-        category: a.category,
-        summary: a.summary,
-        aliases: a.aliases,
-        readOnly: a.readOnly,
-        stream: a.stream ?? false,
-    };
-}
-
 const DOCS_TOOLS: Tool[] = [
     {
         name: 'list_actions',
-        description: '列出 OneBot action，支持按分类过滤。返回名称、摘要、别名及执行类型。',
+        description:
+            '列出 OneBot action，支持分类、读写类型、流式类型筛选和可选分页。省略分页时返回全部匹配项。',
         inputSchema: {
             type: 'object',
             properties: {
-                category: { type: 'string', description: '按分类过滤，如 群管理 / 消息 / 好友' },
+                ...FILTER_PROPERTIES,
             },
             additionalProperties: false,
         },
@@ -76,10 +77,19 @@ const DOCS_TOOLS: Tool[] = [
     },
     {
         name: 'search_actions',
-        description: '按名称、摘要或别名搜索 action。',
+        description:
+            '按名称、摘要或别名搜索 action。默认保留子串匹配；match=keywords 启用多关键词和常用中英文同义词，支持筛选及分页。',
         inputSchema: {
             type: 'object',
-            properties: { query: { type: 'string', description: '关键字' } },
+            properties: {
+                query: { type: 'string', description: '关键字；keywords 模式可用空格分隔多个词' },
+                match: {
+                    type: 'string',
+                    enum: ['substring', 'keywords'],
+                    description: '默认 substring',
+                },
+                ...FILTER_PROPERTIES,
+            },
             required: ['query'],
             additionalProperties: false,
         },
@@ -90,6 +100,22 @@ const DOCS_TOOLS: Tool[] = [
         description: '列出所有分类及其 action 数量。',
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
         annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
+        name: 'get_runtime_info',
+        description:
+            '查看当前 MCP 模式、执行能力、文件限制和目录版本。默认不访问服务端；check_connection=true 仅在执行模式主动查询登录账号、状态和版本。静态目录不代表服务端支持全部动作。',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                check_connection: {
+                    type: 'boolean',
+                    description: '主动进行三项只读查询，默认 false',
+                },
+            },
+            additionalProperties: false,
+        },
+        annotations: { readOnlyHint: true, openWorldHint: true },
     },
 ];
 
@@ -150,23 +176,16 @@ export function computeTools(mode: Mode): Tool[] {
         tools.push(invokeTool());
     }
 
-    return tools;
+    return tools.map((tool) => ({ ...tool, outputSchema: RESULT_SCHEMA }));
 }
 
-export type ToolResult = CallToolResult;
-
-function asText(data: unknown): ToolResult {
-    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
-}
-
-function asError(message: string): ToolResult {
-    return { content: [{ type: 'text', text: message }], isError: true };
-}
+export type ToolResult = StructuredResult;
 
 export interface CallCtx {
     mode: Mode;
     client?: ActionClient;
     signal?: AbortSignal;
+    onProgress?: (progress: TransferProgress) => Promise<void>;
 }
 
 export async function callTool(
@@ -175,10 +194,13 @@ export async function callTool(
     ctx: CallCtx,
 ): Promise<ToolResult> {
     switch (name) {
-        case 'list_actions': {
-            const category = typeof args.category === 'string' ? args.category : undefined;
-            const list = ACTIONS.filter((a) => !category || a.category === category).map(lite);
-            return asText({ count: list.length, actions: list });
+        case 'list_actions':
+        case 'search_actions': {
+            try {
+                return asText(discover(ACTIONS, args, name === 'search_actions'));
+            } catch (error) {
+                return asError(error instanceof Error ? error.message : String(error));
+            }
         }
 
         case 'get_action': {
@@ -188,31 +210,24 @@ export async function callTool(
             if (!action) {
                 return asError(
                     `未找到 action: ${JSON.stringify(q)}。用 list_actions / search_actions 查可用项。`,
+                    'not_found',
+                    '使用 list_actions / search_actions 查找动作。',
                 );
             }
 
             return asText(action);
         }
 
-        case 'search_actions': {
-            const q = (typeof args.query === 'string' ? args.query : '').toLowerCase();
-            const list = ACTIONS.filter(
-                (a) =>
-                    a.name.toLowerCase().includes(q) ||
-                    (a.summary ?? '').toLowerCase().includes(q) ||
-                    a.aliases.some((al) => al.toLowerCase().includes(q)),
-            ).map(lite);
-            return asText({ count: list.length, actions: list });
-        }
-
         case 'list_categories':
             return asText(CATEGORIES);
+        case 'get_runtime_info':
+            return runtimeInfo(args, ctx);
         case 'query_action':
             return execute(args, ctx, 'read');
         case 'invoke_action':
             return execute(args, ctx, 'write');
         default:
-            return asError(`未知工具: ${name}`);
+            return asError(`未知工具: ${name}`, 'not_found', '使用 tools/list 查看可用工具。');
     }
 }
 
@@ -224,15 +239,27 @@ async function execute(
     kind: 'read' | 'write',
 ): Promise<ToolResult> {
     if (kind === 'write' && ctx.mode !== 'write') {
-        return asError('写操作未启用：需设置 SNOWLUMA_MCP_MODE=write。');
+        return asError(
+            '写操作未启用：需设置 SNOWLUMA_MCP_MODE=write。',
+            'permission',
+            '需要写操作时，请由操作者明确启用 write 模式。',
+        );
     }
 
     if (kind === 'read' && ctx.mode !== 'read' && ctx.mode !== 'write') {
-        return asError('执行未启用：需配置 SNOWLUMA_MCP_ENDPOINT。');
+        return asError(
+            '执行未启用：需配置 SNOWLUMA_MCP_ENDPOINT。',
+            'permission',
+            '配置端点并选择 read 或 write 模式后重启 MCP。',
+        );
     }
 
     if (!ctx.client) {
-        return asError('未配置 OneBot 端点（SNOWLUMA_MCP_ENDPOINT），无法执行。');
+        return asError(
+            '未配置 OneBot 端点（SNOWLUMA_MCP_ENDPOINT），无法执行。',
+            'configuration',
+            '检查 MCP 端点配置。',
+        );
     }
 
     const action = typeof args.action === 'string' ? args.action : '';
@@ -241,12 +268,16 @@ async function execute(
     if (!cat) {
         return asError(
             `未知 action: ${JSON.stringify(action)}。用 list_actions / search_actions 查可用项。`,
+            'not_found',
+            '使用 list_actions / search_actions 查找动作。',
         );
     }
 
     if (kind === 'read' && !cat.readOnly) {
         return asError(
             `${action} 是写操作，不能用 query_action；请用 invoke_action（需 SNOWLUMA_MCP_MODE=write）。`,
+            'permission',
+            '需写模式和 invoke_action；不要通过只读工具绕过写操作限制。',
         );
     }
 
@@ -290,14 +321,81 @@ async function execute(
     }
 
     try {
-        const result = cat.stream
-            ? await ctx.client.callStream(action, params, {
-                  ...(inputFile ? { inputFile } : {}),
-                  ...(ctx.signal ? { signal: ctx.signal } : {}),
-              })
-            : await ctx.client.call(action, params);
-        return asText(result);
+        ctx.signal?.throwIfAborted();
+
+        if (cat.stream) {
+            const result = await ctx.client.callStream(action, params, {
+                ...(inputFile ? { inputFile } : {}),
+                ...(ctx.signal ? { signal: ctx.signal } : {}),
+                ...(ctx.onProgress ? { onProgress: ctx.onProgress } : {}),
+            });
+            return asText(result, envelopeDiagnostics(result.terminal));
+        }
+
+        const result = await ctx.client.call(
+            action,
+            params,
+            ctx.signal ? { signal: ctx.signal } : undefined,
+        );
+        return asText(result, envelopeDiagnostics(result));
     } catch (err) {
-        return asError(`调用失败 (${action}): ${err instanceof Error ? err.message : String(err)}`);
+        return executionError(action, err, ctx.signal);
     }
+}
+
+async function runtimeInfo(args: Record<string, unknown>, ctx: CallCtx): Promise<ToolResult> {
+    if (args.check_connection !== undefined && typeof args.check_connection !== 'boolean') {
+        return asError('check_connection 必须是布尔值。');
+    }
+
+    const enabled = ctx.mode !== 'docs' && !!ctx.client;
+
+    if (args.check_connection && !enabled) {
+        return asError(
+            '当前模式不能检查连接：需配置端点并启用 read 或 write 模式。',
+            'permission',
+            '先用 get_runtime_info 查看本地模式，再由操作者配置连接。',
+        );
+    }
+
+    const overview = {
+        mode: ctx.mode,
+        execution_enabled: enabled,
+        write_enabled: enabled && ctx.mode === 'write',
+        catalog: {
+            version: VERSION,
+            action_count: ACTIONS.length,
+            source: 'bundled',
+            server_support: 'unknown',
+        },
+        transport: enabled ? (ctx.client?.info ?? null) : null,
+        connection_checked: args.check_connection === true,
+    };
+
+    if (!args.check_connection) {
+        return asText(overview);
+    }
+
+    const checks: Record<string, unknown> = {};
+    let outcome: Diagnostics['outcome'] = 'success';
+
+    for (const action of ['get_login_info', 'get_status', 'get_version_info']) {
+        const result = await execute({ action }, ctx, 'read');
+        checks[action] = result.structuredContent;
+        const diagnostics = result.structuredContent.diagnostics;
+
+        if (
+            diagnostics.outcome === 'unknown' ||
+            (diagnostics.outcome === 'failed' && outcome === 'success')
+        ) {
+            outcome = diagnostics.outcome;
+        }
+    }
+
+    return asText(
+        { ...overview, checks },
+        outcome === 'success'
+            ? { outcome }
+            : { outcome, next_step: '查看 checks 中各项诊断；目录版本不等于服务端能力声明。' },
+    );
 }

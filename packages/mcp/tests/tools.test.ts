@@ -49,12 +49,13 @@ describe('computeTools — mode gating', () => {
             expect(() => parseMode(invalid), invalid).toThrow(/SNOWLUMA_MCP_MODE/);
         }
     });
-    it('docs mode exposes only the 4 catalog tools', () => {
+    it('docs mode exposes catalog tools and local runtime information', () => {
         expect(computeTools('docs').map((t) => t.name)).toEqual([
             'list_actions',
             'get_action',
             'search_actions',
             'list_categories',
+            'get_runtime_info',
         ]);
     });
     it('read mode adds query_action only (no invoke_action)', () => {

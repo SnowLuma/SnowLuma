@@ -20,7 +20,8 @@
   "types": "./dist/server.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "AGENT_FEATURES.md"
   ],
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs');fs.rmSync('dist',{recursive:true,force:true})\"",

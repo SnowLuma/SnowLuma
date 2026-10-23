@@ -23,15 +23,7 @@
 //
 // NOTE: stdout is the MCP protocol channel — all diagnostics go to stderr.
 
-import { readFileSync } from 'node:fs';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
 import { ACTIONS, CATEGORIES } from './generated/catalog.js';
 import {
     makeHttpClient,
@@ -39,14 +31,10 @@ import {
     parseTimeoutMs,
     type ActionClient,
 } from './client.js';
-import { callTool, computeTools, parseMode, type Mode } from './tools.js';
+import { parseMode, type Mode } from './tools.js';
 
-const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-    version: string;
-};
-const VERSION = pkg.version;
-
-const RESOURCE_URI = 'snowluma://onebot/actions';
+import { createMcpServer } from './server-factory.js';
+import { VERSION } from './version.js';
 
 // ── resolve mode + client from the environment ────────────────────────────
 function resolveRuntime(): { mode: Mode; client?: ActionClient } {
@@ -88,48 +76,7 @@ function resolveRuntime(): { mode: Mode; client?: ActionClient } {
 
 const { mode, client } = resolveRuntime();
 
-const server = new Server(
-    { name: 'snowluma-mcp', version: VERSION },
-    { capabilities: { tools: {}, resources: {} } },
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: computeTools(mode) }));
-
-server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
-    const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-    return callTool(req.params.name, args, { mode, client, signal: extra.signal });
-});
-
-server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [
-        {
-            uri: RESOURCE_URI,
-            name: 'SnowLuma OneBot action catalog',
-            mimeType: 'application/json',
-            description: `SnowLuma v${VERSION} 的 ${ACTIONS.length} 个 OneBot action 完整目录（文档 + JSON Schema）。`,
-        },
-    ],
-}));
-
-server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
-    if (req.params.uri !== RESOURCE_URI) {
-        throw new Error(`unknown resource: ${req.params.uri}`);
-    }
-
-    return {
-        contents: [
-            {
-                uri: RESOURCE_URI,
-                mimeType: 'application/json',
-                text: JSON.stringify(
-                    { version: VERSION, categories: CATEGORIES, actions: ACTIONS },
-                    null,
-                    2,
-                ),
-            },
-        ],
-    };
-});
+const server = createMcpServer({ mode, client });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

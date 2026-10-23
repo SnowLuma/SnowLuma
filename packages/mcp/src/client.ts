@@ -2,16 +2,15 @@
 //
 // The OneBot v11 HTTP action protocol is trivial — POST `{ action, params }` to
 // the endpoint, read back the JSON envelope — so the MCP talks to it directly
-// with `fetch`. We deliberately do NOT depend on @snowluma/sdk here: its
-// published dist is bundler-targeted ESM (extensionless relative imports) that
-// native `node` cannot resolve without a bundler, and this package is a plain
-// `tsc`-built stdio bin. The wire shape — not a shared client type — is the seam
-// (ADR-0005); tests inject a fake `ActionClient` (or a fake `fetch`).
+// with `fetch`. This client also owns MCP-host file admission and bounded stream
+// summaries. The wire shape — not a shared client type — is the seam (ADR-0005);
+// tests inject a fake `ActionClient` (or a fake `fetch`).
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { ActionCallError } from './results.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_STREAM_BYTES = 4 * 1024 * 1024 * 1024;
@@ -102,9 +101,14 @@ export interface OneBotEnvelope {
 }
 
 export interface ActionClient {
+    readonly info?: ClientInfo;
     /** Send one OneBot action; resolves the full envelope (even on retcode≠0),
      *  rejects only on transport-level failure (timeout / connection / bad body). */
-    call(action: string, params: Record<string, unknown>): Promise<OneBotEnvelope>;
+    call(
+        action: string,
+        params: Record<string, unknown>,
+        options?: CallOptions,
+    ): Promise<OneBotEnvelope>;
     /** Execute a Stream Action over the HTTP multi-frame transport. */
     callStream(
         action: string,
@@ -113,11 +117,30 @@ export interface ActionClient {
     ): Promise<StreamCallResult>;
 }
 
-export interface StreamCallOptions {
+export interface ClientInfo {
+    timeout_ms: number;
+    max_stream_bytes: number;
+    download_quota_bytes: number;
+    max_active_streams: number;
+    download_directory: string;
+    upload_root: string | null;
+    upload_enabled: boolean;
+}
+
+export interface TransferProgress {
+    progress: number;
+    total?: number;
+    message: string;
+}
+
+export interface CallOptions {
+    signal?: AbortSignal;
+}
+
+export interface StreamCallOptions extends CallOptions {
     /** MCP-host file to upload. Only valid for upload_file_stream. */
     inputFile?: string;
-    /** Cancellation from the originating MCP request. */
-    signal?: AbortSignal;
+    onProgress?: (progress: TransferProgress) => Promise<void>;
 }
 
 type InternalStreamCallOptions = StreamCallOptions & { [INTERNAL_STREAM_CALL]?: true };
@@ -346,7 +369,10 @@ function abortReason(signal: AbortSignal): string {
 
 function throwIfCancelled(signal: AbortSignal | undefined, action: string, stage: string): void {
     if (signal?.aborted) {
-        throw new Error(`action ${action} stream ${stage}: cancelled: ${abortReason(signal)}`);
+        throw new ActionCallError(
+            `action ${action} stream ${stage}: cancelled: ${abortReason(signal)}`,
+            'cancelled',
+        );
     }
 }
 
@@ -360,8 +386,9 @@ async function readWithIdleTimeout(
     frameIndex: number,
 ): Promise<ByteStreamReadResult> {
     if (callerSignal?.aborted) {
-        throw new Error(
+        throw new ActionCallError(
             `action ${action} stream read frame ${frameIndex}: cancelled: ${abortReason(callerSignal)}`,
+            'cancelled',
         );
     }
 
@@ -382,8 +409,9 @@ async function readWithIdleTimeout(
         const onAbort = (): void =>
             finish(() =>
                 reject(
-                    new Error(
+                    new ActionCallError(
                         `action ${action} stream read frame ${frameIndex}: cancelled: ${callerSignal ? abortReason(callerSignal) : 'aborted'}`,
+                        'cancelled',
                     ),
                 ),
             );
@@ -391,8 +419,9 @@ async function readWithIdleTimeout(
             () =>
                 finish(() =>
                     reject(
-                        new Error(
+                        new ActionCallError(
                             `action ${action} stream read frame ${frameIndex}: idle timeout after ${timeoutMs}ms`,
+                            'timeout',
                         ),
                     ),
                 ),
@@ -418,6 +447,7 @@ async function uploadLocalFile(
     maxStreamBytes: number,
     callerSignal: AbortSignal | undefined,
     post: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<StreamCallResult>,
+    onProgress?: StreamCallOptions['onProgress'],
 ): Promise<UploadStreamResult> {
     const streamId = randomUUID();
     let handle: fs.promises.FileHandle | undefined;
@@ -442,6 +472,11 @@ async function uploadLocalFile(
         }
 
         const totalChunks = Math.max(1, Math.ceil(initial.size / UPLOAD_CHUNK_BYTES));
+        await onProgress?.({
+            progress: 0,
+            ...(initial.size > 0 ? { total: initial.size } : {}),
+            message: '上传开始（字节）',
+        });
         const baseParams = { ...params };
 
         for (const key of MCP_UPLOAD_OWNED_FIELDS) {
@@ -507,6 +542,12 @@ async function uploadLocalFile(
                     `unexpected chunk acknowledgement: ${JSON.stringify(ack.terminal)}`,
                 );
             }
+
+            await onProgress?.({
+                progress: bytesRead,
+                ...(initial.size > 0 ? { total: initial.size } : {}),
+                message: '已确认上传（字节）；等待最终校验',
+            });
         }
 
         stage = 'verify input';
@@ -605,6 +646,7 @@ async function uploadLocalFile(
 
         throw new Error(
             `action ${action} stream ${stage}: ${detail}${closeFailure}${resetFailure}`,
+            { cause: error },
         );
     }
 }
@@ -667,36 +709,75 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
     let client: ActionClient;
     let activeStreams = 0;
     client = {
-        async call(action, params) {
-            let res: Response;
+        info: Object.freeze({
+            timeout_ms: timeoutMs,
+            max_stream_bytes: maxStreamBytes,
+            download_quota_bytes: 2 * maxStreamBytes,
+            max_active_streams: MAX_ACTIVE_STREAMS,
+            download_directory: streamDir,
+            upload_root: uploadRoot ?? null,
+            upload_enabled: uploadRoot !== undefined,
+        }),
+        async call(action, params, options) {
+            const deadline = new AbortController();
+            const signal = options?.signal
+                ? AbortSignal.any([options.signal, deadline.signal])
+                : deadline.signal;
+            const timer = setTimeout(
+                () => deadline.abort(new Error(`timeout after ${timeoutMs}ms`)),
+                timeoutMs,
+            );
+            timer.unref();
 
             try {
-                res = await fetchImpl(opts.endpoint, {
+                signal.throwIfAborted();
+                const res = await fetchImpl(opts.endpoint, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({ action, params }),
-                    signal: AbortSignal.timeout(timeoutMs),
+                    signal,
                 });
+                const text = await res.text();
+                signal.throwIfAborted();
+                let parsed: unknown;
+
+                try {
+                    parsed = text ? JSON.parse(text) : null;
+                } catch {
+                    throw new ActionCallError(
+                        `OneBot returned non-JSON (HTTP ${res.status})`,
+                        res.status === 401 || res.status === 403
+                            ? 'authentication'
+                            : 'invalid_response',
+                    );
+                }
+
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new ActionCallError(
+                        `OneBot returned an unexpected response (HTTP ${res.status})`,
+                        'invalid_response',
+                    );
+                }
+
+                return parsed as OneBotEnvelope;
             } catch (error) {
-                throw new Error(
+                if (error instanceof ActionCallError) {
+                    throw error;
+                }
+
+                const kind = options?.signal?.aborted
+                    ? 'cancelled'
+                    : deadline.signal.aborted
+                      ? 'timeout'
+                      : 'transport';
+                throw new ActionCallError(
                     `action ${action} request: ${error instanceof Error ? error.message : String(error)}`,
+                    kind,
+                    { cause: error },
                 );
+            } finally {
+                clearTimeout(timer);
             }
-
-            const text = await res.text();
-            let parsed: unknown;
-
-            try {
-                parsed = text ? JSON.parse(text) : null;
-            } catch {
-                throw new Error(`OneBot returned non-JSON (HTTP ${res.status})`);
-            }
-
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                throw new Error(`OneBot returned an unexpected response (HTTP ${res.status})`);
-            }
-
-            return parsed as OneBotEnvelope;
         },
         async callStream(action, params, options) {
             const internalOptions = options as InternalStreamCallOptions | undefined;
@@ -763,6 +844,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                                 ...(signal ? { signal } : {}),
                                 [INTERNAL_STREAM_CALL]: true,
                             } as InternalStreamCallOptions),
+                        options.onProgress,
                     );
                 }
 
@@ -782,6 +864,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                 }
 
                 try {
+                    throwIfCancelled(options?.signal, action, 'connection');
                     res = await fetchImpl(opts.endpoint, {
                         method: 'POST',
                         headers,
@@ -796,14 +879,23 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                           : error instanceof Error
                             ? error.message
                             : String(error);
-                    throw new Error(`action ${action} stream connection: ${detail}`);
+                    throw new ActionCallError(
+                        `action ${action} stream connection: ${detail}`,
+                        options?.signal?.aborted
+                            ? 'cancelled'
+                            : connectionController.signal.aborted
+                              ? 'timeout'
+                              : 'transport',
+                        { cause: error },
+                    );
                 } finally {
                     clearTimeout(connectionTimer);
                 }
 
                 if (!res.ok) {
-                    throw new Error(
+                    throw new ActionCallError(
                         `action ${action} stream HTTP: unexpected status ${res.status}`,
+                        res.status === 401 || res.status === 403 ? 'authentication' : 'transport',
                     );
                 }
 
@@ -833,6 +925,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                     frame: OneBotEnvelope,
                     rawBytes: number,
                 ): Promise<void> => {
+                    throwIfCancelled(options?.signal, action, `frame ${frameIndex}`);
                     const data = record(frame.data);
                     const dataType = data?.data_type;
                     const resetAck =
@@ -942,6 +1035,12 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                             throw error;
                         }
 
+                        await options?.onProgress?.({
+                            progress: 0,
+                            ...(declaredSize !== undefined ? { total: declaredSize } : {}),
+                            message: '下载开始（字节）',
+                        });
+
                         return;
                     }
 
@@ -1008,6 +1107,11 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                             fileHash.update(chunk);
                             fileBytes += chunk.length;
                             fileChunks++;
+                            await options?.onProgress?.({
+                                progress: fileBytes,
+                                ...(declaredSize !== undefined ? { total: declaredSize } : {}),
+                                message: '已接收下载（字节）；等待最终校验',
+                            });
                             return;
                         }
 
@@ -1046,6 +1150,11 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                     if (data?.type === 'response') {
                         genericTerminalIndex = frameIndex;
                     }
+
+                    await options?.onProgress?.({
+                        progress: frames.length,
+                        message: '已接收数据帧',
+                    });
                 };
 
                 try {
@@ -1112,6 +1221,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
 
                                 throw new Error(
                                     `action ${action} stream frame ${frameIndex}: frame handling failed: ${detail}`,
+                                    { cause: error },
                                 );
                             }
 
@@ -1173,6 +1283,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                         }
 
                         const sha256 = fileHash.digest('hex');
+                        throwIfCancelled(options?.signal, action, 'commit download');
                         await fileHandle.close();
                         fileHandle = undefined;
                         await fs.promises.rename(partPath!, finalPath!);
@@ -1243,7 +1354,7 @@ export function makeHttpClient(opts: HttpClientOptions): ActionClient {
                     const suffix = cleanupErrors.length
                         ? `; cleanup failed (${cleanupErrors.join('; ')})`
                         : '';
-                    throw new Error(base + suffix);
+                    throw new Error(base + suffix, { cause: error });
                 } finally {
                     reader.releaseLock();
                 }
