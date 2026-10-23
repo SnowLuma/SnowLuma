@@ -276,6 +276,25 @@ export interface OidbUserInfoResponseBody {
 export interface OidbUserInfoResponse {
     body?: pb<1, OidbUserInfoResponseBody>;
 }
+// FE1 bytes-property 107 — business icons, as decoded by Mania's FE1 service.
+export interface OidbProfileBusinessEntry {
+    type: pb<1, uint_32>;
+    field2?: pb<2, uint_32>;
+    isYear: pb<3, bool>;
+    level: pb<4, uint_32>;
+    isPro: pb<5, bool>;
+    // Both oneof alternatives are length-delimited UTF-8 strings. Keep their
+    // bytes here so the protocol boundary can reject invalid UTF-8.
+    icon1?: pb<6, bytes>;
+    icon2?: pb<7, bytes>;
+}
+export interface OidbProfileBusinessBody {
+    msg?: pb<1, string>;
+    lists?: pb_repeated<3, OidbProfileBusinessEntry>;
+}
+export interface OidbProfileBusiness {
+    body?: pb<3, OidbProfileBusinessBody>;
+}
 export interface AvatarInfo {
     url?: pb<5, string>;
 }

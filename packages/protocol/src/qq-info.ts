@@ -1,3 +1,11 @@
+export interface ProfileBusinessInfo {
+    type: number;
+    level: number;
+    isYear: boolean;
+    isPro: boolean;
+    icon?: string;
+}
+
 export interface UserProfileInfo {
     uin: number;
     uid: string;
@@ -12,6 +20,21 @@ export interface UserProfileInfo {
      *  Already requested in `fetchUserProfile` keys[]; LagrangeV2
      *  `FetchStrangerService.cs` confirms `// Level`. */
     level: number;
+    /** Public profile fields used to enrich a friend-list row when 0xFD4 omits them. */
+    birthdayYear?: number;
+    birthdayMonth?: number;
+    birthdayDay?: number;
+    phoneNum?: string;
+    email?: string;
+    /** Self-reported profile region; never inferred from birthday or account metadata. */
+    country?: string;
+    province?: string;
+    city?: string;
+    college?: string;
+    /** FE1 business icons; unavailable and an explicitly empty list are distinct. */
+    profileBusiness?: ProfileBusinessInfo[];
+    /** Distinguish returned profile values from legacy defaults (0 / unknown / empty string). */
+    availableFields?: ('age' | 'sex' | 'level' | 'sign')[];
     regTime?: number;
     vipFlag?: boolean;
     yearVipFlag?: boolean;
@@ -39,6 +62,25 @@ export interface FriendInfo {
     uid: string;
     nickname: string;
     remark: string;
+    sign?: string;
+    categoryId?: number;
+    birthdayYear?: number;
+    birthdayMonth?: number;
+    birthdayDay?: number;
+    age?: number;
+    sex?: string;
+    phoneNum?: string;
+    email?: string;
+    level?: number;
+    country?: string;
+    province?: string;
+    city?: string;
+    college?: string;
+    profileBusiness?: ProfileBusinessInfo[];
+    vipFlag?: boolean;
+    yearVipFlag?: boolean;
+    svipFlag?: boolean;
+    vipLevel?: number;
 }
 
 export interface FriendCategoryInfo {

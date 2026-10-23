@@ -1,12 +1,29 @@
 import { defineAction, f } from '../action-kit';
 import { okResponse } from '../types';
 
+export const profileBusinessReturnsSchema = {
+    type: 'array',
+    description: 'QQ 业务类型、等级和图标；上游未返回时省略，可为空数组',
+    items: {
+        type: 'object',
+        properties: {
+            type: { type: 'integer', description: 'QQ 业务类型编号，保留上游数值' },
+            level: { type: 'integer', description: '业务等级' },
+            is_year: { type: 'boolean', description: '年费业务标志' },
+            is_pro: { type: 'boolean', description: '高级业务标志' },
+            icon: { type: 'string', description: '上游返回的业务图标' },
+        },
+        required: ['type', 'level', 'is_year', 'is_pro'],
+    },
+};
+
 export const actions = [
     defineAction({
         name: 'get_friend_list',
         summary: '获取好友列表',
         readOnly: true,
-        returns: '好友列表数组，每项含 QQ 号、昵称与备注。',
+        returns:
+            '好友列表数组。可用资料包括个性签名、生日、年龄、性别、电话、邮箱、分组、QQ 等级、自填国家/省份/城市、学校、会员状态和 QQ 业务类型、等级及图标；上游未返回的资料会省略。',
         returnsSchema: {
             type: 'array',
             items: {
@@ -15,6 +32,28 @@ export const actions = [
                     user_id: { type: 'integer', description: '好友 QQ 号' },
                     nickname: { type: 'string', description: '好友昵称' },
                     remark: { type: 'string', description: '好友备注' },
+                    long_nick: { type: 'string', description: '个性签名（上游有返回时，可为空）' },
+                    birthday_year: { type: 'integer', description: '生日年份（上游有返回时）' },
+                    birthday_month: { type: 'integer', description: '生日月份（上游有返回时）' },
+                    birthday_day: { type: 'integer', description: '生日日期（上游有返回时）' },
+                    age: { type: 'integer', description: '年龄（上游有返回时）' },
+                    sex: { type: 'string', description: '性别（male/female/unknown）' },
+                    phone_num: { type: 'string', description: '上游返回的电话号码，可能经过脱敏' },
+                    email: { type: 'string', description: '邮箱（上游有返回时）' },
+                    category_id: { type: 'integer', description: '好友分组 ID' },
+                    level: { type: 'integer', description: 'QQ 等级（上游有返回时）' },
+                    country: { type: 'string', description: '用户自填国家（上游有返回时）' },
+                    province: { type: 'string', description: '用户自填省份（上游有返回时）' },
+                    city: { type: 'string', description: '用户自填城市（上游有返回时）' },
+                    college: { type: 'string', description: '用户自填学校（上游有返回时）' },
+                    profile_business: profileBusinessReturnsSchema,
+                    is_qq_vip: { type: 'boolean', description: '普通 QQ 会员状态，不可用时省略' },
+                    is_vip: {
+                        type: 'boolean',
+                        description: '超级会员状态，兼容 NapCat；不可用时省略',
+                    },
+                    is_years_vip: { type: 'boolean', description: '年费会员状态，不可用时省略' },
+                    vip_level: { type: 'integer', description: '会员等级，不可用时省略' },
                 },
                 required: ['user_id', 'nickname', 'remark'],
             },
@@ -34,7 +73,7 @@ export const actions = [
         summary: '获取陌生人信息',
         readOnly: true,
         returns:
-            '用户资料，含账号标识、等级别名和可用的注册时间、会员信息。注册时间或会员信息未返回时省略对应字段；登录天数暂无可靠来源，不返回占位值。',
+            '用户资料，含账号标识、等级别名、自填国家/省份/城市、学校和可用的注册时间、会员信息及 QQ 业务类型、等级和图标。资料未返回时省略对应字段；登录天数暂无可靠来源，不返回占位值。',
         returnsSchema: {
             type: 'object',
             properties: {
@@ -45,10 +84,21 @@ export const actions = [
                 remark: { type: 'string', description: '好友备注；非好友或未设置时为空字符串' },
                 sex: { type: 'string', description: '性别（male/female/unknown）' },
                 age: { type: 'integer', description: '年龄' },
+                birthday_year: { type: 'integer', description: '生日年份（上游有返回时）' },
+                birthday_month: { type: 'integer', description: '生日月份（上游有返回时）' },
+                birthday_day: { type: 'integer', description: '生日日期（上游有返回时）' },
+                phone_num: { type: 'string', description: '上游返回的电话号码，可能经过脱敏' },
+                email: { type: 'string', description: '邮箱（上游有返回时）' },
+                country: { type: 'string', description: '用户自填国家（上游有返回时）' },
+                province: { type: 'string', description: '用户自填省份（上游有返回时）' },
+                city: { type: 'string', description: '用户自填城市（上游有返回时）' },
+                college: { type: 'string', description: '用户自填学校（上游有返回时）' },
+                profile_business: profileBusinessReturnsSchema,
                 long_nick: { type: 'string', description: '个性签名' },
                 qq_level: { type: 'integer', description: 'QQ 等级（仅查到资料时返回）' },
                 qqLevel: { type: 'integer', description: 'QQ 等级，同 qq_level' },
                 reg_time: { type: 'integer', description: '注册时间戳（秒），不可用时省略' },
+                is_qq_vip: { type: 'boolean', description: '普通 QQ 会员状态，不可用时省略' },
                 is_vip: { type: 'boolean', description: '超级会员状态，兼容 NapCat；不可用时省略' },
                 is_years_vip: { type: 'boolean', description: '年费会员状态，不可用时省略' },
                 vip_level: { type: 'integer', description: '会员等级，不可用时省略' },

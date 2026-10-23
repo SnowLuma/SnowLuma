@@ -102,10 +102,39 @@ export interface GroupNoticeInfo {
     send_to_new_members: boolean;
 }
 
+/** Server-provided QQ business type, level and icon. */
+export interface ProfileBusiness {
+    type: number;
+    level: number;
+    is_year: boolean;
+    is_pro: boolean;
+    icon?: string;
+}
+
 export interface CategorizedFriend {
     user_id: number;
     nickname: string;
     remark: string;
+    long_nick?: string;
+    birthday_year?: number;
+    birthday_month?: number;
+    birthday_day?: number;
+    age?: number;
+    sex?: 'male' | 'female' | 'unknown';
+    phone_num?: string;
+    email?: string;
+    category_id?: number;
+    level?: number;
+    country?: string;
+    province?: string;
+    city?: string;
+    college?: string;
+    profile_business?: ProfileBusiness[];
+    is_qq_vip?: boolean;
+    /** Super VIP, matching get_stranger_info's existing NapCat-compatible is_vip. */
+    is_vip?: boolean;
+    is_years_vip?: boolean;
+    vip_level?: number;
 }
 
 export interface FriendCategoryResult {

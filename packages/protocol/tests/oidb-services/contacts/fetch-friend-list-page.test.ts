@@ -63,10 +63,15 @@ describe('FetchFriendListPage namespace', () => {
             expect(out.nextUin).toBeUndefined();
         });
 
-        it('emits the verbatim property request list (codes 100/101/102/103/20002/27394)', () => {
+        it('requests the friend profile properties used by OneBot friend lists', () => {
             const out = FetchFriendListPage.serialize({} as any, {}) as any;
             expect(out.body).toEqual([
-                { type: 1, number: { numbers: [103, 102, 20002, 27394] } },
+                {
+                    type: 1,
+                    number: {
+                        numbers: [103, 102, 20002, 27394, 20009, 20037, 105, 20031, 20011, 20016],
+                    },
+                },
                 { type: 4, number: { numbers: [100, 101, 102] } },
             ]);
         });
@@ -92,8 +97,16 @@ describe('FetchFriendListPage namespace', () => {
                                 type: 1,
                                 layer1: {
                                     properties: [
-                                        { code: 20002, value: 'Alice' },
-                                        { code: 103, value: 'A' },
+                                        { code: 20002, value: Buffer.from('Alice') },
+                                        { code: 103, value: Buffer.from('A') },
+                                        { code: 20031, value: Uint8Array.from([0x07, 0xc6, 2, 3]) },
+                                        { code: 20011, value: Buffer.from('alice@example.com') },
+                                        { code: 20016, value: Buffer.from('138****0000') },
+                                    ],
+                                    numberProperties: [
+                                        { key: 20009, value: 2 },
+                                        { key: 20037, value: 35 },
+                                        { key: 105, value: 64 },
                                     ],
                                 },
                             },
@@ -114,7 +127,20 @@ describe('FetchFriendListPage namespace', () => {
                 entries: [
                     {
                         categoryId: 7,
-                        friend: { uin: 10001, uid: 'u1', nickname: 'Alice', remark: 'A' },
+                        friend: {
+                            uin: 10001,
+                            uid: 'u1',
+                            nickname: 'Alice',
+                            remark: 'A',
+                            birthdayYear: 1990,
+                            birthdayMonth: 2,
+                            birthdayDay: 3,
+                            age: 35,
+                            sex: 'female',
+                            phoneNum: '138****0000',
+                            email: 'alice@example.com',
+                            level: 64,
+                        },
                     },
                 ],
                 categories: [
@@ -126,6 +152,74 @@ describe('FetchFriendListPage namespace', () => {
                     },
                 ],
                 cookie: Uint8Array.from([0xaa]),
+            });
+        });
+
+        it.each([-1, -2147483648])(
+            'omits unavailable negative age and level (%i) through the wire codec',
+            async (value) => {
+                const sender = makeSender({
+                    friends: [
+                        {
+                            uin: 10001,
+                            additional: [
+                                {
+                                    type: 1,
+                                    layer1: {
+                                        numberProperties: [
+                                            { key: 20009, value },
+                                            { key: 20037, value },
+                                            { key: 105, value },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                });
+                const page = await FetchFriendListPage.invoke(sender, {});
+                const friend = page.entries[0]!.friend;
+                expect(friend.sex).toBe('unknown');
+                expect(friend).not.toHaveProperty('age');
+                expect(friend).not.toHaveProperty('level');
+
+                const response = await sender.sendRawPacket.mock.results[0]!.value;
+                const decoded = FetchFriendListPage.decode(response.responseData!);
+                expect(
+                    decoded.body?.friends?.[0]?.additional?.[0]?.layer1?.numberProperties,
+                ).toEqual([
+                    { key: 20009, value },
+                    { key: 20037, value },
+                    { key: 105, value },
+                ]);
+            },
+        );
+
+        it('preserves returned zero age and level through the wire codec', async () => {
+            const sender = makeSender({
+                friends: [
+                    {
+                        uin: 10001,
+                        additional: [
+                            {
+                                type: 1,
+                                layer1: {
+                                    numberProperties: [
+                                        { key: 20009, value: 0 },
+                                        { key: 20037, value: 0 },
+                                        { key: 105, value: 0 },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            });
+            const page = await FetchFriendListPage.invoke(sender, {});
+            expect(page.entries[0]!.friend).toMatchObject({
+                age: 0,
+                sex: 'unknown',
+                level: 0,
             });
         });
 

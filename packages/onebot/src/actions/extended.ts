@@ -10,6 +10,7 @@ import type {
 } from '@snowluma/protocol/web/group-essence';
 import type { ApiActionContext } from '../api-handler';
 import type { ForwardPreviewMeta } from '../modules/message-actions';
+import { formatProfileBusiness } from '../modules/contact-actions';
 import {
     hasAuthoritativeSequence,
     RETCODE,
@@ -21,6 +22,7 @@ import {
 } from '../types';
 import { defineAction, groupAction, groupUserAction, f, type Field } from '../action-kit';
 import { groupInfoReturnsSchema } from './group-info';
+import { profileBusinessReturnsSchema } from './friend';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 
 const DOWNLOAD_FILE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
@@ -1816,7 +1818,8 @@ export const actions = [
         name: 'get_friends_with_category',
         summary: '获取分组好友列表',
         readOnly: true,
-        returns: '好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList。',
+        returns:
+            '好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList，可用好友资料包含 QQ 业务类型、等级和图标。上游未返回的资料会省略。',
         returnsSchema: {
             type: 'array',
             description: '带分组的好友列表',
@@ -1835,6 +1838,64 @@ export const actions = [
                                 user_id: { type: 'integer', description: 'QQ 号' },
                                 nickname: { type: 'string', description: '昵称' },
                                 remark: { type: 'string', description: '好友备注' },
+                                long_nick: {
+                                    type: 'string',
+                                    description: '个性签名（上游有返回时，可为空）',
+                                },
+                                birthday_year: {
+                                    type: 'integer',
+                                    description: '生日年份（上游有返回时）',
+                                },
+                                birthday_month: {
+                                    type: 'integer',
+                                    description: '生日月份（上游有返回时）',
+                                },
+                                birthday_day: {
+                                    type: 'integer',
+                                    description: '生日日期（上游有返回时）',
+                                },
+                                age: { type: 'integer', description: '年龄（上游有返回时）' },
+                                sex: { type: 'string', description: '性别（male/female/unknown）' },
+                                phone_num: {
+                                    type: 'string',
+                                    description: '上游返回的电话号码，可能经过脱敏',
+                                },
+                                email: { type: 'string', description: '邮箱（上游有返回时）' },
+                                category_id: { type: 'integer', description: '好友分组 ID' },
+                                level: { type: 'integer', description: 'QQ 等级（上游有返回时）' },
+                                country: {
+                                    type: 'string',
+                                    description: '用户自填国家（上游有返回时）',
+                                },
+                                province: {
+                                    type: 'string',
+                                    description: '用户自填省份（上游有返回时）',
+                                },
+                                city: {
+                                    type: 'string',
+                                    description: '用户自填城市（上游有返回时）',
+                                },
+                                college: {
+                                    type: 'string',
+                                    description: '用户自填学校（上游有返回时）',
+                                },
+                                profile_business: profileBusinessReturnsSchema,
+                                is_qq_vip: {
+                                    type: 'boolean',
+                                    description: '普通 QQ 会员状态，不可用时省略',
+                                },
+                                is_vip: {
+                                    type: 'boolean',
+                                    description: '超级会员状态，兼容 NapCat；不可用时省略',
+                                },
+                                is_years_vip: {
+                                    type: 'boolean',
+                                    description: '年费会员状态，不可用时省略',
+                                },
+                                vip_level: {
+                                    type: 'integer',
+                                    description: '会员等级，不可用时省略',
+                                },
                             },
                             required: ['user_id', 'nickname', 'remark'],
                         },
@@ -1845,7 +1906,9 @@ export const actions = [
         },
         params: {},
         run: async (_p, ctx) => {
-            const categories = await ctx.bridge.apis.contacts.fetchFriendCategories();
+            const categories = await ctx.bridge.apis.contacts.fetchFriendCategories({
+                enrichProfiles: true,
+            });
             return okResponse(
                 categories.map((category) => ({
                     categoryId: category.categoryId,
@@ -1855,6 +1918,37 @@ export const actions = [
                         user_id: friend.uin,
                         nickname: friend.nickname,
                         remark: friend.remark,
+                        ...(friend.sign !== undefined ? { long_nick: friend.sign } : {}),
+                        ...(friend.birthdayYear !== undefined
+                            ? { birthday_year: friend.birthdayYear }
+                            : {}),
+                        ...(friend.birthdayMonth !== undefined
+                            ? { birthday_month: friend.birthdayMonth }
+                            : {}),
+                        ...(friend.birthdayDay !== undefined
+                            ? { birthday_day: friend.birthdayDay }
+                            : {}),
+                        ...(friend.age !== undefined ? { age: friend.age } : {}),
+                        ...(friend.sex !== undefined ? { sex: friend.sex } : {}),
+                        ...(friend.phoneNum !== undefined ? { phone_num: friend.phoneNum } : {}),
+                        ...(friend.email !== undefined ? { email: friend.email } : {}),
+                        ...(friend.categoryId !== undefined
+                            ? { category_id: friend.categoryId }
+                            : {}),
+                        ...(friend.level !== undefined ? { level: friend.level } : {}),
+                        ...(friend.country !== undefined ? { country: friend.country } : {}),
+                        ...(friend.province !== undefined ? { province: friend.province } : {}),
+                        ...(friend.city !== undefined ? { city: friend.city } : {}),
+                        ...(friend.college !== undefined ? { college: friend.college } : {}),
+                        ...(friend.profileBusiness !== undefined
+                            ? { profile_business: formatProfileBusiness(friend.profileBusiness) }
+                            : {}),
+                        ...(friend.vipFlag !== undefined ? { is_qq_vip: friend.vipFlag } : {}),
+                        ...(friend.svipFlag !== undefined ? { is_vip: friend.svipFlag } : {}),
+                        ...(friend.yearVipFlag !== undefined
+                            ? { is_years_vip: friend.yearVipFlag }
+                            : {}),
+                        ...(friend.vipLevel !== undefined ? { vip_level: friend.vipLevel } : {}),
                     })),
                 })),
             );

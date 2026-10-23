@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
+import { IdentityService } from '@snowluma/protocol/identity-service';
+import { FetchFriendListPage } from '@snowluma/protocol/oidb-services/contacts/fetch-friend-list-page';
 import type {
     OidbBase,
     OidbEmpty,
@@ -15,8 +17,11 @@ import type {
 } from '@snowluma/proto-defs/oidb';
 import type {
     OidbFriendListRequest,
+    OidbProfileBusiness,
     OidbRobotUinRangeRequest,
     OidbSetFriendCategoryRequest,
+    OidbUserInfoRequest,
+    OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 
 import { ContactsApi } from '../../src/bridge/apis/contacts';
@@ -67,8 +72,8 @@ function friend(
                 type: 1,
                 layer1: {
                     properties: [
-                        { code: 20002, value: nickname },
-                        { code: 103, value: remark },
+                        { code: 20002, value: Buffer.from(nickname) },
+                        { code: 103, value: Buffer.from(remark) },
                     ],
                 },
             },
@@ -95,6 +100,58 @@ function packet(body: OidbSvcTrpcTcp0xFD4_1Response): SendPacketResult {
             protobuf_encode<OidbBase<OidbSvcTrpcTcp0xFD4_1Response>>({ body }),
         ),
     };
+}
+
+function userInfoPacket(body: OidbUserInfoResponse): SendPacketResult {
+    return {
+        success: true,
+        gotResponse: true,
+        errorCode: 0,
+        errorMessage: '',
+        responseData: Buffer.from(protobuf_encode<OidbBase<OidbUserInfoResponse>>({ body })),
+    };
+}
+
+function publicFriendProfilePacket(uin: number): SendPacketResult {
+    return userInfoPacket({
+        body: {
+            uin,
+            properties: {
+                bytesProperties: [
+                    { code: 20031, value: Uint8Array.from([0x07, 0xc6, 2, 3]) },
+                    { code: 20016, value: Buffer.from('138****0000') },
+                    { code: 20011, value: Buffer.from('alice@example.com') },
+                    { code: 20003, value: Buffer.from('中国') },
+                    { code: 20004, value: Buffer.from('广东') },
+                    { code: 20020, value: Buffer.from('深圳') },
+                    { code: 20021, value: Buffer.from('深圳大学') },
+                    {
+                        code: 107,
+                        value: protobuf_encode<OidbProfileBusiness>({
+                            body: {
+                                lists: [
+                                    {
+                                        type: 999,
+                                        level: 2,
+                                        isYear: true,
+                                        isPro: false,
+                                        icon1: Buffer.from('https://example.com/icon.png'),
+                                    },
+                                ],
+                            },
+                        }),
+                    },
+                ],
+                numberProperties: [
+                    { number1: 20037, number2: 35 },
+                    { number1: 20009, number2: 2 },
+                    { number1: 105, number2: 64 },
+                    { number1: 41756, number2: 0x103 },
+                    { number1: 41757, number2: 1 },
+                ],
+            },
+        },
+    });
 }
 
 function robotRangePacket(body: OidbRobotUinRangeResponse): SendPacketResult {
@@ -226,6 +283,36 @@ function apiForCategoryChange(roster: OidbSvcTrpcTcp0xFD4_1Response) {
         identity: { uin: '10001', rememberFriends: vi.fn() },
     } as any);
     return { api, sendRawPacket };
+}
+
+function apiForFriendProfiles(
+    friends: OidbFriend[] | (() => OidbFriend[]),
+    loadProfile: (uin: number) => SendPacketResult | Promise<SendPacketResult>,
+    accountUin = 90001,
+) {
+    const sendRawPacket = vi.fn(async (command: string, body: Uint8Array) => {
+        if (command === 'OidbSvcTrpcTcp.0xfd4_1') {
+            const roster = typeof friends === 'function' ? friends() : friends;
+            return packet({
+                friends: roster,
+                categories: [category(0, 'Friends', roster.length, 0)],
+            });
+        }
+
+        if (command === 'OidbSvcTrpcTcp.0xfe1_2') {
+            const request = protobuf_decode<OidbBase<OidbUserInfoRequest>>(body);
+            return loadProfile(request.body!.uin!);
+        }
+
+        throw new Error(`unexpected command: ${command}`);
+    });
+    const identity = IdentityService.memory(String(accountUin));
+    const rememberFriends = vi.spyOn(identity, 'rememberFriends');
+    const api = new ContactsApi({
+        sendRawPacket,
+        identity,
+    } as any);
+    return { api, sendRawPacket, rememberFriends, identity };
 }
 
 describe('apis/contacts / group roster', () => {
@@ -470,6 +557,161 @@ describe('apis/contacts / group requests', () => {
 });
 
 describe('apis/contacts / categorized friend roster', () => {
+    it.each([false, true])(
+        'does not overwrite existing roster signatures, including an explicit empty value (categorized=%s)',
+        async (categorized) => {
+            const page = vi.spyOn(FetchFriendListPage, 'invoke').mockResolvedValue({
+                entries: ['', 'Roster signature'].map((sign, index) => ({
+                    categoryId: 0,
+                    friend: {
+                        uin: 10001 + index,
+                        uid: `u${index + 1}`,
+                        nickname: `Friend ${index + 1}`,
+                        remark: '',
+                        sign,
+                    },
+                })),
+                categories: [{ categoryId: 0, categoryName: 'Friends', memberCount: 2, sortId: 0 }],
+            });
+            const loadProfile = vi.fn((uin: number) =>
+                userInfoPacket({
+                    body: {
+                        uin,
+                        properties: {
+                            bytesProperties: [
+                                { code: 102, value: Buffer.from('Profile signature') },
+                            ],
+                        },
+                    },
+                }),
+            );
+            const { api, identity } = apiForFriendProfiles([], loadProfile);
+
+            try {
+                const roster = categorized
+                    ? (await api.fetchFriendCategories({ enrichProfiles: true })).flatMap(
+                          (group) => group.friends,
+                      )
+                    : await api.fetchFriendList({ enrichProfiles: true });
+                expect(roster.map(({ sign }) => sign)).toEqual(['', 'Roster signature']);
+                expect(identity.friends).toEqual(roster);
+                expect(loadProfile).toHaveBeenCalledTimes(2);
+            } finally {
+                page.mockRestore();
+                await identity.close();
+            }
+        },
+    );
+
+    it.each([false, true])(
+        'preserves missing versus explicitly empty signatures in roster and cache (categorized=%s)',
+        async (categorized) => {
+            const signatures = new Map<number, string | undefined>([
+                [10001, undefined],
+                [10002, ''],
+                [10003, 'Hello from QQ'],
+            ]);
+            const loadProfile = vi.fn((uin: number) => {
+                const sign = signatures.get(uin);
+                return userInfoPacket({
+                    body: {
+                        uin,
+                        properties: {
+                            bytesProperties:
+                                sign === undefined ? [] : [{ code: 102, value: Buffer.from(sign) }],
+                        },
+                    },
+                });
+            });
+            const { api, identity } = apiForFriendProfiles(
+                [
+                    friend(10001, 0, 'u1', 'Missing'),
+                    friend(10002, 0, 'u2', 'Empty'),
+                    friend(10003, 0, 'u3', 'Present'),
+                ],
+                loadProfile,
+            );
+            const fetchRoster = async (enrichProfiles: boolean) =>
+                categorized
+                    ? (await api.fetchFriendCategories({ enrichProfiles })).flatMap(
+                          (group) => group.friends,
+                      )
+                    : api.fetchFriendList({ enrichProfiles });
+
+            try {
+                const roster = await fetchRoster(true);
+                expect(roster[0]).not.toHaveProperty('sign');
+                expect(roster[1]).toHaveProperty('sign', '');
+                expect(roster[2]).toHaveProperty('sign', 'Hello from QQ');
+                expect(identity.friends).toEqual(roster);
+                await expect(fetchRoster(true)).resolves.toEqual(roster);
+                await expect(fetchRoster(false)).resolves.toEqual(roster);
+                expect(identity.friends).toEqual(roster);
+                expect(loadProfile).toHaveBeenCalledTimes(3);
+            } finally {
+                await identity.close();
+            }
+        },
+    );
+
+    it.each([false, true])(
+        'replaces a cached signature with an explicit empty value, then omits it when absent (categorized=%s)',
+        async (categorized) => {
+            let now = 1_000;
+            const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+            const loadProfile = vi
+                .fn<(uin: number) => SendPacketResult>()
+                .mockReturnValueOnce(
+                    userInfoPacket({
+                        body: {
+                            uin: 10001,
+                            properties: {
+                                bytesProperties: [
+                                    { code: 102, value: Buffer.from('Old signature') },
+                                ],
+                            },
+                        },
+                    }),
+                )
+                .mockReturnValueOnce(
+                    userInfoPacket({
+                        body: {
+                            uin: 10001,
+                            properties: {
+                                bytesProperties: [{ code: 102, value: new Uint8Array() }],
+                            },
+                        },
+                    }),
+                )
+                .mockReturnValue(userInfoPacket({ body: { uin: 10001, properties: {} } }));
+            const { api, identity } = apiForFriendProfiles(
+                [friend(10001, 0, 'u1', 'Alice')],
+                loadProfile,
+            );
+            const fetchRoster = async (enrichProfiles: boolean) =>
+                categorized
+                    ? (await api.fetchFriendCategories({ enrichProfiles })).flatMap(
+                          (group) => group.friends,
+                      )
+                    : api.fetchFriendList({ enrichProfiles });
+
+            try {
+                expect((await fetchRoster(true))[0]).toHaveProperty('sign', 'Old signature');
+                now += 6 * 60 * 60_000;
+                expect((await fetchRoster(true))[0]).toHaveProperty('sign', '');
+                expect((await fetchRoster(false))[0]).toHaveProperty('sign', '');
+                now += 6 * 60 * 60_000;
+                expect((await fetchRoster(true))[0]).not.toHaveProperty('sign');
+                expect((await fetchRoster(false))[0]).not.toHaveProperty('sign');
+                expect(identity.friends[0]).not.toHaveProperty('sign');
+                expect(loadProfile).toHaveBeenCalledTimes(3);
+            } finally {
+                clock.mockRestore();
+                await identity.close();
+            }
+        },
+    );
+
     it('keeps fetchFriendList flat while traversing cookie pages', async () => {
         const cookie = Uint8Array.from([0x01]);
         const { api, sendRawPacket } = apiForPages([
@@ -478,10 +720,526 @@ describe('apis/contacts / categorized friend roster', () => {
         ]);
 
         await expect(api.fetchFriendList()).resolves.toEqual([
-            { uin: 10001, uid: 'u1', nickname: 'Default', remark: '' },
-            { uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A' },
+            { uin: 10001, uid: 'u1', nickname: 'Default', remark: '', categoryId: 0 },
+            { uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A', categoryId: 7 },
         ]);
         expect(sendRawPacket).toHaveBeenCalledTimes(2);
+    });
+
+    it('enriches missing friend profile fields only when explicitly requested', async () => {
+        const sendRawPacket = vi.fn(async (command: string) => {
+            if (command === 'OidbSvcTrpcTcp.0xfd4_1') {
+                return packet({ friends: [friend(10001, 7, 'u1', 'Alice')] });
+            }
+
+            if (command === 'OidbSvcTrpcTcp.0xfe1_2') {
+                const enc = (value: string) => new TextEncoder().encode(value);
+                return userInfoPacket({
+                    body: {
+                        uin: 10001,
+                        uid: 'u1',
+                        properties: {
+                            bytesProperties: [
+                                { code: 20031, value: Uint8Array.from([0x07, 0xc6, 2, 3]) },
+                                { code: 20011, value: enc('alice@example.com') },
+                                { code: 20016, value: enc('138****0000') },
+                                { code: 20003, value: enc('中国') },
+                                { code: 20004, value: enc('广东') },
+                                { code: 20020, value: enc('深圳') },
+                                { code: 20021, value: enc('深圳大学') },
+                            ],
+                            numberProperties: [
+                                { number1: 20009, number2: 2 },
+                                { number1: 20037, number2: 35 },
+                                { number1: 105, number2: 64 },
+                                { number1: 41756, number2: 0x103 },
+                                { number1: 41757, number2: 1 },
+                            ],
+                        },
+                    },
+                });
+            }
+
+            throw new Error(`unexpected command: ${command}`);
+        });
+        const api = new ContactsApi({
+            sendRawPacket,
+            identity: { rememberFriends: vi.fn(), rememberUserProfile: vi.fn() },
+        } as any);
+
+        await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual([
+            {
+                uin: 10001,
+                uid: 'u1',
+                nickname: 'Alice',
+                remark: '',
+                categoryId: 7,
+                birthdayYear: 1990,
+                birthdayMonth: 2,
+                birthdayDay: 3,
+                age: 35,
+                sex: 'female',
+                phoneNum: '138****0000',
+                email: 'alice@example.com',
+                level: 64,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                vipFlag: true,
+                yearVipFlag: true,
+                svipFlag: true,
+                vipLevel: 2,
+            },
+        ]);
+        await api.fetchFriendList({ enrichProfiles: true });
+        expect(sendRawPacket).toHaveBeenCalledTimes(3);
+    });
+
+    it('preserves the roster on profile failure and retries after the backoff expires', async () => {
+        let now = 1_000;
+        const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+        const loadProfile = vi
+            .fn<(uin: number) => Promise<SendPacketResult>>()
+            .mockRejectedValueOnce(new Error('profile unavailable'))
+            .mockResolvedValue(
+                userInfoPacket({
+                    body: {
+                        uin: 10001,
+                        properties: { numberProperties: [{ number1: 105, number2: 32 }] },
+                    },
+                }),
+            );
+        const { api } = apiForFriendProfiles([friend(10001, 7, 'u1', 'Alice')], loadProfile);
+        const expected = [{ uin: 10001, uid: 'u1', nickname: 'Alice', remark: '', categoryId: 7 }];
+
+        try {
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(expected);
+            now += 59_999;
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(expected);
+            expect(loadProfile).toHaveBeenCalledTimes(1);
+            now += 1;
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual([
+                { ...expected[0], level: 32 },
+            ]);
+            expect(loadProfile).toHaveBeenCalledTimes(2);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it('enriches categorized friends with available location and membership fields', async () => {
+        const loadProfile = vi.fn((uin: number) => publicFriendProfilePacket(uin));
+        const { api, identity } = apiForFriendProfiles(
+            [friend(10001, 0, 'u1', 'Alice')],
+            loadProfile,
+        );
+
+        const categories = await api.fetchFriendCategories({ enrichProfiles: true });
+
+        expect(categories[0]?.friends).toEqual([
+            expect.objectContaining({
+                uin: 10001,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                vipFlag: true,
+                yearVipFlag: true,
+                svipFlag: true,
+                vipLevel: 2,
+            }),
+        ]);
+        expect(categories[0]?.friends[0]?.profileBusiness).toEqual([
+            {
+                type: 999,
+                level: 2,
+                isYear: true,
+                isPro: false,
+                icon: 'https://example.com/icon.png',
+            },
+        ]);
+        expect(identity.friends).toEqual(categories[0]?.friends);
+        expect(loadProfile).toHaveBeenCalledOnce();
+        await identity.close();
+    });
+
+    it.each([false, true])(
+        'distinguishes omitted profile fields from actual zero and unknown values (categorized=%s)',
+        async (categorized) => {
+            const { api } = apiForFriendProfiles(
+                [friend(10001, 0, 'u1', 'Missing'), friend(10002, 0, 'u2', 'Zero')],
+                (uin) =>
+                    userInfoPacket({
+                        body: {
+                            uin,
+                            properties: {
+                                bytesProperties: [
+                                    { code: 20003, value: Buffer.from('  ') },
+                                    { code: 20004, value: Buffer.from('') },
+                                    { code: 20020, value: Buffer.from('  ') },
+                                    { code: 20021, value: Buffer.from('') },
+                                    ...(uin === 10002
+                                        ? [
+                                              {
+                                                  code: 107,
+                                                  value: protobuf_encode<OidbProfileBusiness>({
+                                                      body: {},
+                                                  }),
+                                              },
+                                          ]
+                                        : []),
+                                ],
+                                numberProperties:
+                                    uin === 10002
+                                        ? [
+                                              { number1: 20037, number2: 0 },
+                                              { number1: 20009, number2: 0 },
+                                              { number1: 105, number2: 0 },
+                                              { number1: 41756, number2: 0 },
+                                              { number1: 41757, number2: 0 },
+                                              { number1: 42241, number2: 0 },
+                                          ]
+                                        : [],
+                            },
+                        },
+                    }),
+            );
+
+            const roster = categorized
+                ? (await api.fetchFriendCategories({ enrichProfiles: true })).flatMap(
+                      (group) => group.friends,
+                  )
+                : await api.fetchFriendList({ enrichProfiles: true });
+
+            expect(roster).toEqual([
+                { uin: 10001, uid: 'u1', nickname: 'Missing', remark: '', categoryId: 0 },
+                {
+                    uin: 10002,
+                    uid: 'u2',
+                    nickname: 'Zero',
+                    remark: '',
+                    categoryId: 0,
+                    age: 0,
+                    sex: 'unknown',
+                    level: 0,
+                    vipFlag: false,
+                    yearVipFlag: false,
+                    svipFlag: false,
+                    vipLevel: 0,
+                    profileBusiness: [],
+                },
+            ]);
+        },
+    );
+
+    it('only fills fields absent from the friend-list response', async () => {
+        const raw = friend(10001, 7, 'u1', 'Alice', 'Roster remark');
+        raw.additional![0]!.layer1!.numberProperties = [
+            { key: 20037, value: 0 },
+            { key: 20009, value: 0 },
+            { key: 105, value: 0 },
+        ];
+        raw.additional![0]!.layer1!.properties!.push(
+            { code: 20031, value: Uint8Array.from([0, 0, 5, 6]) },
+            { code: 20016, value: Buffer.from('roster-phone') },
+        );
+        const { api, rememberFriends } = apiForFriendProfiles([raw], () =>
+            userInfoPacket({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [
+                            { code: 20031, value: Uint8Array.from([0x07, 0xc6, 2, 3]) },
+                            { code: 20016, value: Buffer.from('profile-phone') },
+                            { code: 20011, value: Buffer.from('alice@example.com') },
+                        ],
+                        numberProperties: [
+                            { number1: 20037, number2: 35 },
+                            { number1: 20009, number2: 2 },
+                            { number1: 105, number2: 64 },
+                        ],
+                    },
+                },
+            }),
+        );
+        const expected = [
+            {
+                uin: 10001,
+                uid: 'u1',
+                nickname: 'Alice',
+                remark: 'Roster remark',
+                categoryId: 7,
+                birthdayYear: 0,
+                birthdayMonth: 5,
+                birthdayDay: 6,
+                age: 0,
+                sex: 'unknown',
+                level: 0,
+                phoneNum: 'roster-phone',
+                email: 'alice@example.com',
+            },
+        ];
+
+        await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(expected);
+        expect(rememberFriends).toHaveBeenCalledWith(expected);
+    });
+
+    it('expires cached profile fields after six hours and keeps caches per account', async () => {
+        let now = 1_000;
+        const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+        const makeAccount = (accountUin: number, level: number) => {
+            const loadProfile = vi.fn(() =>
+                userInfoPacket({
+                    body: {
+                        uin: 10001,
+                        properties: { numberProperties: [{ number1: 105, number2: level }] },
+                    },
+                }),
+            );
+            return {
+                ...apiForFriendProfiles([friend(10001, 0, 'u1', 'Alice')], loadProfile, accountUin),
+                loadProfile,
+            };
+        };
+
+        const first = makeAccount(90001, 16);
+        const second = makeAccount(90002, 32);
+
+        try {
+            await expect(first.api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual([
+                expect.objectContaining({ level: 16 }),
+            ]);
+            await expect(second.api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual([
+                expect.objectContaining({ level: 32 }),
+            ]);
+            now += 6 * 60 * 60_000 - 1;
+            await first.api.fetchFriendList({ enrichProfiles: true });
+            expect(first.loadProfile).toHaveBeenCalledTimes(1);
+            now += 1;
+            await first.api.fetchFriendList({ enrichProfiles: true });
+            expect(first.loadProfile).toHaveBeenCalledTimes(2);
+            expect(second.loadProfile).toHaveBeenCalledTimes(1);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it('regression: retains known profile fields on a roster-only refresh without a profile request', async () => {
+        let roster = [friend(10001, 0, 'u1', 'Alice', 'Old remark')];
+        const loadProfile = vi.fn((uin: number) => publicFriendProfilePacket(uin));
+        const { api, identity } = apiForFriendProfiles(() => roster, loadProfile);
+        const enriched = await api.fetchFriendList({ enrichProfiles: true });
+        expect(enriched[0]).toMatchObject({
+            birthdayYear: 1990,
+            age: 35,
+            level: 64,
+            country: '中国',
+            province: '广东',
+            city: '深圳',
+            college: '深圳大学',
+            vipFlag: true,
+            yearVipFlag: true,
+            svipFlag: true,
+            vipLevel: 2,
+        });
+        roster = [friend(10001, 7, 'u1', 'New name', 'New remark')];
+        const expected = [
+            { ...enriched[0], categoryId: 7, nickname: 'New name', remark: 'New remark' },
+        ];
+
+        await expect(api.fetchFriendList()).resolves.toEqual(expected);
+        expect(identity.friends).toEqual(expected);
+        expect(loadProfile).toHaveBeenCalledOnce();
+        await identity.close();
+    });
+
+    it('regression: retains stale profile data during errors but clears it after a successful empty response', async () => {
+        let now = 1_000;
+        const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+        const loadProfile = vi
+            .fn<(uin: number) => Promise<SendPacketResult>>()
+            .mockResolvedValueOnce(publicFriendProfilePacket(10001))
+            .mockRejectedValueOnce(new Error('temporary profile failure'))
+            .mockResolvedValueOnce(userInfoPacket({ body: { uin: 10001, properties: {} } }));
+        const { api, identity } = apiForFriendProfiles(
+            [friend(10001, 0, 'u1', 'Alice')],
+            loadProfile,
+        );
+
+        try {
+            const enriched = await api.fetchFriendList({ enrichProfiles: true });
+            expect(enriched[0]).toMatchObject({
+                birthdayYear: 1990,
+                age: 35,
+                level: 64,
+                profileBusiness: [
+                    {
+                        type: 999,
+                        level: 2,
+                        isYear: true,
+                        isPro: false,
+                        icon: 'https://example.com/icon.png',
+                    },
+                ],
+            });
+            now += 6 * 60 * 60_000;
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(enriched);
+            expect(identity.friends).toEqual(enriched);
+            expect(loadProfile).toHaveBeenCalledTimes(2);
+            now += 59_999;
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(enriched);
+            expect(identity.friends).toEqual(enriched);
+            expect(loadProfile).toHaveBeenCalledTimes(2);
+            now += 1;
+            const empty = [{ uin: 10001, uid: 'u1', nickname: 'Alice', remark: '', categoryId: 0 }];
+            await expect(api.fetchFriendList({ enrichProfiles: true })).resolves.toEqual(empty);
+            expect(identity.friends).toEqual(empty);
+            await expect(api.fetchFriendList()).resolves.toEqual(empty);
+            expect(identity.friends).toEqual(empty);
+            expect(loadProfile).toHaveBeenCalledTimes(3);
+        } finally {
+            clock.mockRestore();
+            await identity.close();
+        }
+    });
+
+    it('regression: an older enrichment cannot replace a newer roster snapshot', async () => {
+        let roster = [
+            friend(10001, 0, 'u1', 'Deleted friend'),
+            friend(10002, 0, 'u2', 'Kept friend', 'Old remark'),
+        ];
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const loadProfile = vi.fn(async (uin: number) => {
+            await gate;
+            return publicFriendProfilePacket(uin);
+        });
+        const { api, identity } = apiForFriendProfiles(() => roster, loadProfile);
+        const older = api.fetchFriendList({ enrichProfiles: true });
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(2));
+        roster = [friend(10002, 7, 'u2', 'Current name', 'Current remark')];
+        await api.fetchFriendList();
+        expect(identity.friends).toEqual([
+            {
+                uin: 10002,
+                uid: 'u2',
+                nickname: 'Current name',
+                remark: 'Current remark',
+                categoryId: 7,
+            },
+        ]);
+        release();
+        await older;
+        expect(identity.friends).toEqual([
+            expect.objectContaining({
+                uin: 10002,
+                uid: 'u2',
+                nickname: 'Current name',
+                remark: 'Current remark',
+                categoryId: 7,
+            }),
+        ]);
+        expect(identity.findFriend(10001)).toBeNull();
+        await identity.close();
+    });
+
+    it('reuses a fetched profile across overlapping roster reads', async () => {
+        let release!: (result: SendPacketResult) => void;
+        const loadProfile = vi.fn(
+            () =>
+                new Promise<SendPacketResult>((resolve) => {
+                    release = resolve;
+                }),
+        );
+        const { api } = apiForFriendProfiles([friend(10001, 0, 'u1', 'Alice')], loadProfile);
+        const first = api.fetchFriendList({ enrichProfiles: true });
+        const second = api.fetchFriendList({ enrichProfiles: true });
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(1));
+        release(
+            userInfoPacket({
+                body: {
+                    uin: 10001,
+                    properties: { numberProperties: [{ number1: 105, number2: 16 }] },
+                },
+            }),
+        );
+        const results = await Promise.all([first, second]);
+        expect(results[0]).toEqual([expect.objectContaining({ level: 16 })]);
+        expect(results[1]).toEqual(results[0]);
+        expect(loadProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it('limits a first roster enrichment to four concurrent profile requests', async () => {
+        let active = 0;
+        let peak = 0;
+        const releases: (() => void)[] = [];
+        const loadProfile = vi.fn(async (uin: number) => {
+            active += 1;
+            peak = Math.max(peak, active);
+            await new Promise<void>((resolve) => releases.push(resolve));
+            active -= 1;
+            return userInfoPacket({ body: { uin, properties: {} } });
+        });
+        const { api } = apiForFriendProfiles(
+            Array.from({ length: 9 }, (_, index) =>
+                friend(10001 + index, 0, `u${index}`, `Friend ${index}`),
+            ),
+            loadProfile,
+        );
+        const pending = api.fetchFriendList({ enrichProfiles: true });
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(4));
+        expect(active).toBe(4);
+        releases.splice(0).forEach((release) => release());
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(8));
+        releases.splice(0).forEach((release) => release());
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(9));
+        releases.splice(0).forEach((release) => release());
+        await expect(pending).resolves.toHaveLength(9);
+        expect(peak).toBe(4);
+        expect(active).toBe(0);
+    });
+
+    it('shares the concurrency limit across overlapping flat and categorized rosters', async () => {
+        let active = 0;
+        let peak = 0;
+        let page = 0;
+        const releases: (() => void)[] = [];
+        const loadProfile = vi.fn(async (uin: number) => {
+            active += 1;
+            peak = Math.max(peak, active);
+            await new Promise<void>((resolve) => releases.push(resolve));
+            active -= 1;
+            return userInfoPacket({ body: { uin, properties: {} } });
+        });
+        const { api } = apiForFriendProfiles(() => {
+            const firstUin = 10001 + page++ * 4;
+            return Array.from({ length: 4 }, (_, index) =>
+                friend(firstUin + index, 0, `u${firstUin + index}`, `Friend ${index}`),
+            );
+        }, loadProfile);
+        const flat = api.fetchFriendList({ enrichProfiles: true });
+        const categorized = api.fetchFriendCategories({ enrichProfiles: true });
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(4));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(active).toBe(4);
+        releases.splice(0).forEach((release) => release());
+        await vi.waitFor(() => expect(loadProfile).toHaveBeenCalledTimes(8));
+        releases.splice(0).forEach((release) => release());
+        await expect(flat).resolves.toHaveLength(4);
+        await expect(categorized).resolves.toEqual([
+            expect.objectContaining({
+                friends: expect.arrayContaining([
+                    expect.objectContaining({ uin: 10005 }),
+                    expect.objectContaining({ uin: 10008 }),
+                ]),
+            }),
+        ]);
+        expect(peak).toBe(4);
+        expect(active).toBe(0);
     });
 
     it('groups a complete multi-page roster and preserves empty categories', async () => {
@@ -508,14 +1266,16 @@ describe('apis/contacts / categorized friend roster', () => {
                 categoryName: '我的好友',
                 memberCount: 1,
                 sortId: 0,
-                friends: [{ uin: 10001, uid: 'u1', nickname: 'Default', remark: '' }],
+                friends: [
+                    { uin: 10001, uid: 'u1', nickname: 'Default', remark: '', categoryId: 0 },
+                ],
             },
             {
                 categoryId: 7,
                 categoryName: 'Work',
                 memberCount: 1,
                 sortId: 1,
-                friends: [{ uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A' }],
+                friends: [{ uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A', categoryId: 7 }],
             },
             {
                 categoryId: 9,
@@ -533,8 +1293,8 @@ describe('apis/contacts / categorized friend roster', () => {
         expect(secondRequest.body?.cookie).toEqual(cookie);
         expect(rememberFriends).toHaveBeenCalledOnce();
         expect(rememberFriends).toHaveBeenCalledWith([
-            { uin: 10001, uid: 'u1', nickname: 'Default', remark: '' },
-            { uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A' },
+            { uin: 10001, uid: 'u1', nickname: 'Default', remark: '', categoryId: 0 },
+            { uin: 10002, uid: 'u2', nickname: 'Alice', remark: 'A', categoryId: 7 },
         ]);
     });
 

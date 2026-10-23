@@ -13,6 +13,7 @@ import type {
     FriendInfo,
     GroupMemberInfo,
     GroupRequestInfo,
+    ProfileBusinessInfo,
     QQGroupInfo,
     UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
@@ -96,6 +97,21 @@ function fakeIdentity(overrides: Record<string, unknown> = {}): BridgeInterface[
 }
 
 // ─── Fixture builders ───
+
+const profileBusinesses: ProfileBusinessInfo[] = [
+    { type: 9999, level: 0, isYear: false, isPro: true, icon: 'https://example.com/business.png' },
+    { type: 1, level: 7, isYear: true, isPro: false },
+];
+const expectedProfileBusinesses = [
+    {
+        type: 9999,
+        level: 0,
+        is_year: false,
+        is_pro: true,
+        icon: 'https://example.com/business.png',
+    },
+    { type: 1, level: 7, is_year: true, is_pro: false },
+];
 
 function makeFriend(uin: number, nickname: string, remark = ''): FriendInfo {
     return { uin, uid: `u_${uin}`, nickname, remark };
@@ -203,18 +219,88 @@ describe('onebot/contact-actions / getLoginInfo', () => {
 describe('onebot/contact-actions / getFriendList', () => {
     it('returns the fetched list mapped to OneBot shape', async () => {
         const bridge = fakeBridge({
-            fetchFriendList: vi.fn(async () => [makeFriend(22222, 'alice', 'best-friend')]),
+            fetchFriendList: vi.fn(async () => [
+                {
+                    ...makeFriend(22222, 'alice', 'best-friend'),
+                    sign: 'Stay curious',
+                    categoryId: 7,
+                    birthdayYear: 1990,
+                    birthdayMonth: 2,
+                    birthdayDay: 3,
+                    age: 35,
+                    sex: 'female',
+                    phoneNum: '138****0000',
+                    email: 'alice@example.com',
+                    level: 64,
+                    country: '中国',
+                    province: '广东',
+                    city: '深圳',
+                    college: '深圳大学',
+                    profileBusiness: profileBusinesses,
+                    vipFlag: true,
+                    yearVipFlag: true,
+                    svipFlag: true,
+                    vipLevel: 7,
+                },
+            ]),
         });
         const out = await getFriendList(bridge);
         expect(out).toEqual([
-            { user_id: 22222, nickname: 'alice', remark: 'best-friend' },
+            {
+                user_id: 22222,
+                nickname: 'alice',
+                remark: 'best-friend',
+                long_nick: 'Stay curious',
+                birthday_year: 1990,
+                birthday_month: 2,
+                birthday_day: 3,
+                age: 35,
+                sex: 'female',
+                phone_num: '138****0000',
+                email: 'alice@example.com',
+                category_id: 7,
+                level: 64,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                profile_business: expectedProfileBusinesses,
+                is_qq_vip: true,
+                is_vip: true,
+                is_years_vip: true,
+                vip_level: 7,
+            },
             ...datalineFriendListEntries(),
         ]);
         expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalledOnce();
+        expect(bridge.apis.contacts.fetchFriendList).toHaveBeenCalledWith({
+            enrichProfiles: true,
+        });
     });
 
     it('falls back to identity.friends on fetch failure', async () => {
-        const cached = [makeFriend(33333, 'bob')];
+        const cached = [
+            {
+                ...makeFriend(33333, 'bob'),
+                sign: 'Cached friend signature',
+                categoryId: 0,
+                age: 0,
+                sex: 'unknown',
+                level: 0,
+                birthdayYear: 0,
+                birthdayMonth: 2,
+                birthdayDay: 29,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                profileBusiness: profileBusinesses,
+                vipFlag: false,
+                yearVipFlag: false,
+                svipFlag: false,
+                vipLevel: 0,
+            },
+        ];
         const bridge = fakeBridge({
             fetchFriendList: vi.fn(async () => {
                 throw new Error('network down');
@@ -223,10 +309,102 @@ describe('onebot/contact-actions / getFriendList', () => {
         });
         const out = await getFriendList(bridge);
         expect(out).toEqual([
-            { user_id: 33333, nickname: 'bob', remark: '' },
+            {
+                user_id: 33333,
+                nickname: 'bob',
+                remark: '',
+                long_nick: 'Cached friend signature',
+                category_id: 0,
+                age: 0,
+                sex: 'unknown',
+                level: 0,
+                birthday_year: 0,
+                birthday_month: 2,
+                birthday_day: 29,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                profile_business: expectedProfileBusinesses,
+                is_qq_vip: false,
+                is_vip: false,
+                is_years_vip: false,
+                vip_level: 0,
+            },
             ...datalineFriendListEntries(),
         ]);
     });
+
+    it.each([false, true])(
+        'omits optional profile values that QQ has not returned (cached=%s)',
+        async (cached) => {
+            const friend = makeFriend(22222, 'alice');
+            const bridge = fakeBridge({
+                fetchFriendList: vi.fn(async () => {
+                    if (cached) {
+                        throw new Error('offline');
+                    }
+
+                    return [friend];
+                }),
+                identity: fakeIdentity({ friends: cached ? [friend] : [] }),
+            });
+
+            expect((await getFriendList(bridge))[0]).toEqual({
+                user_id: 22222,
+                nickname: 'alice',
+                remark: '',
+            });
+        },
+    );
+
+    it.each([false, true])(
+        'preserves an explicitly empty business list (cached=%s)',
+        async (cached) => {
+            const friend: FriendInfo = { ...makeFriend(22222, 'alice'), profileBusiness: [] };
+            const bridge = fakeBridge({
+                fetchFriendList: vi.fn(async () => {
+                    if (cached) {
+                        throw new Error('offline');
+                    }
+
+                    return [friend];
+                }),
+                identity: fakeIdentity({ friends: cached ? [friend] : [] }),
+            });
+
+            expect((await getFriendList(bridge))[0]).toEqual({
+                user_id: 22222,
+                nickname: 'alice',
+                remark: '',
+                profile_business: [],
+            });
+        },
+    );
+
+    it.each([false, true])(
+        'preserves an explicitly empty friend signature (cached=%s)',
+        async (cached) => {
+            const friend = { ...makeFriend(22222, 'alice'), sign: '' };
+            const bridge = fakeBridge({
+                fetchFriendList: vi.fn(async () => {
+                    if (cached) {
+                        throw new Error('offline');
+                    }
+
+                    return [friend];
+                }),
+                identity: fakeIdentity({ friends: cached ? [friend] : [] }),
+            });
+
+            expect((await getFriendList(bridge))[0]).toEqual({
+                user_id: 22222,
+                nickname: 'alice',
+                remark: '',
+                long_nick: '',
+            });
+        },
+    );
 });
 
 describe('onebot/contact-actions / getGroupFiles', () => {
@@ -739,9 +917,15 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
                 qid: 'my_qid',
                 level: 64,
                 regTime: 1_200_000_000,
+                vipFlag: false,
                 svipFlag: true,
                 yearVipFlag: false,
                 vipLevel: 7,
+                country: '中国',
+                province: '广东',
+                city: '深圳',
+                college: '深圳大学',
+                profileBusiness: profileBusinesses,
             })),
         });
         const out = await getStrangerInfo(bridge, 55555);
@@ -752,9 +936,15 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             qqLevel: 64,
             level: 64,
             reg_time: 1_200_000_000,
+            is_qq_vip: false,
             is_vip: true,
             is_years_vip: false,
             vip_level: 7,
+            country: '中国',
+            province: '广东',
+            city: '深圳',
+            college: '深圳大学',
+            profile_business: expectedProfileBusinesses,
         });
         expect(out).not.toHaveProperty('login_days');
     });
@@ -765,16 +955,80 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
         });
         const out = await getStrangerInfo(bridge, 55555);
 
-        for (const field of ['reg_time', 'is_vip', 'is_years_vip', 'vip_level']) {
+        for (const field of [
+            'reg_time',
+            'is_qq_vip',
+            'is_vip',
+            'is_years_vip',
+            'vip_level',
+            'country',
+            'province',
+            'city',
+            'college',
+            'profile_business',
+        ]) {
             expect(out).not.toHaveProperty(field);
         }
     });
 
+    it.each(['live', 'profile-cache', 'friend-cache'] as const)(
+        'preserves an explicitly empty business list from %s',
+        async (source) => {
+            const profile: UserProfileInfo = {
+                ...makeProfile(55555, 'member'),
+                profileBusiness: [],
+            };
+            const friend: FriendInfo = {
+                ...makeFriend(55555, 'member'),
+                profileBusiness: [],
+            };
+            const bridge = fakeBridge({
+                fetchUserProfile: vi.fn(async () => {
+                    if (source !== 'live') {
+                        throw new Error('offline');
+                    }
+
+                    return profile;
+                }),
+                identity: fakeIdentity({
+                    findUserProfile: () => (source === 'profile-cache' ? profile : null),
+                    findFriend: () => (source === 'friend-cache' ? friend : null),
+                }),
+            });
+
+            expect(await getStrangerInfo(bridge, 55555)).toHaveProperty('profile_business', []);
+        },
+    );
+
+    it.each(['profile-cache', 'friend-cache'] as const)(
+        'omits an unavailable business list from %s',
+        async (source) => {
+            const profile = makeProfile(55555, 'member');
+            const friend = makeFriend(55555, 'member');
+            const bridge = fakeBridge({
+                fetchUserProfile: vi.fn(async () => {
+                    throw new Error('offline');
+                }),
+                identity: fakeIdentity({
+                    findUserProfile: () => (source === 'profile-cache' ? profile : null),
+                    findFriend: () => (source === 'friend-cache' ? friend : null),
+                }),
+            });
+
+            expect(await getStrangerInfo(bridge, 55555)).not.toHaveProperty('profile_business');
+        },
+    );
+
     it('returns a fetched profile', async () => {
         const bridge = fakeBridge({
-            fetchUserProfile: vi.fn(async () =>
-                makeProfile(55555, 'Eve', 'female', 25, 'Stay curious', 'Teammate'),
-            ),
+            fetchUserProfile: vi.fn(async () => ({
+                ...makeProfile(55555, 'Eve', 'female', 25, 'Stay curious', 'Teammate'),
+                birthdayYear: 1990,
+                birthdayMonth: 2,
+                birthdayDay: 3,
+                phoneNum: '138****0000',
+                email: 'eve@example.com',
+            })),
         });
         const out = await getStrangerInfo(bridge, 55555);
         expect(out).toMatchObject({
@@ -782,6 +1036,11 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             nickname: 'Eve',
             sex: 'female',
             age: 25,
+            birthday_year: 1990,
+            birthday_month: 2,
+            birthday_day: 3,
+            phone_num: '138****0000',
+            email: 'eve@example.com',
             remark: 'Teammate',
             long_nick: 'Stay curious',
         });
@@ -873,14 +1132,21 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             identity: fakeIdentity({
                 findUserProfile: (uin: number) =>
                     uin === 66666
-                        ? makeProfile(
-                              66666,
-                              'Frank',
-                              'male',
-                              30,
-                              'Cached signature',
-                              'Cached remark',
-                          )
+                        ? {
+                              ...makeProfile(
+                                  66666,
+                                  'Frank',
+                                  'male',
+                                  30,
+                                  'Cached signature',
+                                  'Cached remark',
+                              ),
+                              country: '中国',
+                              province: '广东',
+                              city: '深圳',
+                              college: '深圳大学',
+                              profileBusiness: profileBusinesses,
+                          }
                         : null,
             }),
         });
@@ -890,6 +1156,11 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             nickname: 'Frank',
             remark: 'Cached remark',
             long_nick: 'Cached signature',
+            country: '中国',
+            province: '广东',
+            city: '深圳',
+            college: '深圳大学',
+            profile_business: expectedProfileBusinesses,
         });
     });
 
@@ -912,6 +1183,61 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             sex: 'unknown',
             age: 0,
             long_nick: '',
+        });
+    });
+
+    it('retains available friend details when only the friend roster is cached', async () => {
+        const friend = {
+            ...makeFriend(77777, 'Grace', 'Project lead'),
+            sign: 'Cached Grace signature',
+            birthdayYear: 0,
+            birthdayMonth: 2,
+            birthdayDay: 29,
+            sex: 'female',
+            age: 0,
+            level: 0,
+            phoneNum: '138****0000',
+            email: 'grace@example.com',
+            profileBusiness: profileBusinesses,
+            country: '中国',
+            province: '广东',
+            city: '深圳',
+            college: '深圳大学',
+            vipFlag: false,
+            yearVipFlag: false,
+            svipFlag: false,
+            vipLevel: 0,
+        };
+        const bridge = fakeBridge({
+            fetchUserProfile: vi.fn(async () => {
+                throw new Error('offline');
+            }),
+            identity: fakeIdentity({ findUserProfile: () => null, findFriend: () => friend }),
+        });
+        expect(await getStrangerInfo(bridge, 77777)).toMatchObject({
+            user_id: 77777,
+            nickname: 'Grace',
+            remark: 'Project lead',
+            long_nick: 'Cached Grace signature',
+            birthday_year: 0,
+            birthday_month: 2,
+            birthday_day: 29,
+            sex: 'female',
+            age: 0,
+            qq_level: 0,
+            qqLevel: 0,
+            level: 0,
+            phone_num: '138****0000',
+            email: 'grace@example.com',
+            profile_business: expectedProfileBusinesses,
+            country: '中国',
+            province: '广东',
+            city: '深圳',
+            college: '深圳大学',
+            is_qq_vip: false,
+            is_vip: false,
+            is_years_vip: false,
+            vip_level: 0,
         });
     });
 

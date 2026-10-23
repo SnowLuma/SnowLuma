@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add optional birthday, age, sex, phone, email, category ID, and QQ level fields to categorized friend results.
 - Require patched Node.js releases: 24.22.1 or newer in the 24.x line, or 26.12.1 and newer.
 
 ## 2.0.0

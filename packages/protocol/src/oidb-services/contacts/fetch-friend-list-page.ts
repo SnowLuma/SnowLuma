@@ -14,6 +14,7 @@ import type { OidbFriendListRequest } from '@snowluma/proto-defs/oidb-actions/ba
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { FriendInfo } from '../../qq-info';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { parseBirthday } from './profile-fields';
 
 export interface FriendListPageEntry {
     friend: FriendInfo;
@@ -33,31 +34,66 @@ export interface FriendListPage {
     cookie?: Uint8Array;
 }
 
-function friendProperties(raw: OidbFriend): Map<number, string> {
-    const props = new Map<number, string>();
+function friendProperties(raw: OidbFriend): {
+    bytes: Map<number, Uint8Array>;
+    numbers: Map<number, number>;
+} {
+    const bytes = new Map<number, Uint8Array>();
+    const numbers = new Map<number, number>();
 
     for (const additional of raw.additional ?? []) {
         if ((additional.type ?? 0) !== 1 || !additional.layer1) {
             continue;
         }
 
+        for (const property of additional.layer1.numberProperties ?? []) {
+            numbers.set(Number(property.key ?? 0), Number(property.value ?? 0));
+        }
+
         for (const property of additional.layer1.properties ?? []) {
-            props.set(property.code ?? 0, property.value ?? '');
+            bytes.set(property.code ?? 0, property.value ?? new Uint8Array(0));
         }
     }
 
-    return props;
+    return { bytes, numbers };
 }
 
 function mapFriend(raw: OidbFriend): FriendListPageEntry {
-    const props = friendProperties(raw);
+    const { bytes, numbers } = friendProperties(raw);
+
+    const getString = (code: number): string | undefined => {
+        const value = bytes.get(code);
+        return value ? Buffer.from(value).toString('utf8') : undefined;
+    };
+
+    const birthday = parseBirthday(bytes.get(20031));
+    const sex = numbers.get(20009);
+    const age = numbers.get(20037);
+    const level = numbers.get(105);
+    const phoneNum = getString(20016)?.trim();
+    const email = getString(20011)?.trim();
+
     return {
         categoryId: raw.customGroup ?? 0,
         friend: {
             uin: raw.uin ?? 0,
             uid: raw.uid ?? '',
-            nickname: props.get(20002) ?? String(raw.uin ?? 0),
-            remark: props.get(103) ?? '',
+            nickname: getString(20002) ?? String(raw.uin ?? 0),
+            remark: getString(103) ?? '',
+            ...(birthday
+                ? {
+                      birthdayYear: birthday.year,
+                      birthdayMonth: birthday.month,
+                      birthdayDay: birthday.day,
+                  }
+                : {}),
+            ...(age !== undefined && age >= 0 ? { age } : {}),
+            ...(sex !== undefined
+                ? { sex: sex === 1 ? 'male' : sex === 2 ? 'female' : 'unknown' }
+                : {}),
+            ...(phoneNum ? { phoneNum } : {}),
+            ...(email ? { email } : {}),
+            ...(level !== undefined && level >= 0 ? { level } : {}),
         },
     };
 }
@@ -80,7 +116,12 @@ export namespace FetchFriendListPage {
             field6: 1,
             field7: 0x7fffffff,
             body: [
-                { type: 1, number: { numbers: [103, 102, 20002, 27394] } },
+                {
+                    type: 1,
+                    number: {
+                        numbers: [103, 102, 20002, 27394, 20009, 20037, 105, 20031, 20011, 20016],
+                    },
+                },
                 { type: 4, number: { numbers: [100, 101, 102] } },
             ],
             field10002: [13578, 13579, 13573, 13572, 13568],

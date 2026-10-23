@@ -7,8 +7,10 @@ import {
 } from '@snowluma/protocol/dataline/device-contacts';
 import {
     formatGroupRequestFlag,
+    type FriendInfo,
     type GroupMemberInfo,
     type GroupRequestInfo,
+    type ProfileBusinessInfo,
     type UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
 import type { QidianCorpInfo } from '@snowluma/protocol/services/qidian/fetch-corp-info';
@@ -49,11 +51,42 @@ async function fetchSingleGroupMembers(
     }
 }
 
-function toFriendRow(friend: { uin: number; nickname: string; remark: string }): JsonObject {
+export function formatProfileBusiness(businesses: readonly ProfileBusinessInfo[]): JsonObject[] {
+    return businesses.map((business) => ({
+        type: business.type,
+        level: business.level,
+        is_year: business.isYear,
+        is_pro: business.isPro,
+        ...(business.icon !== undefined ? { icon: business.icon } : {}),
+    }));
+}
+
+function toFriendRow(friend: FriendInfo): JsonObject {
     return {
         user_id: friend.uin,
         nickname: friend.nickname,
         remark: friend.remark,
+        ...(friend.sign !== undefined ? { long_nick: friend.sign } : {}),
+        ...(friend.birthdayYear !== undefined ? { birthday_year: friend.birthdayYear } : {}),
+        ...(friend.birthdayMonth !== undefined ? { birthday_month: friend.birthdayMonth } : {}),
+        ...(friend.birthdayDay !== undefined ? { birthday_day: friend.birthdayDay } : {}),
+        ...(friend.age !== undefined ? { age: friend.age } : {}),
+        ...(friend.sex !== undefined ? { sex: friend.sex } : {}),
+        ...(friend.phoneNum !== undefined ? { phone_num: friend.phoneNum } : {}),
+        ...(friend.email !== undefined ? { email: friend.email } : {}),
+        ...(friend.categoryId !== undefined ? { category_id: friend.categoryId } : {}),
+        ...(friend.level !== undefined ? { level: friend.level } : {}),
+        ...(friend.country !== undefined ? { country: friend.country } : {}),
+        ...(friend.province !== undefined ? { province: friend.province } : {}),
+        ...(friend.city !== undefined ? { city: friend.city } : {}),
+        ...(friend.college !== undefined ? { college: friend.college } : {}),
+        ...(friend.profileBusiness !== undefined
+            ? { profile_business: formatProfileBusiness(friend.profileBusiness) }
+            : {}),
+        ...(friend.vipFlag !== undefined ? { is_qq_vip: friend.vipFlag } : {}),
+        ...(friend.svipFlag !== undefined ? { is_vip: friend.svipFlag } : {}),
+        ...(friend.yearVipFlag !== undefined ? { is_years_vip: friend.yearVipFlag } : {}),
+        ...(friend.vipLevel !== undefined ? { vip_level: friend.vipLevel } : {}),
     };
 }
 
@@ -61,7 +94,9 @@ export async function getFriendList(bridge: BridgeInterface): Promise<JsonObject
     let rows: JsonObject[];
 
     try {
-        rows = (await bridge.apis.contacts.fetchFriendList()).map(toFriendRow);
+        rows = (await bridge.apis.contacts.fetchFriendList({ enrichProfiles: true })).map(
+            toFriendRow,
+        );
     } catch {
         rows = bridge.identity.friends.map(toFriendRow);
     }
@@ -382,11 +417,24 @@ function formatStrangerInfo(p: UserProfileInfo, corp?: QidianCorpInfo | null): J
         remark: p.remark,
         sex: p.sex,
         age: p.age,
+        ...(p.birthdayYear !== undefined ? { birthday_year: p.birthdayYear } : {}),
+        ...(p.birthdayMonth !== undefined ? { birthday_month: p.birthdayMonth } : {}),
+        ...(p.birthdayDay !== undefined ? { birthday_day: p.birthdayDay } : {}),
+        ...(p.phoneNum !== undefined ? { phone_num: p.phoneNum } : {}),
+        ...(p.email !== undefined ? { email: p.email } : {}),
+        ...(p.country !== undefined ? { country: p.country } : {}),
+        ...(p.province !== undefined ? { province: p.province } : {}),
+        ...(p.city !== undefined ? { city: p.city } : {}),
+        ...(p.college !== undefined ? { college: p.college } : {}),
+        ...(p.profileBusiness !== undefined
+            ? { profile_business: formatProfileBusiness(p.profileBusiness) }
+            : {}),
         long_nick: p.sign,
         qq_level: p.level,
         qqLevel: p.level,
         level: p.level,
         ...(p.regTime !== undefined ? { reg_time: p.regTime } : {}),
+        ...(p.vipFlag !== undefined ? { is_qq_vip: p.vipFlag } : {}),
         ...(p.svipFlag !== undefined ? { is_vip: p.svipFlag } : {}),
         ...(p.yearVipFlag !== undefined ? { is_years_vip: p.yearVipFlag } : {}),
         ...(p.vipLevel !== undefined ? { vip_level: p.vipLevel } : {}),
@@ -464,9 +512,28 @@ export async function getStrangerInfo(
             user_id: friend.uin,
             nickname: friend.nickname,
             remark: friend.remark,
-            sex: 'unknown',
-            age: 0,
-            long_nick: '',
+            sex: friend.sex ?? 'unknown',
+            age: friend.age ?? 0,
+            ...(friend.birthdayYear !== undefined ? { birthday_year: friend.birthdayYear } : {}),
+            ...(friend.birthdayMonth !== undefined ? { birthday_month: friend.birthdayMonth } : {}),
+            ...(friend.birthdayDay !== undefined ? { birthday_day: friend.birthdayDay } : {}),
+            ...(friend.phoneNum !== undefined ? { phone_num: friend.phoneNum } : {}),
+            ...(friend.email !== undefined ? { email: friend.email } : {}),
+            ...(friend.country !== undefined ? { country: friend.country } : {}),
+            ...(friend.province !== undefined ? { province: friend.province } : {}),
+            ...(friend.city !== undefined ? { city: friend.city } : {}),
+            ...(friend.college !== undefined ? { college: friend.college } : {}),
+            ...(friend.profileBusiness !== undefined
+                ? { profile_business: formatProfileBusiness(friend.profileBusiness) }
+                : {}),
+            ...(friend.vipFlag !== undefined ? { is_qq_vip: friend.vipFlag } : {}),
+            ...(friend.svipFlag !== undefined ? { is_vip: friend.svipFlag } : {}),
+            ...(friend.yearVipFlag !== undefined ? { is_years_vip: friend.yearVipFlag } : {}),
+            ...(friend.vipLevel !== undefined ? { vip_level: friend.vipLevel } : {}),
+            ...(friend.level !== undefined
+                ? { qq_level: friend.level, qqLevel: friend.level, level: friend.level }
+                : {}),
+            long_nick: friend.sign ?? '',
         };
     }
 }

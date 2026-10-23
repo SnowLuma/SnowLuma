@@ -74,6 +74,17 @@ export class SingleFlightCache<K, V> {
         return task;
     }
 
+    /** Read a cached success without loading. Stale values require explicit opt-in. */
+    peek(key: K, opts: { allowStale?: boolean } = {}): V | undefined {
+        const hit = this.fresh.get(key);
+
+        if (hit && (opts.allowStale || this.now() - hit.at < this.ttlMs)) {
+            return hit.value;
+        }
+
+        return undefined;
+    }
+
     /** Detach the entry and its pending load; existing callers still settle. */
     invalidate(key: K): void {
         this.fresh.delete(key);
