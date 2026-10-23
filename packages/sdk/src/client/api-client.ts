@@ -1,10 +1,13 @@
-import { createSnowLumaApiError } from '../errors.js';
+import { createSnowLumaApiError, SnowLumaConnectionError } from '../errors.js';
 import { normalizeMessage } from '../messages/index.js';
+import { downloadFileStream, uploadFileStream } from './file-streams.js';
 import type {
     ActionParams,
     ActionResult,
     ApiResponse,
     DomainParams,
+    DownloadFileStreamOptions,
+    DownloadFileStreamParams,
     DownloadFileParams,
     ForwardMessageParams,
     GetForwardMsgParams,
@@ -19,6 +22,11 @@ import type {
     SendMsgParams,
     SetGroupReactionParams,
     SnowLumaAction,
+    SnowLumaStreamAction,
+    StreamApiResponse,
+    StreamRequestOptions,
+    UploadFileSource,
+    UploadFileStreamOptions,
 } from '../types/index.js';
 
 /**
@@ -34,6 +42,41 @@ export abstract class SnowLumaApiClient {
         params?: ActionParams<TAction>,
         options?: RequestOptions,
     ): Promise<ApiResponse<ActionResult<TAction>>>;
+
+    /** Returns every stream envelope, including a terminal failed response.
+     * Custom request-only subclasses remain valid and can opt into streaming. */
+    requestStream<TAction extends SnowLumaStreamAction>(
+        _action: TAction,
+        _params: ActionParams<TAction>,
+        _options?: StreamRequestOptions,
+    ): AsyncIterableIterator<StreamApiResponse<ActionResult<TAction>>> {
+        throw new SnowLumaConnectionError('This client transport does not implement streaming');
+    }
+
+    /** Returns every stream payload; failed responses throw SnowLumaApiError. */
+    async *stream<TAction extends SnowLumaStreamAction>(
+        action: TAction,
+        params: ActionParams<TAction>,
+        options?: StreamRequestOptions,
+    ): AsyncGenerator<ActionResult<TAction>, void, void> {
+        for await (const response of this.requestStream(action, params, options)) {
+            if (response.status !== 'ok' || response.retcode !== 0) {
+                throw createSnowLumaApiError(response);
+            }
+
+            yield response.data;
+        }
+    }
+
+    /** Uploads bytes incrementally and returns the server's completed file metadata. */
+    uploadFileStream(source: UploadFileSource, options?: UploadFileStreamOptions) {
+        return uploadFileStream(this, source, options);
+    }
+
+    /** Yields decoded byte chunks; the iterator's return value is completion metadata. */
+    downloadFileStream(params: DownloadFileStreamParams, options?: DownloadFileStreamOptions) {
+        return downloadFileStream(this, params, options);
+    }
 
     /** Sends a OneBot action and returns data, throwing SnowLumaApiError on failed responses. */
     async call<TAction extends SnowLumaAction>(

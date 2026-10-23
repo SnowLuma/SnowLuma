@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add HTTP and WebSocket `requestStream()` / `stream()`, incremental `uploadFileStream()` / `downloadFileStream()` helpers, cancellation, bounded response buffering, and transfer validation. Existing single-response methods remain unchanged; see [STREAMING.md](STREAMING.md).
 - Add parameter and result types for the remaining 57 actions and three aliases, covering every registered action name while preserving existing client methods and type mappings.
 - Describe album pagination and media, Qzone, flash transfers, stickers, group settings, and stream frame payloads; retain numeric-string inputs and signed message IDs.
 - Fix native Node.js ESM imports for the package root and all supported subpaths without requiring a bundler.

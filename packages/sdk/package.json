@@ -71,6 +71,7 @@
     "dist/types",
     "README.md",
     "CHANGELOG.md",
+    "STREAMING.md",
     "VERSIONING.md"
   ],
   "scripts": {

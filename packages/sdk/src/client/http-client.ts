@@ -6,8 +6,9 @@ import {
     SnowLumaTransportError,
 } from '../errors.js';
 import { SnowLumaApiClient, toJsonObject } from './api-client.js';
-import { createRequestAbortState, isAbortError } from '../internal/abort.js';
+import { createRequestAbortState, isAbortError, throwIfAborted } from '../internal/abort.js';
 import { assertApiResponse } from '../internal/json.js';
+import { isStreamTerminal, readHttpFrames, streamLimits } from '../internal/streaming.js';
 import type {
     ActionParams,
     ActionResult,
@@ -16,6 +17,9 @@ import type {
     RequestOptions,
     SnowLumaAction,
     SnowLumaClientOptions,
+    SnowLumaStreamAction,
+    StreamApiResponse,
+    StreamRequestOptions,
 } from '../types/index.js';
 
 /** Options for the HTTP transport client. */
@@ -104,6 +108,62 @@ export class SnowLumaHttpClient extends SnowLumaApiClient {
             }
 
             throw new SnowLumaConnectionError('SnowLuma HTTP request failed', { cause: error });
+        } finally {
+            abort.cleanup();
+        }
+    }
+
+    override async *requestStream<TAction extends SnowLumaStreamAction>(
+        action: TAction,
+        params: ActionParams<TAction>,
+        options?: StreamRequestOptions,
+    ): AsyncGenerator<StreamApiResponse<ActionResult<TAction>>, void, void> {
+        const { maxBufferBytes } = streamLimits(options);
+        const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
+        const abort = createRequestAbortState(timeoutMs, options?.signal);
+
+        try {
+            throwIfAborted(abort.signal);
+            const response = await this.fetchImpl(this.baseUrl, {
+                method: 'POST',
+                headers: this.createHeaders(),
+                body: JSON.stringify({ action, params, echo: options?.echo }),
+                signal: abort.signal,
+            });
+
+            if (!response.body) {
+                throw new SnowLumaParseError('SnowLuma HTTP stream has no response body');
+            }
+
+            for await (const frame of readHttpFrames(response.body, maxBufferBytes, abort.signal)) {
+                throwIfAborted(abort.signal);
+                const terminal = isStreamTerminal(action, frame);
+                yield frame as StreamApiResponse<ActionResult<TAction>>;
+
+                if (terminal) {
+                    return;
+                }
+            }
+
+            throw new SnowLumaParseError('SnowLuma HTTP stream ended before its terminal frame');
+        } catch (error) {
+            if (abort.isTimedOut()) {
+                throw new SnowLumaTimeoutError(
+                    `SnowLuma stream timed out after ${timeoutMs}ms`,
+                    timeoutMs,
+                    { cause: error },
+                );
+            }
+
+            if (abort.isExternallyAborted()) {
+                throw new SnowLumaAbortError('SnowLuma stream aborted', { cause: error });
+            }
+
+            if (error instanceof SnowLumaTransportError) {
+                throw error;
+            }
+
+            throw new SnowLumaConnectionError('SnowLuma HTTP stream failed', { cause: error });
         } finally {
             abort.cleanup();
         }

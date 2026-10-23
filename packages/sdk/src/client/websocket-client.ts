@@ -24,7 +24,13 @@ import {
     type EventPredicate,
 } from '../events/index.js';
 import { SnowLumaApiClient, toJsonObject } from './api-client.js';
-import { raceWithAbort, throwIfAborted } from '../internal/abort.js';
+import { createRequestAbortState, raceWithAbort, throwIfAborted } from '../internal/abort.js';
+import {
+    isStreamTerminal,
+    parseStreamResponse,
+    StreamQueue,
+    streamLimits,
+} from '../internal/streaming.js';
 import {
     appendAccessToken,
     assertApiResponse,
@@ -56,6 +62,9 @@ import type {
     RequestOptions,
     SnowLumaAction,
     SnowLumaEvent,
+    SnowLumaStreamAction,
+    StreamApiResponse,
+    StreamRequestOptions,
     WsRole,
 } from '../types/index.js';
 import type {
@@ -81,7 +90,8 @@ interface SocketConnection {
 }
 
 interface PendingRequest {
-    resolve(response: ApiResponse): void;
+    stream?: boolean;
+    resolve(response: ApiResponse, bytes: number): void;
     reject(error: Error): void;
 }
 
@@ -434,21 +444,141 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         });
     }
 
+    override async *requestStream<TAction extends SnowLumaStreamAction>(
+        action: TAction,
+        params: ActionParams<TAction>,
+        options?: StreamRequestOptions,
+    ): AsyncGenerator<StreamApiResponse<ActionResult<TAction>>, void, void> {
+        const queue = new StreamQueue<StreamApiResponse<ActionResult<TAction>>>(
+            streamLimits(options),
+        );
+        const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
+        const abort = createRequestAbortState(timeoutMs, options?.signal);
+        const echo = options?.echo ?? createEcho();
+        const key = echoKey(echo);
+
+        const cleanup = (): void => {
+            // A completed stream can still be drained while a new request uses
+            // this echo. Its iterator cleanup must not remove the new request.
+            if (this.pending.get(key) === pending) {
+                this.pending.delete(key);
+            }
+
+            abort.signal.removeEventListener('abort', onAbort);
+            abort.cleanup();
+        };
+
+        const pending: PendingRequest = {
+            stream: true,
+            resolve: (response, bytes) => {
+                try {
+                    queue.push(response as StreamApiResponse<ActionResult<TAction>>, bytes);
+
+                    if (isStreamTerminal(action, response)) {
+                        queue.finish();
+                        cleanup();
+                    }
+                } catch (error) {
+                    pending.reject(
+                        error instanceof Error ? error : new SnowLumaConnectionError(String(error)),
+                    );
+                }
+            },
+            reject: (error) => {
+                queue.fail(error);
+                cleanup();
+            },
+        };
+
+        const onAbort = (): void => {
+            pending.reject(
+                abort.isTimedOut()
+                    ? new SnowLumaTimeoutError(
+                          `SnowLuma stream timed out after ${timeoutMs}ms`,
+                          timeoutMs,
+                      )
+                    : new SnowLumaAbortError('SnowLuma stream aborted', {
+                          cause: options?.signal?.reason,
+                      }),
+            );
+        };
+
+        try {
+            throwIfAborted(abort.signal);
+            await raceWithAbort(this.connect(), abort.signal);
+            throwIfAborted(abort.signal);
+            const socket = this.connection?.socket;
+
+            if (!socket || socket.readyState !== WEBSOCKET_OPEN) {
+                throw new SnowLumaConnectionError('SnowLuma WebSocket is not open');
+            }
+
+            if (this.pending.has(key)) {
+                throw new SnowLumaConnectionError(
+                    'A WebSocket request with this echo is already pending',
+                );
+            }
+
+            this.pending.set(key, pending);
+            abort.signal.addEventListener('abort', onAbort, { once: true });
+
+            try {
+                socket.send(JSON.stringify({ action, params, echo }));
+            } catch (cause) {
+                throw new SnowLumaConnectionError('Failed to send SnowLuma WebSocket stream', {
+                    cause,
+                });
+            }
+
+            while (true) {
+                throwIfAborted(options?.signal);
+                const next = await queue.next();
+
+                if (next.done) {
+                    return;
+                }
+
+                yield next.value;
+            }
+        } catch (error) {
+            if (abort.isTimedOut() && !(error instanceof SnowLumaTimeoutError)) {
+                throw new SnowLumaTimeoutError(
+                    `SnowLuma stream timed out after ${timeoutMs}ms`,
+                    timeoutMs,
+                    { cause: error },
+                );
+            }
+
+            throw error;
+        } finally {
+            cleanup();
+        }
+    }
+
     private handleMessage(args: unknown[]): void {
         const raw = unwrapMessagePayload(args[0]);
         this.emitter.emit('raw', raw);
 
         let parsed: unknown;
+        let text: string;
 
         try {
-            parsed = JSON.parse(rawToString(raw));
+            text = rawToString(raw);
+            parsed = JSON.parse(text);
         } catch (error) {
-            this.emitter.emit(
-                'error',
-                new SnowLumaParseError('SnowLuma WebSocket returned non-JSON message', {
-                    cause: error,
-                }),
-            );
+            const failure = new SnowLumaParseError('SnowLuma WebSocket returned non-JSON message', {
+                cause: error,
+            });
+
+            // Without a readable echo, a lost stream frame cannot be attributed
+            // safely. Fail active streams instead of reporting partial success.
+            for (const pending of this.pending.values()) {
+                if (pending.stream) {
+                    pending.reject(failure);
+                }
+            }
+
+            this.emitter.emit('error', failure);
             return;
         }
 
@@ -460,7 +590,9 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
                 let response: ApiResponse;
 
                 try {
-                    response = assertApiResponse(parsed);
+                    response = pending.stream
+                        ? parseStreamResponse(parsed)
+                        : assertApiResponse(parsed);
                 } catch (error) {
                     pending.reject(
                         new SnowLumaParseError('SnowLuma WebSocket response is invalid', {
@@ -470,7 +602,10 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
                     return;
                 }
 
-                pending.resolve(response);
+                pending.resolve(
+                    response,
+                    pending.stream ? new TextEncoder().encode(text).byteLength : 0,
+                );
                 this.emitter.emit('response', response);
                 return;
             }

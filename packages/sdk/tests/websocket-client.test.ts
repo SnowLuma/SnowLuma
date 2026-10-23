@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     SnowLumaAbortError,
+    SnowLumaApiError,
+    SnowLumaConnectionError,
+    SnowLumaParseError,
+    SnowLumaTimeoutError,
     SnowLumaWebSocketClient,
     type OneBotPrivateMessageEvent,
 } from '../src';
@@ -73,6 +77,225 @@ const PRIVATE_EVENT: OneBotPrivateMessageEvent = {
     font: 0,
     sender: { user_id: 10001, nickname: 'tester' },
 };
+
+describe('WebSocket streaming', () => {
+    afterEach(() => vi.useRealTimers());
+
+    async function connected() {
+        const client = new SnowLumaWebSocketClient({
+            webSocket: MockWebSocket,
+            requestTimeoutMs: 1000,
+        });
+        const opening = client.connect();
+        const socket = MockWebSocket.instances.at(-1)!;
+        socket.open();
+        await opening;
+        return { client, socket };
+    }
+
+    const data = { type: 'stream', data_type: 'data_chunk', data: 'part' };
+    const complete = { type: 'response', data_type: 'data_complete', data: 'done' };
+    const frame = (echo: string, payload: unknown) =>
+        JSON.stringify({
+            status: 'ok',
+            retcode: 0,
+            stream: 'stream-action',
+            echo,
+            data: payload,
+        });
+
+    it('routes interleaved streams, normal responses and events independently', async () => {
+        const { client, socket } = await connected();
+        const event = vi.fn();
+        client.onEvent(event);
+        const first = client.stream('test_download_stream', {}, { echo: 'a' });
+        const second = client.stream('test_download_stream', {}, { echo: 'b' });
+        const a = first.next();
+        const b = second.next();
+        const status = client.getStatus({ echo: 'ordinary' });
+        await vi.waitFor(() => expect(socket.sent).toHaveLength(3));
+        socket.message(frame('b', data));
+        socket.message(frame('a', data));
+        socket.message(JSON.stringify(PRIVATE_EVENT));
+        socket.message(
+            JSON.stringify({ status: 'ok', retcode: 0, echo: 'ordinary', data: { online: true } }),
+        );
+        await expect(status).resolves.toEqual({ online: true });
+        expect((await a).value).toEqual(data);
+        expect((await b).value).toEqual(data);
+        socket.message(frame('a', complete));
+        socket.message(frame('b', complete));
+        expect((await first.next()).value).toEqual(complete);
+        expect((await second.next()).value).toEqual(complete);
+        expect((await first.next()).done).toBe(true);
+        expect((await second.next()).done).toBe(true);
+        await vi.waitFor(() => expect(event).toHaveBeenCalledOnce());
+        client.close();
+    });
+
+    it('shares echo collision checks with single-response calls and preserves later requests', async () => {
+        const { client, socket } = await connected();
+        const stream = client.stream('test_download_stream', {}, { echo: 'same' });
+        const first = stream.next();
+        await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+        await expect(client.getStatus({ echo: 'same' })).rejects.toThrow('already pending');
+        await expect(
+            client.stream('test_download_stream', {}, { echo: 'same' }).next(),
+        ).rejects.toThrow('already pending');
+        socket.message(frame('same', data));
+        await first;
+        socket.message(frame('same', complete));
+        const ordinary = client.getStatus({ echo: 'same' });
+        await vi.waitFor(() => expect(socket.sent).toHaveLength(2));
+        await stream.return();
+        socket.message(
+            JSON.stringify({ status: 'ok', retcode: 0, data: { online: true }, echo: 'same' }),
+        );
+        await expect(ordinary).resolves.toEqual({ online: true });
+        client.close();
+    });
+
+    it.each([
+        'abort',
+        'timeout',
+        'close',
+        'invalid frame',
+        'invalid JSON',
+        'send failure',
+        'return',
+        'complete',
+    ] as const)('releases stream timers and listeners after %s', async (outcome) => {
+        vi.useFakeTimers();
+        const { client, socket } = await connected();
+        const controller = new AbortController();
+        const remove = vi.spyOn(controller.signal, 'removeEventListener');
+
+        if (outcome === 'send failure') {
+            vi.spyOn(socket, 'send').mockImplementationOnce(() => {
+                throw new Error('send');
+            });
+        }
+
+        const stream = client.stream(
+            'test_download_stream',
+            {},
+            { echo: 's', signal: controller.signal },
+        );
+        const next = stream.next();
+        const settled = next.then(
+            () => undefined,
+            (error: unknown) => error,
+        );
+        await vi.advanceTimersByTimeAsync(0);
+
+        switch (outcome) {
+            case 'abort':
+                controller.abort();
+                break;
+            case 'timeout':
+                await vi.advanceTimersByTimeAsync(1000);
+                break;
+            case 'close':
+                socket.close();
+                break;
+            case 'invalid frame':
+                socket.message(JSON.stringify({ echo: 's' }));
+                break;
+            case 'invalid JSON':
+                socket.message('bad json');
+                break;
+            case 'return':
+                socket.message(frame('s', data));
+                await next;
+                await stream.return();
+                break;
+            case 'complete':
+                socket.message(frame('s', complete));
+                await next;
+                await stream.next();
+                break;
+        }
+
+        const error = await settled;
+        const expected = {
+            abort: SnowLumaAbortError,
+            timeout: SnowLumaTimeoutError,
+            close: SnowLumaConnectionError,
+            'send failure': SnowLumaConnectionError,
+            'invalid frame': SnowLumaParseError,
+            'invalid JSON': SnowLumaParseError,
+        };
+
+        if (outcome in expected) {
+            expect(error).toBeInstanceOf(expected[outcome as keyof typeof expected]);
+        } else {
+            expect(error).toBeUndefined();
+        }
+
+        expect(vi.getTimerCount()).toBe(0);
+        expect(remove).toHaveBeenCalled();
+        client.close();
+    });
+
+    it.each(['frames', 'bytes'] as const)(
+        'fails a slow consumer when queued %s exceed its limit',
+        async (limit) => {
+            const { client, socket } = await connected();
+            const stream = client.stream(
+                'test_download_stream',
+                {},
+                {
+                    echo: 's',
+                    maxBufferedFrames: limit === 'frames' ? 1 : 256,
+                    maxBufferBytes: limit === 'bytes' ? 180 : 10000,
+                },
+            );
+            const next = stream.next();
+            await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+            socket.message(frame('s', data));
+            await next;
+            socket.message(frame('s', data));
+            socket.message(frame('s', data));
+            await expect(stream.next()).rejects.toThrow('buffer limit');
+            client.close();
+        },
+    );
+
+    it('throws a terminal API error after previously delivered frames', async () => {
+        const { client, socket } = await connected();
+        const stream = client.stream('test_download_stream', {}, { echo: 's' });
+        const next = stream.next();
+        await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+        socket.message(frame('s', data));
+        await next;
+        socket.message(
+            JSON.stringify({
+                status: 'failed',
+                retcode: 1500,
+                echo: 's',
+                data: { type: 'error' },
+                wording: 'failed',
+            }),
+        );
+        await expect(stream.next()).rejects.toBeInstanceOf(SnowLumaApiError);
+        client.close();
+    });
+
+    it('times out while opening without sending a request later', async () => {
+        vi.useFakeTimers();
+        const client = new SnowLumaWebSocketClient({ webSocket: MockWebSocket });
+        const result = expect(
+            client.stream('test_download_stream', {}, { timeoutMs: 20 }).next(),
+        ).rejects.toBeInstanceOf(SnowLumaTimeoutError);
+        const socket = MockWebSocket.instances.at(-1)!;
+        await vi.advanceTimersByTimeAsync(20);
+        await result;
+        socket.open();
+        expect(socket.sent).toHaveLength(0);
+        expect(vi.getTimerCount()).toBe(0);
+        client.close();
+    });
+});
 
 describe('SnowLumaWebSocketClient', () => {
     afterEach(() => {

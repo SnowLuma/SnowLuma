@@ -1,12 +1,15 @@
 import type {
     ActionParams,
     ActionResult,
+    DownloadFileStreamComplete,
     JsonObject,
     JsonValue,
     SnowLumaActionMap,
     SnowLumaHttpClient,
     SnowLumaKnownAction,
     SnowLumaWebSocketClient,
+    StreamApiResponse,
+    UploadFileStreamComplete,
 } from '@snowluma/sdk';
 import { actionParams, actionResults, type CoveredAction } from './action-contracts.js';
 
@@ -39,6 +42,29 @@ export type QuickAlias = AssertTrue<
 
 declare const http: SnowLumaHttpClient;
 declare const ws: SnowLumaWebSocketClient;
+
+export const uploadedFile: Promise<UploadFileStreamComplete> = http.uploadFileStream(
+    new Blob(['file']),
+);
+export const download: AsyncGenerator<Uint8Array, DownloadFileStreamComplete, void> =
+    ws.downloadFileStream({ file_id: 'media' }, { action: 'download_file_image_stream' });
+export const rawFrames: AsyncIterableIterator<
+    StreamApiResponse<ActionResult<'test_download_stream'>>
+> = http.requestStream('test_download_stream', {});
+
+for await (const item of ws.stream('download_file_stream', { file: '/remote/file' })) {
+    if (item.type === 'stream' && item.data_type === 'file_chunk') {
+        const encoded: string = item.data;
+        void encoded;
+    }
+}
+
+// @ts-expect-error single-response actions use request()/call()
+http.stream('get_status', {});
+// @ts-expect-error uploads accept bytes rather than text chunks
+http.uploadFileStream('text');
+// @ts-expect-error downloads require a file or file ID
+ws.downloadFileStream({});
 
 const feeds = await http.raw('get_qzone_feeds', { page_num: '2', count: 10 });
 const more: boolean = feeds.has_more;
