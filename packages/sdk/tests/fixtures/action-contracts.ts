@@ -16,7 +16,16 @@ export const actionParams = {
     add_custom_face: { file: 'file:///fixture.png' },
     cancel_group_album_media_like: mediaLike,
     clean_stream_temp_file: {},
-    comment_qzone: { tid: 'post', content: 'Comment', target_uin: '10002', images: [] },
+    comment_qzone: {
+        tid: 'post',
+        content: 'Comment',
+        target_uin: '10002',
+        images: [],
+        comment_id: '0',
+        comment_uin: '10003',
+        reply_uin: '10004',
+        reply_name: 'Reader',
+    },
     create_flash_task: {
         files: ['file:///one', { file: 'file:///two', name: 'two.txt' }],
         name: 'Files',

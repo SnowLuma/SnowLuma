@@ -1286,13 +1286,21 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "comment_qzone",
     "aliases": [],
-    "summary": "评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）",
+    "summary": "评论说说或回复指定评论（普通评论支持带图，楼中楼仅支持文字）",
     "returnsSchema": {
       "type": "object",
       "properties": {
         "comment_id": {
           "type": "string",
-          "description": "服务端未提供评论 ID 时为空串"
+          "description": "新评论或新回复的 ID；普通评论未返回 ID 时为空串，楼中楼回复不会用父编号代替"
+        },
+        "parent_comment_id": {
+          "type": "string",
+          "description": "仅楼中楼回复返回，所属一级评论 ID"
+        },
+        "parent_comment_uin": {
+          "type": "integer",
+          "description": "仅楼中楼回复返回，所属一级评论作者 QQ 号"
         }
       },
       "required": [
@@ -1308,6 +1316,30 @@ export const ACTIONS: CatalogAction[] = [
           "content": "感谢分享"
         },
         "notes": "tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。"
+      },
+      {
+        "summary": "回复指定一级评论，保留说说所属账号",
+        "params": {
+          "tid": "<tid-from-get_qzone_msg_detail>",
+          "target_uin": 10001,
+          "content": "感谢回复",
+          "comment_id": "0",
+          "comment_uin": 10002
+        },
+        "notes": "comment_id 和 comment_uin 分别取 get_qzone_msg_detail 的一级评论 comment_id 和 uin；编号 0 有效。楼中楼仅支持文字。"
+      },
+      {
+        "summary": "回复楼中楼中的某位评论者",
+        "params": {
+          "tid": "<tid-from-get_qzone_msg_detail>",
+          "target_uin": 10001,
+          "content": "我也这么认为",
+          "comment_id": "0",
+          "comment_uin": 10002,
+          "reply_uin": 10003,
+          "reply_name": "评论者"
+        },
+        "notes": "comment_id/comment_uin 使用该回复的 parent_comment_id/parent_comment_uin；reply_uin/reply_name 使用该回复的 uin/name，不把二级回复自身的 comment_id 当成父评论编号。"
       }
     ],
     "readOnly": false,
@@ -1344,6 +1376,48 @@ export const ACTIONS: CatalogAction[] = [
         "desc": "说说所属 QQ 号，省略则为机器人自己"
       },
       {
+        "name": "comment_id",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "一级父评论 ID，与 comment_uin 同时提供；编号 0 有效，不能传二级回复自身的 ID"
+      },
+      {
+        "name": "comment_uin",
+        "type": "uint",
+        "required": false,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "一级父评论作者 QQ 号，与 comment_id 同时提供；不是说说所属账号"
+      },
+      {
+        "name": "reply_uin",
+        "type": "uint",
+        "required": false,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "楼中楼中要回复的用户 QQ 号，与 reply_name 同时提供，需指定父评论"
+      },
+      {
+        "name": "reply_name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "要回复的用户昵称，来自评论详情的 name；与 reply_uin 同时提供"
+      },
+      {
         "name": "images",
         "type": "string[]",
         "required": false,
@@ -1357,7 +1431,14 @@ export const ACTIONS: CatalogAction[] = [
         "desc": "图片数组（可选），支持 file:// http:// base64://；自动上传"
       }
     ],
-    "invariants": [],
+    "invariants": [
+      "all or none of: comment_id, comment_uin",
+      "all or none of: reply_uin, reply_name",
+      "reply_uin/reply_name require comment_id/comment_uin",
+      "images are not supported for comment replies",
+      "comment_id, reply_name and reply content must not be blank",
+      "comment_uin and reply_uin must be safe integers"
+    ],
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1376,6 +1457,28 @@ export const ACTIONS: CatalogAction[] = [
           "minimum": 1,
           "description": "说说所属 QQ 号，省略则为机器人自己",
           "x-role": "user_id"
+        },
+        "comment_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "一级父评论 ID，与 comment_uin 同时提供；编号 0 有效，不能传二级回复自身的 ID"
+        },
+        "comment_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "一级父评论作者 QQ 号，与 comment_id 同时提供；不是说说所属账号",
+          "x-role": "user_id"
+        },
+        "reply_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "楼中楼中要回复的用户 QQ 号，与 reply_name 同时提供，需指定父评论",
+          "x-role": "user_id"
+        },
+        "reply_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "要回复的用户昵称，来自评论详情的 name；与 reply_uin 同时提供"
         },
         "images": {
           "type": "array",
@@ -10802,6 +10905,14 @@ export const ACTIONS: CatalogAction[] = [
                     "comment_id": {
                       "type": "string",
                       "description": "评论 ID，在所属说说或父评论内唯一"
+                    },
+                    "parent_comment_id": {
+                      "type": "string",
+                      "description": "所属一级评论 ID；回复时作为 comment_id"
+                    },
+                    "parent_comment_uin": {
+                      "type": "integer",
+                      "description": "所属一级评论作者；回复时作为 comment_uin"
                     }
                   },
                   "required": [
@@ -10809,7 +10920,9 @@ export const ACTIONS: CatalogAction[] = [
                     "name",
                     "time",
                     "content",
-                    "comment_id"
+                    "comment_id",
+                    "parent_comment_id",
+                    "parent_comment_uin"
                   ]
                 }
               }

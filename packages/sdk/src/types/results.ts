@@ -8,6 +8,9 @@ export interface QzoneCommentReply {
     content: string;
     /** Scoped to the post, or parent comment for replies. */
     comment_id: string;
+    /** Present on nested replies from newer servers; identifies their top-level parent. */
+    parent_comment_id?: string;
+    parent_comment_uin?: number;
 }
 
 export interface QzoneComment extends QzoneCommentReply {
@@ -413,8 +416,11 @@ export interface QzonePublishResult extends JsonObject {
 }
 
 export interface QzoneCommentResult extends JsonObject {
-    /** Empty string when the upstream response omits the new comment ID. */
+    /** New comment/reply ID. Ordinary comments may return an empty string if upstream omits it. */
     comment_id: string;
+    /** Present when creating a nested reply, distinct from its new comment_id. */
+    parent_comment_id?: string;
+    parent_comment_uin?: number;
 }
 
 export interface QzoneUpdateRightResult extends JsonObject {

@@ -606,7 +606,17 @@ export interface LikeQzoneParams extends QzoneMsgIdParams {
 
 export interface CommentQzoneParams extends QzoneMsgIdParams {
     content: ActionStringInput;
+    /** Post owner, not the author being replied to. Defaults to the current account. */
     target_uin?: ActionNumberInput;
+    /** Top-level parent ID, including "0". Requires comment_uin; omit for an ordinary comment. */
+    comment_id?: ActionStringInput;
+    /** Parent comment author from get_qzone_msg_detail. Requires comment_id. */
+    comment_uin?: ActionNumberInput;
+    /** Author to address inside the parent thread. Requires reply_name and a parent comment. */
+    reply_uin?: ActionNumberInput;
+    /** Addressed author's name from comment details. Requires reply_uin. */
+    reply_name?: ActionStringInput;
+    /** Ordinary comments only; non-empty images with comment_id are rejected before upload. */
     images?: ActionStringInput[];
 }
 

@@ -37,6 +37,8 @@ describe('qzone / getQzoneMsgDetail', () => {
                     replies: [
                         {
                             comment_id: '1',
+                            parent_comment_id: '0',
+                            parent_comment_uin: 20002,
                             uin: 10000,
                             name: 'Bot',
                             time: 1700000002,

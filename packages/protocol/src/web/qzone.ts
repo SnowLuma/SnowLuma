@@ -1356,6 +1356,19 @@ export interface QzoneCommentResult {
     comment_id: string;
 }
 
+export interface QzoneReplyTarget {
+    /** The top-level comment, even when replying to one of its replies. */
+    commentId: string;
+    commentUin: string;
+    /** Optional author to address within that thread. */
+    replyTo?: { uin: string; name: string };
+}
+
+export interface QzoneReplyResult extends QzoneCommentResult {
+    parent_comment_id: string;
+    parent_comment_uin: number;
+}
+
 /**
  * Comment on a 说说 (`tid`, owned by `hostUin`) as the bot (`selfUin`) via
  * taotao.qzone.qq.com's emotion_cgi_re_feeds CGI (proxied through
@@ -1542,6 +1555,154 @@ export async function commentQzoneMsg(
 
     const commentId = data.commentid ?? data.commentId;
     return { comment_id: commentId !== undefined ? String(commentId) : '' };
+}
+
+/**
+ * Reply within a Qzone comment thread. The web comment module uses a separate
+ * reply endpoint: commentId/commentUin identify the parent, not a nested reply.
+ * The addressed author is an automatic mention in content; there is no replyId
+ * request field. Images are not part of this request's supported contract.
+ * Request/result contract: qzonestyle.gtimg.cn/qzone/app/controls/commentModule/
+ * viewModel/viewModel_3.0_common.js (ReplyViewModel.post).
+ */
+export async function replyQzoneComment(
+    cookieObject: Record<string, string>,
+    selfUin: string,
+    hostUin: string,
+    tid: string,
+    content: string,
+    target: QzoneReplyTarget,
+): Promise<QzoneReplyResult> {
+    if (!cookieObject || typeof cookieObject !== 'object') {
+        throw new Error('cookieObject is required');
+    }
+
+    for (const [field, value] of Object.entries({
+        selfUin,
+        hostUin,
+        commentUin: target.commentUin,
+    })) {
+        if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+            throw new Error(`${field} must be a positive safe integer`);
+        }
+    }
+
+    if (!tid.trim() || !content.trim() || !target.commentId.trim()) {
+        throw new Error('tid, content and commentId must not be blank');
+    }
+
+    let replyContent = content;
+
+    if (target.replyTo !== undefined) {
+        const { uin, name } = target.replyTo;
+
+        if (!/^[1-9]\d*$/.test(uin) || !Number.isSafeInteger(Number(uin)) || !name.trim()) {
+            throw new Error('replyTo requires a positive safe integer uin and a non-blank name');
+        }
+
+        // Match the web editor's mention encoding, not HTML or URL encoding.
+        const escapedName = name
+            .trim()
+            .replace(/%/g, '%25')
+            .replace(/,/g, '%2C')
+            .replace(/}/g, '%7D');
+        replyContent = `@{uin:${uin},nick:${escapedName},auto:1} ${content}`;
+    }
+
+    const bkn = getBknFromCookie(cookieObject);
+    const url = `https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_addreply_ugc?g_tk=${bkn}`;
+    const body = new URLSearchParams({
+        uin: selfUin,
+        hostUin,
+        hostuin: selfUin,
+        topicId: `${hostUin}_${tid}`,
+        commentId: target.commentId,
+        commentUin: target.commentUin,
+        content: replyContent,
+        inCharset: 'utf-8',
+        outCharset: 'utf-8',
+        ref: '',
+        code_version: '1',
+        format: 'fs',
+        qzreferrer: `https://user.qzone.qq.com/${hostUin}`,
+    }).toString();
+
+    log.debug(
+        'replyQzoneComment: posting reply (host=%s tid=%s parent=%s)',
+        hostUin,
+        tid,
+        target.commentId,
+    );
+    const text = await RequestUtil.HttpGetText(url, 'POST', body, {
+        Cookie: cookieToString(cookieObject),
+        'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    const response = parseQzoneJson<unknown>(text);
+
+    if (
+        response === null ||
+        typeof response !== 'object' ||
+        Array.isArray(response) ||
+        !('code' in response) ||
+        typeof response.code !== 'number' ||
+        !Number.isInteger(response.code)
+    ) {
+        throw new Error(
+            'invalid qzone reply response: missing or invalid code; check delivery before retrying',
+        );
+    }
+
+    const subcode = 'subcode' in response ? response.subcode : undefined;
+
+    if (subcode !== undefined && (typeof subcode !== 'number' || !Number.isInteger(subcode))) {
+        throw new Error(
+            'invalid qzone reply response: invalid subcode; check delivery before retrying',
+        );
+    }
+
+    if (response.code !== 0 || (subcode !== undefined && subcode !== 0)) {
+        const message =
+            'message' in response && typeof response.message === 'string' ? response.message : '';
+        log.warn(
+            'replyQzoneComment: rejected (host=%s tid=%s parent=%s) code=%s subcode=%s',
+            hostUin,
+            tid,
+            target.commentId,
+            response.code,
+            subcode,
+        );
+        throw new Error(
+            `qzone reply failed: code=${response.code} subcode=${subcode ?? 0} ${message}`.trim(),
+        );
+    }
+
+    const data = 'data' in response ? response.data : undefined;
+    const id =
+        data !== null && typeof data === 'object' && !Array.isArray(data) && 'id' in data
+            ? data.id
+            : undefined;
+
+    if (!(
+        (typeof id === 'string' && id.trim() !== '') ||
+        (typeof id === 'number' && Number.isSafeInteger(id) && id >= 0)
+    )) {
+        throw new Error(
+            'qzone reply accepted but returned an invalid reply ID; check delivery before retrying',
+        );
+    }
+
+    log.debug(
+        'replyQzoneComment: accepted (host=%s tid=%s parent=%s reply=%s)',
+        hostUin,
+        tid,
+        target.commentId,
+        id,
+    );
+    return {
+        comment_id: String(id),
+        parent_comment_id: target.commentId,
+        parent_comment_uin: Number(target.commentUin),
+    };
 }
 
 // ─────── 改说说权限 (update right) — emotion_cgi_msgdetail_v6 + emotion_cgi_update ───────
@@ -1844,11 +2005,16 @@ export async function getQzoneMsgDetail(
         comments: detailList(data.commentlist, 'commentlist').map((value, index) => {
             const field = `commentlist[${index}]`;
             const comment = detailObject(value, field);
+            const mappedComment = mapQzoneComment(comment, field);
             return {
-                ...mapQzoneComment(comment, field),
+                ...mappedComment,
                 replies: detailList(comment.list_3, `${field}.list_3`).map((reply, replyIndex) => {
                     const replyField = `${field}.list_3[${replyIndex}]`;
-                    return mapQzoneComment(detailObject(reply, replyField), replyField);
+                    return {
+                        ...mapQzoneComment(detailObject(reply, replyField), replyField),
+                        parent_comment_id: mappedComment.comment_id,
+                        parent_comment_uin: mappedComment.uin,
+                    };
                 }),
             };
         }),

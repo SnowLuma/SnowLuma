@@ -5,6 +5,7 @@ import {
     getQzoneMsgDetail,
     getQzoneMsgList,
     publishQzoneMsg,
+    replyQzoneComment,
     setQzoneBlack,
     setQzoneLike,
     updateQzoneMsgRight,
@@ -14,6 +15,7 @@ import {
     type QzoneMsgDetailResult,
     type QzoneMsgListResult,
     type QzonePublishResult,
+    type QzoneReplyTarget,
     type QzoneUpdateRightResult,
     type QzoneUploadImageResult,
 } from '@snowluma/protocol/web/qzone';
@@ -133,6 +135,7 @@ export class QzoneApi {
      * 始终以机器人身份发表评论。返回新评论 id（尽力而为）。
      * `richType` / `richval`: 带图评论时传 richType=1 和图片直链 URL
      * (从 uploadImageFromSource 的 url 字段获取)。
+     * `reply` 指定父评论及可选回复对象；楼中楼回复仅支持文字。
      */
     async comment(
         tid: string,
@@ -140,10 +143,20 @@ export class QzoneApi {
         targetUin: number | undefined,
         richType?: number,
         richval?: string,
+        reply?: QzoneReplyTarget,
     ): Promise<QzoneCommentResult> {
+        if (reply !== undefined && (richType !== undefined || richval !== undefined)) {
+            throw new Error('images are not supported for Qzone comment replies');
+        }
+
         const selfUin = this.ctx.identity.uin;
         const owner = targetUin && targetUin > 0 ? targetUin.toString() : selfUin;
         const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+
+        if (reply !== undefined) {
+            return replyQzoneComment(cookieObject, selfUin, owner, tid, content, reply);
+        }
+
         return commentQzoneMsg(cookieObject, selfUin, owner, tid, content, richType, richval);
     }
 

@@ -130,8 +130,22 @@ export const actions = [
                                 description: '服务端内联二级回复，可能不完整',
                                 items: {
                                     type: 'object',
-                                    properties: qzoneCommentProperties,
-                                    required: qzoneCommentRequired,
+                                    properties: {
+                                        ...qzoneCommentProperties,
+                                        parent_comment_id: {
+                                            type: 'string',
+                                            description: '所属一级评论 ID；回复时作为 comment_id',
+                                        },
+                                        parent_comment_uin: {
+                                            type: 'integer',
+                                            description: '所属一级评论作者；回复时作为 comment_uin',
+                                        },
+                                    },
+                                    required: [
+                                        ...qzoneCommentRequired,
+                                        'parent_comment_id',
+                                        'parent_comment_uin',
+                                    ],
                                 },
                             },
                         },
@@ -462,28 +476,123 @@ export const actions = [
                 },
                 notes: 'tid 来自 get_qzone_msg_list；操作需有该说说的访问或管理权限。',
             },
+            {
+                summary: '回复指定一级评论，保留说说所属账号',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_detail>',
+                    target_uin: 10001,
+                    content: '感谢回复',
+                    comment_id: '0',
+                    comment_uin: 10002,
+                },
+                notes: 'comment_id 和 comment_uin 分别取 get_qzone_msg_detail 的一级评论 comment_id 和 uin；编号 0 有效。楼中楼仅支持文字。',
+            },
+            {
+                summary: '回复楼中楼中的某位评论者',
+                params: {
+                    tid: '<tid-from-get_qzone_msg_detail>',
+                    target_uin: 10001,
+                    content: '我也这么认为',
+                    comment_id: '0',
+                    comment_uin: 10002,
+                    reply_uin: 10003,
+                    reply_name: '评论者',
+                },
+                notes: 'comment_id/comment_uin 使用该回复的 parent_comment_id/parent_comment_uin；reply_uin/reply_name 使用该回复的 uin/name，不把二级回复自身的 comment_id 当成父评论编号。',
+            },
         ],
         returnsSchema: {
             type: 'object',
             properties: {
                 comment_id: {
                     type: 'string',
-                    description: '服务端未提供评论 ID 时为空串',
+                    description:
+                        '新评论或新回复的 ID；普通评论未返回 ID 时为空串，楼中楼回复不会用父编号代替',
+                },
+                parent_comment_id: {
+                    type: 'string',
+                    description: '仅楼中楼回复返回，所属一级评论 ID',
+                },
+                parent_comment_uin: {
+                    type: 'integer',
+                    description: '仅楼中楼回复返回，所属一级评论作者 QQ 号',
                 },
             },
             required: ['comment_id'],
         },
-        summary: '评论一条说说（QQ 空间，支持纯文字或带图；传 images 自动上传）',
+        summary: '评论说说或回复指定评论（普通评论支持带图，楼中楼仅支持文字）',
         params: {
             tid: f.string({ allowEmpty: false }).describe('说说 tid'),
             content: f.string({ allowEmpty: false }).describe('评论内容'),
             target_uin: f.userId().describe('说说所属 QQ 号，省略则为机器人自己').optional(),
+            comment_id: f
+                .string({ allowEmpty: false })
+                .describe(
+                    '一级父评论 ID，与 comment_uin 同时提供；编号 0 有效，不能传二级回复自身的 ID',
+                )
+                .optional(),
+            comment_uin: f
+                .userId()
+                .describe('一级父评论作者 QQ 号，与 comment_id 同时提供；不是说说所属账号')
+                .optional(),
+            reply_uin: f
+                .userId()
+                .describe('楼中楼中要回复的用户 QQ 号，与 reply_name 同时提供，需指定父评论')
+                .optional(),
+            reply_name: f
+                .string({ allowEmpty: false })
+                .describe('要回复的用户昵称，来自评论详情的 name；与 reply_uin 同时提供')
+                .optional(),
             images: f
                 .array(f.string({ allowEmpty: false }))
                 .describe('图片数组（可选），支持 file:// http:// base64://；自动上传')
                 .optional(),
         },
+        rules: (r) => [
+            r.requiredTogether('comment_id', 'comment_uin'),
+            r.requiredTogether('reply_uin', 'reply_name'),
+            r.rule(
+                'reply_uin/reply_name require comment_id/comment_uin',
+                (p) => p.reply_uin === undefined || p.comment_id !== undefined,
+            ),
+            r.rule(
+                'images are not supported for comment replies',
+                (p) => p.comment_id === undefined || !p.images?.length,
+            ),
+            r.rule(
+                'comment_id, reply_name and reply content must not be blank',
+                (p) =>
+                    (p.comment_id === undefined ||
+                        (p.comment_id.trim().length > 0 && p.content.trim().length > 0)) &&
+                    (p.reply_name === undefined || p.reply_name.trim().length > 0),
+            ),
+            r.rule(
+                'comment_uin and reply_uin must be safe integers',
+                (p) =>
+                    (p.comment_uin === undefined || Number.isSafeInteger(p.comment_uin)) &&
+                    (p.reply_uin === undefined || Number.isSafeInteger(p.reply_uin)),
+            ),
+        ],
         run: async (p, ctx) => {
+            if (p.comment_id !== undefined && p.comment_uin !== undefined) {
+                return okResponse(
+                    await ctx.bridge.apis.qzone.comment(
+                        p.tid,
+                        p.content,
+                        p.target_uin,
+                        undefined,
+                        undefined,
+                        {
+                            commentId: p.comment_id,
+                            commentUin: String(p.comment_uin),
+                            ...(p.reply_uin !== undefined && p.reply_name !== undefined
+                                ? { replyTo: { uin: String(p.reply_uin), name: p.reply_name } }
+                                : {}),
+                        },
+                    ),
+                );
+            }
+
             if (p.images && p.images.length > 0) {
                 const richval = await uploadQzoneImages(ctx, p.images, (upload) => upload.url);
                 const res = await ctx.bridge.apis.qzone.comment(

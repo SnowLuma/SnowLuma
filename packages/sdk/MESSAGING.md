@@ -99,3 +99,26 @@ try {
 Waits register synchronously and do not connect, replay history, consume events from other listeners, or persist across reconnects. They observe the same public event stream as `onEvent`, **after middleware**; events stopped by middleware are not visible. `waitForMessage` includes both `message` and `message_sent`, so filter direction, conversation, and sender when needed. Multiple waits can resolve from the same event.
 
 The default timeout is the client's `requestTimeoutMs` (30 seconds by default); `0` disables it. Timeout rejects with `SnowLumaTimeoutError`, cancellation with `SnowLumaAbortError`, and disconnect or explicit `close()` with `SnowLumaConnectionError`. Predicate exceptions reject with their original error. Every completion path removes its listener, abort handler, and timer. Cancellation affects the wait only; it does not close the client or undo a sent message.
+
+## Reply to a Qzone comment
+
+Both clients expose this through the typed `raw('comment_qzone', params)` action. Omitting `comment_id` and `comment_uin` preserves ordinary comments, including image uploads. `target_uin` always identifies the **post owner**, not the person being replied to.
+
+Read `get_qzone_msg_detail` to obtain a parent comment's `comment_id` and `uin`. Pass both to create a text reply under that comment; `"0"` is a valid comment ID. To address someone inside the thread, also pass their `uin` and `name` as `reply_uin` and `reply_name`:
+
+```ts
+const result = await bot.raw('comment_qzone', {
+  tid: post.tid,
+  target_uin: postOwnerUin,
+  comment_id: parentComment.comment_id,
+  comment_uin: parentComment.uin,
+  reply_uin: selectedReply.uin,
+  reply_name: selectedReply.name,
+  content: 'Thanks for the explanation!',
+});
+console.log(result.comment_id, result.parent_comment_id);
+```
+
+`post`, `postOwnerUin`, `parentComment` and `selectedReply` above are the post and comments chosen by the caller. For an ordinary reply to the parent, omit `reply_uin` and `reply_name`. For a nested reply, keep the **top-level parent** in `comment_id`/`comment_uin`; do not substitute the nested reply's own ID. New servers also include `parent_comment_id` and `parent_comment_uin` on each inline reply to preserve this association. Inline replies may be incomplete; absence from a page does not mean a comment was deleted.
+
+On success, `comment_id` is the **new reply's** ID and the result includes its parent ID and author. Those parent fields are optional in SDK types for compatibility with older servers. Non-empty `images` with a parent comment are rejected before upload: threaded replies currently support text only. Incomplete recipient/parent parameters are errors, and a failed reply never falls back to an ordinary comment or retries automatically. If an acknowledgement is malformed after sending, check the thread before retrying; the reply may already exist.

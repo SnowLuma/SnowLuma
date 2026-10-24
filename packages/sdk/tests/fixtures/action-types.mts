@@ -69,6 +69,16 @@ ws.downloadFileStream({});
 const feeds = await http.raw('get_qzone_feeds', { page_num: '2', count: 10 });
 const more: boolean = feeds.has_more;
 const author: number = feeds.feeds[0].uin;
+const qzoneReply = await http.raw('comment_qzone', actionParams.comment_qzone);
+export const qzoneReplyId: string = qzoneReply.comment_id;
+export const qzoneParentId: string | undefined = qzoneReply.parent_comment_id;
+export const qzoneParentUin: number | undefined = qzoneReply.parent_comment_uin;
+export const legacyQzoneComment: ActionParams<'comment_qzone'> = {
+    tid: 'post',
+    content: 'Comment',
+    images: ['https://example.com/image.png'],
+};
+export const legacyQzoneResult: ActionResult<'comment_qzone'> = { comment_id: '' };
 const speech = await ws.raw('get_record_text', { message_id: -42 });
 const transcription: string = speech.text;
 const flash = await http.raw('get_fileset_info', { fileset_id: 'files' });
