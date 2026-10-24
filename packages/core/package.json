@@ -1,7 +1,7 @@
 {
   "license": "SEE LICENSE IN LICENSE",
   "name": "@snowluma/core",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "SnowLuma core - NTQQ packet sniffer with Node.js native addon",
   "private": true,
   "type": "module",
