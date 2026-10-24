@@ -47,39 +47,3 @@ export interface ProtobufUnknownFieldMetadata {
 }
 export function protobuf_getUnknownFields(value: unknown): readonly ProtobufUnknownField[];
 export function protobuf_getUnknownFieldMetadata(value: unknown): ProtobufUnknownFieldMetadata;
-
-// ── Optional runtime map fallback (disabled by default) ───────────────
-export interface ProtobufRuntimeField {
-    name: string;
-    fieldNumber: number;
-    typeName: string;
-    wireType: 0 | 1 | 2 | 5;
-    isMessage: boolean;
-    isOptional: boolean;
-    isRepeated: boolean;
-}
-
-export interface ProtobufRuntimeMessage {
-    name: string;
-    fields: ProtobufRuntimeField[];
-}
-
-export interface ProtobufRuntimeCallSite {
-    file: string;
-    line: number;
-    column: number;
-    fnName: 'protobuf_encode' | 'protobuf_decode';
-    typeName: string;
-}
-
-export interface ProtobufRuntimeMap {
-    version: 1;
-    messages: ProtobufRuntimeMessage[];
-    callSites: ProtobufRuntimeCallSite[];
-}
-
-/** Enables map-based runtime dynamic code generation fallback. */
-export function protobuf_enableRuntimeMapFallback(map: ProtobufRuntimeMap): void;
-
-/** Disables map-based runtime fallback and clears generated function cache. */
-export function protobuf_disableRuntimeMapFallback(): void;

@@ -6,8 +6,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     // proton's vite plugin inlines `protobuf_encode<T>` / `protobuf_decode<T>`
     // call sites at build time. Required for both tests and benchmarks
-    // to hit the production code path rather than proton's runtime
-    // fallback (which throws unless a runtime-map JSON is loaded).
+    // to exercise the production codecs. Untransformed calls throw at runtime.
     plugins: [protobufVitePlugin()],
     test: {
         include: ['tests/**/*.test.ts'],

@@ -8,6 +8,7 @@
     "src/**/*",
     "test/__tests__/**/*",
     "test/helpers/**/*",
+    "test/upstream/**/*",
     "protobuf.d.ts"
   ],
   "exclude": [

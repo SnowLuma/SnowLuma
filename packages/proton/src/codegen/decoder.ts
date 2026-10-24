@@ -3,84 +3,118 @@ import {
     PRIMITIVE_TYPE_MAP,
     type ProtobufField,
     type ProtobufMessage,
-    type MessageRegistry,
-} from '../ast/types.js';
+} from '../codegen/model.js';
 
-function tagValue(field: ProtobufField): number {
-    const wireType =
-        field.isMessage || field.typeName === 'string' || field.typeName === 'bytes'
-            ? WireType.LengthDelim
-            : field.wireType;
+function tagValue(field: ProtobufField, wireType = field.wireType): number {
     return ((field.fieldNumber << 3) | wireType) >>> 0;
 }
 
-/** Emit inline varint decode, storing result in `varName`. */
-function varintDec(varName: string, ind: string): string {
+/** Read the low 32 bits, consuming sign-extended int32 varints without shift wraparound. */
+function varintDec(
+    varName: string,
+    ind: string,
+    end = 'end',
+    maxBytes = 10,
+    truthy = false,
+    checkInitial = true,
+): string {
+    const lastShift = (maxBytes - 1) * 7;
+    const lastByte = maxBytes === 5 ? 0x0f : 0x01;
     return [
-        `${ind}const [${varName}, ${varName}_offset] = __readVarint32(data, offset, end);`,
-        `${ind}offset = ${varName}_offset;`,
+        ...(checkInitial
+            ? [`${ind}if (offset >= ${end}) throw new Error('Truncated protobuf varint');`]
+            : []),
+        `${ind}let ${varName} = data[offset++];`,
+        `${ind}if (${varName} & 0x80) {`,
+        `${ind}  let _s = 7, _b;`,
+        `${ind}  ${varName} &= 0x7f;`,
+        `${ind}  do {`,
+        `${ind}    if (offset >= ${end}) throw new Error('Truncated protobuf varint');`,
+        `${ind}    _b = data[offset++];`,
+        `${ind}    if (_s === ${lastShift} && _b > ${lastByte}) throw new Error('Invalid protobuf varint');`,
+        truthy
+            ? `${ind}    ${varName} |= _b & 0x7f;`
+            : `${ind}    if (_s < 32) ${varName} |= (_b & 0x7f) << _s;`,
+        `${ind}    _s += 7;`,
+        `${ind}  } while (_b & 0x80);`,
+        `${ind}  ${varName} >>>= 0;`,
+        `${ind}}`,
     ].join('\n');
 }
 
-function varintDec64(varName: string, ind: string): string {
+function varintDec64(varName: string, ind: string, end: string): string {
     return [
-        `${ind}const [${varName}, ${varName}_offset] = __readVarint64(data, offset, end);`,
-        `${ind}offset = ${varName}_offset;`,
+        `${ind}let _lo = 0, _hi = 0, _s = 0, _b;`,
+        `${ind}do {`,
+        `${ind}  if (offset >= ${end}) throw new Error('Truncated protobuf varint');`,
+        `${ind}  _b = data[offset++];`,
+        `${ind}  if (_s === 63 && _b > 1) throw new Error('Invalid protobuf varint');`,
+        `${ind}  if (_s < 28) _lo |= (_b & 0x7f) << _s;`,
+        `${ind}  else if (_s === 28) { _lo |= (_b & 0x7f) << 28; _hi = (_b & 0x7f) >>> 4; }`,
+        `${ind}  else _hi |= (_b & 0x7f) << (_s - 32);`,
+        `${ind}  _s += 7;`,
+        `${ind}} while (_b & 0x80);`,
+        `${ind}const ${varName} = _hi === 0 ? BigInt(_lo >>> 0) : BigInt(_lo >>> 0) | (BigInt(_hi >>> 0) << 32n);`,
     ].join('\n');
 }
 
-function varintDec32Value(varName: string, ind: string): string {
-    return [
-        `${ind}const [${varName}, ${varName}_offset] = __readVarint32Value(data, offset, end);`,
-        `${ind}offset = ${varName}_offset;`,
-    ].join('\n');
+function checkLength(length: string | number, ind: string, end: string): string {
+    return `${ind}if (offset + ${length} > ${end}) throw new Error('Truncated protobuf field');`;
 }
 
-function isVarint64(typeName: string): boolean {
-    return typeName === 'uint_64' || typeName === 'int_64' || typeName === 'sint_64';
-}
-
-function isFixed64BigInt(typeName: string): boolean {
-    return typeName === 'fixed_64' || typeName === 'sfixed_64';
-}
-
-const INLINE_SKIP = `        offset = __skipUnknownField(data, offset, end, wireType, _tag >>> 3);`;
-
-export function generateDecoder(msg: ProtobufMessage, _registry: MessageRegistry): string {
+export function generateDecoder(msg: ProtobufMessage): string {
     const locals = msg.fields.map((field, index) => {
         const keyword = field.isRepeated ? 'const' : 'let';
         return `  ${keyword} _f${index} = ${getDefault(field)};`;
     });
-    const result = msg.fields.map((field, index) => `${field.name}: _f${index}`).join(', ');
+    const result = msg.fields
+        .map(
+            (field, index) =>
+                `${field.name === '__proto__' ? '["__proto__"]' : JSON.stringify(field.name)}: _f${index}`,
+        )
+        .join(', ');
 
-    const L = [
+    const lines = [
         `function protobuf_decode_${msg.name}(data, offset = 0, end = data.length) {`,
-        `  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(end) || offset < 0 || end < offset || end > data.length) {`,
-        `    throw new Error('protobuf decoder bounds are invalid');`,
-        `  }`,
+        `  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(end) || offset < 0 || end > data.length || offset > end) throw new Error('Invalid protobuf bounds');`,
         ...locals,
         `  let _unknownFields = null;`,
         `  let _unknownFieldsByKey = null;`,
         `  let _unknownTotalOccurrences = 0;`,
         `  let _unknownOmittedOccurrences = 0;`,
         `  let _unknownOmittedByteLength = 0;`,
+
         `  while (offset < end) {`,
-        `    const _fieldStart = offset;`,
-        `    const [_tag, _tagOffset] = __readVarint32(data, offset, end);`,
-        `    offset = _tagOffset;`,
-        `    if ((_tag >>> 3) === 0) throw new Error('protobuf field number 0 is invalid');`,
+        varintDec('_tag', '    ', 'end', 5, false, false),
+        `    if ((_tag >>> 3) === 0) throw new Error('Invalid protobuf field number');`,
         `    switch (_tag) {`,
     ];
 
     msg.fields.forEach((field, index) => {
-        L.push(decodeField(field, index));
+        lines.push(`      case ${tagValue(field)}: {`);
+        lines.push(...decodeValue(field, index, '        ', 'end'));
+        lines.push(`        break;`, `      }`);
+
+        if (field.isRepeated && !field.isMessage && field.wireType !== WireType.LengthDelim) {
+            lines.push(
+                `      case ${tagValue(field, WireType.LengthDelim)}: {`,
+                varintDec('_len', '        ', 'end', 5),
+                checkLength('_len', '        ', 'end'),
+                `        const _packedEnd = offset + _len;`,
+                `        while (offset < _packedEnd) {`,
+                ...decodeValue(field, index, '          ', '_packedEnd'),
+                `        }`,
+                `        break;`,
+                `      }`,
+            );
+        }
     });
 
-    L.push(
+    lines.push(
         `      default: {`,
         `        const _unknownStart = offset;`,
         `        const wireType = _tag & 0x7;`,
-        INLINE_SKIP,
+        `        offset = __skipUnknownField(data, offset, end, wireType, _tag >>> 3);`,
         `        const _unknownFieldNumber = _tag >>> 3;`,
         `        const _unknownByteLength = offset - _unknownStart;`,
         `        const _unknownKey = (_unknownFieldNumber * 8) + wireType;`,
@@ -102,10 +136,10 @@ export function generateDecoder(msg: ProtobufMessage, _registry: MessageRegistry
         `          _unknownOmittedOccurrences++;`,
         `          _unknownOmittedByteLength += _unknownByteLength;`,
         `        }`,
+
         `        break;`,
         `      }`,
         `    }`,
-        `    if (offset <= _fieldStart || offset > end) throw new Error('protobuf decoder made invalid progress');`,
         `  }`,
         `  const _result = { ${result} };`,
         `  if (_unknownTotalOccurrences > 0) Object.defineProperty(`,
@@ -124,96 +158,83 @@ export function generateDecoder(msg: ProtobufMessage, _registry: MessageRegistry
         `  return _result;`,
         `}`,
     );
-    return L.join('\n');
+    return lines.join('\n');
 }
 
-function decodeField(field: ProtobufField, index: number): string {
+/** Shared by ordinary fields and packed repeated payloads. */
+function decodeValue(field: ProtobufField, index: number, ind: string, end: string): string[] {
     const { typeName, wireType, isMessage, isRepeated } = field;
-    const I = '        ';
     const local = `_f${index}`;
     const assign = (expr: string) =>
-        isRepeated ? `${I}${local}.push(${expr});` : `${I}${local} = ${expr};`;
+        isRepeated ? `${ind}${local}.push(${expr});` : `${ind}${local} = ${expr};`;
+    const lines: string[] = [];
 
-    const L: string[] = [`      case ${tagValue(field)}: {`];
-
-    if (isMessage) {
-        L.push(varintDec('_len', I));
-        L.push(`${I}const _end = __checkedEnd(offset, _len, end);`);
-        L.push(assign(`protobuf_decode_${typeName}(data, offset, _end)`));
-        L.push(`${I}offset = _end;`);
-    } else if (typeName === 'string') {
-        L.push(varintDec('_len', I));
-        L.push(`${I}const _end = __checkedEnd(offset, _len, end);`);
-        L.push(assign(`__td.decode(data.subarray(offset, _end))`));
-        L.push(`${I}offset = _end;`);
-    } else if (typeName === 'bytes') {
-        L.push(varintDec('_len', I));
-        L.push(`${I}const _end = __checkedEnd(offset, _len, end);`);
-        L.push(assign(`data.slice(offset, _end)`));
-        L.push(`${I}offset = _end;`);
-    } else if (typeName === 'bool') {
-        L.push(varintDec('_val', I));
-        L.push(assign(`_val !== 0`));
-    } else if (isVarint64(typeName)) {
-        L.push(varintDec64('_val', I));
-
-        if (typeName === 'uint_64') {
-            L.push(assign(`_val`));
-        } else if (typeName === 'int_64') {
-            L.push(assign(`BigInt.asIntN(64, _val)`));
-        } else {
-            L.push(assign(`__zigZagDecode64(_val)`));
-        }
-    } else if (typeName === 'int_32') {
-        // Protobuf encodes negative int32 values as a sign-extended 10-byte
-        // varint. Read the full uint64 representation, then keep its signed low
-        // 32 bits.
-        L.push(varintDec64('_val', I));
-        L.push(assign(`Number(BigInt.asIntN(32, _val))`));
-    } else if (typeName === 'sint_32') {
-        L.push(varintDec('_val', I));
-        L.push(assign(`(_val >>> 1) ^ -(_val & 1)`));
-    } else if (wireType === WireType.Varint) {
-        L.push(varintDec32Value('_val', I));
-        L.push(assign(`_val >>> 0`));
-    } else if (typeName === 'float') {
-        L.push(`${I}if (end - offset < 4) throw new Error('protobuf truncated float field');`);
-        L.push(assign(`__readFloat32(data, offset)`));
-        L.push(`${I}offset += 4;`);
-    } else if (wireType === WireType.Bit32) {
-        L.push(`${I}if (end - offset < 4) throw new Error('protobuf truncated fixed32 field');`);
-        L.push(
-            assign(
-                `data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)`,
-            ),
-        );
-        L.push(`${I}offset += 4;`);
-    } else if (typeName === 'double') {
-        L.push(`${I}if (end - offset < 8) throw new Error('protobuf truncated double field');`);
-        L.push(assign(`__readFloat64(data, offset)`));
-        L.push(`${I}offset += 8;`);
-    } else if (isFixed64BigInt(typeName)) {
-        L.push(`${I}if (end - offset < 8) throw new Error('protobuf truncated fixed64 field');`);
-
-        if (typeName === 'fixed_64') {
-            L.push(assign(`__readFixed64(data, offset)`));
-        } else {
-            L.push(assign(`BigInt.asIntN(64, __readFixed64(data, offset))`));
-        }
-
-        L.push(`${I}offset += 8;`);
-    } else if (wireType === WireType.Bit64) {
-        L.push(`${I}if (end - offset < 8) throw new Error('protobuf truncated fixed64 field');`);
-        L.push(
-            assign(
-                `data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)`,
-            ),
-        );
-        L.push(`${I}offset += 8;`);
+    if (wireType === WireType.Bit32) {
+        lines.push(checkLength(4, ind, end));
     }
 
-    L.push(`${I}break;`, `      }`);
-    return L.join('\n');
+    if (wireType === WireType.Bit64) {
+        lines.push(checkLength(8, ind, end));
+    }
+
+    if (isMessage || typeName === 'string' || typeName === 'bytes') {
+        lines.push(varintDec('_len', ind, end, 5), checkLength('_len', ind, end));
+
+        if (isMessage) {
+            lines.push(assign(`protobuf_decode_${typeName}(data, offset, offset + _len)`));
+        } else if (typeName === 'string') {
+            lines.push(
+                assign(
+                    `_len <= 32 ? __utf8Read(data, offset, offset + _len) : __utf8ReadLong(data, offset, offset + _len)`,
+                ),
+            );
+        } else {
+            lines.push(assign(`data.slice(offset, offset + _len)`));
+        }
+
+        lines.push(`${ind}offset += _len;`);
+    } else if (typeName === 'uint_64' || typeName === 'int_64' || typeName === 'sint_64') {
+        lines.push(varintDec64('_val', ind, end));
+        const value =
+            typeName === 'uint_64'
+                ? '_val'
+                : typeName === 'int_64'
+                  ? 'BigInt.asIntN(64, _val)'
+                  : '__zigZagDecode64(_val)';
+        lines.push(assign(value));
+    } else if (wireType === WireType.Varint) {
+        lines.push(varintDec('_val', ind, end, 10, typeName === 'bool'));
+        const value =
+            typeName === 'bool'
+                ? '_val !== 0'
+                : typeName === 'sint_32'
+                  ? '(_val >>> 1) ^ -(_val & 1)'
+                  : typeName === 'int_32'
+                    ? '_val | 0'
+                    : '_val';
+        lines.push(assign(value));
+    } else if (typeName === 'float') {
+        lines.push(assign('__readFloat32(data, offset)'), `${ind}offset += 4;`);
+    } else if (wireType === WireType.Bit32) {
+        const value =
+            '(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))';
+        lines.push(
+            assign(typeName === 'fixed_32' ? `${value} >>> 0` : value),
+            `${ind}offset += 4;`,
+        );
+    } else if (typeName === 'double') {
+        lines.push(assign('__readFloat64(data, offset)'), `${ind}offset += 8;`);
+    } else if (typeName === 'fixed_64' || typeName === 'sfixed_64') {
+        const value =
+            typeName === 'fixed_64'
+                ? '__readFixed64(data, offset)'
+                : 'BigInt.asIntN(64, __readFixed64(data, offset))';
+        lines.push(assign(value), `${ind}offset += 8;`);
+    } else {
+        throw new Error(`Unsupported protobuf field type: ${typeName}`);
+    }
+
+    return lines;
 }
 
 function getDefault(field: ProtobufField): string {
