@@ -69,6 +69,20 @@ ws.downloadFileStream({});
 const feeds = await http.raw('get_qzone_feeds', { page_num: '2', count: 10 });
 const more: boolean = feeds.has_more;
 const author: number = feeds.feeds[0].uin;
+export const legacyFeedHtml: string = feeds.feeds[0].html;
+export const feedContent: string | null | undefined = feeds.feeds[0].content;
+export const feedPhotos: string[] | null | undefined = feeds.feeds[0].images;
+export const feedLikeCount: number | null | undefined = feeds.feeds[0].like_count;
+export const feedCursor: string | null | undefined = feeds.next_cursor;
+if (feedCursor) {
+    await http.raw('get_qzone_feeds', { cursor: feedCursor, count: 10 });
+}
+export const legacyFeedsResult: ActionResult<'get_qzone_feeds'> = {
+    feeds: [{ uin: 10002, nickname: 'User', time: 1, appid: 311, key: 'post', html: '' }],
+    has_more: false,
+};
+// @ts-expect-error continuation tokens must be strings
+http.raw('get_qzone_feeds', { cursor: 123 });
 const qzoneReply = await http.raw('comment_qzone', actionParams.comment_qzone);
 export const qzoneReplyId: string = qzoneReply.comment_id;
 export const qzoneParentId: string | undefined = qzoneReply.parent_comment_id;

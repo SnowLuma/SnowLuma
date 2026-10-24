@@ -115,7 +115,8 @@
     "@snowluma/common": "workspace:*",
     "@snowluma/proto-defs": "workspace:*",
     "@snowluma/proton": "workspace:*",
-    "@snowluma/sqlite": "workspace:*"
+    "@snowluma/sqlite": "workspace:*",
+    "htmlparser2": "10.0.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

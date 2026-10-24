@@ -54,7 +54,7 @@ export const actionParams = {
     get_group_signed_list: { group_id: '10001' },
     get_msg_emoji_likes: { message_id: '-42' },
     get_qun_album_list: { group_id: '10001', attach_info: '' },
-    get_qzone_feeds: { page_num: '1', count: '10' },
+    get_qzone_feeds: { page_num: '1', count: '10', cursor: 'cursor-from-previous-response' },
     get_qzone_msg_list: { target_uin: '10002', pos: '0', num: '20' },
     get_rkey_server: {},
     get_share_link: fileset,

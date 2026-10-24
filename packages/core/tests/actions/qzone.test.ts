@@ -77,10 +77,18 @@ describe('apis/qzone', () => {
         const bridge = mockBridge({ apis: { ...mockApiHub(), web: { getCookies } } as never });
         const feedsSpy = vi
             .spyOn(qzoneWeb, 'getQzoneFeeds')
-            .mockResolvedValue({ feeds: [], has_more: false });
+            .mockResolvedValue({ feeds: [], has_more: false, next_cursor: null });
         await new QzoneApi(bridge as never).getFeeds(3, 20);
         expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
-        expect(feedsSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 3, 20);
+        expect(feedsSpy).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', 3, 20, undefined);
+        await new QzoneApi(bridge as never).getFeeds(1, 20, 'opaque-cursor');
+        expect(feedsSpy).toHaveBeenLastCalledWith(
+            { p_skey: 'PSK' },
+            '10001',
+            1,
+            20,
+            'opaque-cursor',
+        );
     });
 
     it('uploadImageFromSource uploads from file:// http:// base64:// and returns richval + url', async () => {

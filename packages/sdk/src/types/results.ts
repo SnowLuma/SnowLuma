@@ -403,11 +403,22 @@ export interface QzoneFeed extends JsonObject {
     appid: number;
     key: string;
     html: string;
+    /** Newer servers return these fields; null means the source could not establish the value. */
+    tid?: string | null;
+    content?: string | null;
+    /** False for a collapsed excerpt; null when content is unavailable. */
+    content_complete?: boolean | null;
+    /** Images visible in the post body, excluding avatars, comment images and video covers. */
+    images?: string[] | null;
+    like_count?: number | null;
+    comment_count?: number | null;
 }
 
 export interface QzoneFeedsResult extends JsonObject {
     feeds: QzoneFeed[];
     has_more: boolean;
+    /** Opaque account-bound continuation; null at the end, absent on older servers. */
+    next_cursor?: string | null;
 }
 
 export interface QzonePublishResult extends JsonObject {

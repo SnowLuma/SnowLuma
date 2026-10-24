@@ -44,6 +44,14 @@ describe('qzone feeds JS-literal parsing (issue #182)', () => {
         // \xNN escapes decoded by the JS eval, html passed through verbatim.
         expect(f.html).toContain('<li class="f-single f-s-s"');
         expect(f.html).toContain('官方Qzone');
+        expect(f.tid).toBe(f.key);
+        expect(f.content).toContain('QQ空间');
+        expect(f.content).not.toContain('展开全文');
+        expect(f.content_complete).toBe(false);
+        expect(f.images).toEqual([]);
+        expect(f.like_count).toBe(3173513);
+        expect(f.comment_count).toBeNull();
+        expect(result.has_more).toBe(false);
     });
 
     it('parses as inert data — never resolves identifiers or executes code', () => {

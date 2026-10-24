@@ -11,7 +11,7 @@ import {
     updateQzoneMsgRight,
     uploadQzoneImageFromSource,
     type QzoneCommentResult,
-    type QzoneFeedsResult,
+    type QzoneFeedsPage,
     type QzoneMsgDetailResult,
     type QzoneMsgListResult,
     type QzonePublishResult,
@@ -53,12 +53,12 @@ export class QzoneApi {
     }
 
     /**
-     * 获取好友动态（feed）。`pageNum` 为 1 起的页码，`count` 为本页数量。
+     * 获取好友动态。页码调用从首页顺序定位；续页优先传上一页的 cursor。
      * 始终以机器人自己的身份拉取好友动态。
      */
-    async getFeeds(pageNum = 1, count = 10): Promise<QzoneFeedsResult> {
+    async getFeeds(pageNum = 1, count = 10, cursor?: string): Promise<QzoneFeedsPage> {
         const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
-        return getQzoneFeeds(cookieObject, this.ctx.identity.uin, pageNum, count);
+        return getQzoneFeeds(cookieObject, this.ctx.identity.uin, pageNum, count, cursor);
     }
 
     /**

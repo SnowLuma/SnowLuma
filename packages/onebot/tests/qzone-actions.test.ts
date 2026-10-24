@@ -10,6 +10,40 @@ function makeHandler(qzone: Record<string, unknown>): ApiHandler {
 }
 
 describe('qzone actions', () => {
+    it('get_qzone_feeds retains defaults and forwards optional continuation without stripping result fields', async () => {
+        const result = { feeds: [], has_more: true, next_cursor: 'next' };
+        const getFeeds = vi.fn().mockResolvedValue(result);
+        const handler = makeHandler({ getFeeds });
+        expect(await handler.handle('get_qzone_feeds', {})).toMatchObject({
+            status: 'ok',
+            data: result,
+        });
+        expect(getFeeds).toHaveBeenLastCalledWith(1, 10, undefined);
+        await handler.handle('get_qzone_feeds', { cursor: 'opaque-cursor', count: '20' });
+        expect(getFeeds).toHaveBeenLastCalledWith(1, 20, 'opaque-cursor');
+        expect(
+            actions.find((action) => action.names.includes('get_qzone_feeds'))?.describe().readOnly,
+        ).toBe(true);
+    });
+
+    it.each([{ cursor: '' }, { cursor: 'a'.repeat(65537) }, { count: 51 }, { page_num: 0 }])(
+        'get_qzone_feeds rejects invalid pagination before calling the bridge',
+        async (params) => {
+            const getFeeds = vi.fn();
+            expect(await makeHandler({ getFeeds }).handle('get_qzone_feeds', params)).toMatchObject(
+                { status: 'failed', retcode: 1400 },
+            );
+            expect(getFeeds).not.toHaveBeenCalled();
+        },
+    );
+
+    it('get_qzone_feeds exposes continuation failures to callers', async () => {
+        const getFeeds = vi.fn().mockRejectedValue(new Error('pagination did not advance'));
+        expect(
+            await makeHandler({ getFeeds }).handle('get_qzone_feeds', { cursor: 'opaque' }),
+        ).toMatchObject({ status: 'failed', wording: 'pagination did not advance' });
+    });
+
     it('get_qzone_msg_detail returns the comment page with default parameters', async () => {
         const detail = {
             tid: 'T1',

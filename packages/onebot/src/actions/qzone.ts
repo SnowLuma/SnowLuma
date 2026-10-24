@@ -171,22 +171,30 @@ export const actions = [
     }),
 
     // get_qzone_feeds — 获取好友动态（feed）。只读，始终以机器人自己身份拉取。
-    // 每条 feed 含结构化字段 + 预渲染 html 原样透传（深度解析交由调用方）。
+    // 保留旧 HTML，同时提供正文摘要与服务端分页接续。
     defineAction({
         name: 'get_qzone_feeds',
         examples: [
             {
-                summary:
-                    '获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）',
+                summary: '获取 QQ 空间好友动态首页及结构化内容',
                 params: {
                     page_num: 1,
                     count: 10,
                 },
-                notes: '目前仅首页可靠，不应假设任意页码均能完整翻页。',
+                notes: '保留 html；content/images 为可提取的正文和图片，未知值为 null。续页使用 next_cursor。',
+            },
+            {
+                summary: '继续读取上一页之后的好友动态',
+                params: {
+                    cursor: '<next_cursor-from-get_qzone_feeds>',
+                    count: 10,
+                },
+                notes: 'cursor 原样使用上次返回的 next_cursor，仅适用于同一账号；has_more=false 时停止。',
             },
         ],
         readOnly: true,
-        returns: '好友动态对象，含本页 feed 数组与是否有更多页。',
+        returns:
+            '好友动态、可提取的正文与图片、统计值及下一页游标；未知内容或统计为 null，HTML 保留。',
         returnsSchema: {
             type: 'object',
             properties: {
@@ -208,21 +216,72 @@ export const actions = [
                                 description: 'feed 句柄（Qzone 用于定位该条动态）',
                             },
                             html: { type: 'string', description: '预渲染 HTML 原样透传' },
+                            tid: {
+                                type: ['string', 'null'],
+                                description: '可确认的说说编号；其他类型或无法确认时为 null',
+                            },
+                            content: {
+                                type: ['string', 'null'],
+                                description: '当前动态正文，不含评论；无法识别时为 null',
+                            },
+                            content_complete: {
+                                type: ['boolean', 'null'],
+                                description: '正文是否完整；false 表示折叠摘要，null 表示未知',
+                            },
+                            images: {
+                                type: ['array', 'null'],
+                                items: { type: 'string' },
+                                description:
+                                    '当前正文中可提取的图片地址，不含头像、评论图片或视频封面；不保证完整相册',
+                            },
+                            like_count: {
+                                type: ['integer', 'null'],
+                                description: '服务端提供的点赞数；未知时为 null',
+                            },
+                            comment_count: {
+                                type: ['integer', 'null'],
+                                description:
+                                    '服务端提供的评论数；未知时为 null，不以展示的评论条数估算',
+                            },
                         },
-                        required: ['uin', 'nickname', 'time', 'appid', 'key', 'html'],
+                        required: [
+                            'uin',
+                            'nickname',
+                            'time',
+                            'appid',
+                            'key',
+                            'html',
+                            'tid',
+                            'content',
+                            'content_complete',
+                            'images',
+                            'like_count',
+                            'comment_count',
+                        ],
                     },
                 },
                 has_more: { type: 'boolean', description: '服务端是否报告本页之后还有更多页' },
+                next_cursor: {
+                    type: ['string', 'null'],
+                    description: '下一页游标，原样作为 cursor 传回；没有更多页时为 null',
+                },
             },
-            required: ['feeds', 'has_more'],
+            required: ['feeds', 'has_more', 'next_cursor'],
         },
-        summary: '获取 QQ 空间好友动态（feed）；page_num 仅首页可靠，深翻页需时间游标（暂未实现）',
+        summary: '获取 QQ 空间好友动态，支持结构化正文与游标分页',
         params: {
-            page_num: f.int({ min: 1 }).describe('页码（1 起；仅首页可靠）').default(1),
+            page_num: f
+                .int({ min: 1 })
+                .describe('页码（1 起）；不传 cursor 时从首页顺序定位，较深页可能耗时较长')
+                .default(1),
             count: f.int({ min: 1, max: 50 }).describe('本页数量').default(10),
+            cursor: f
+                .string({ allowEmpty: false, maxLen: 65536 })
+                .describe('上一次返回的 next_cursor；原样传递，省略 page_num 或传入对应页码')
+                .optional(),
         },
         run: async (p, ctx) => {
-            const res = await ctx.bridge.apis.qzone.getFeeds(p.page_num, p.count);
+            const res = await ctx.bridge.apis.qzone.getFeeds(p.page_num, p.count, p.cursor);
             return okResponse(res as unknown as JsonValue);
         },
     }),

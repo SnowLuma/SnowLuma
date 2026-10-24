@@ -237,7 +237,7 @@ describe('qzone / mapFeeds', () => {
                 ],
             },
         });
-        expect(out).toEqual({
+        expect(out).toMatchObject({
             has_more: true,
             feeds: [
                 {
@@ -261,7 +261,11 @@ describe('qzone / mapFeeds', () => {
     });
 
     it('tolerates missing fields and empty data', () => {
-        expect(mapFeeds({ code: 0, data: { data: [] } })).toEqual({ feeds: [], has_more: false });
+        expect(mapFeeds({ code: 0, data: { hasmore: 0, data: [] } })).toEqual({
+            feeds: [],
+            has_more: false,
+            next_cursor: null,
+        });
     });
 });
 
@@ -272,12 +276,12 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
         const spy = vi
             .spyOn(RequestUtil, 'HttpGetText')
             .mockResolvedValue(
-                '_preloadCallback({"code":0,"data":{"hasmore":1,"data":[{"uin":12345,"nickname":"Alice","abstime":1700000000,"appid":311,"key":"K1","html":"<div>a</div>"}]}});',
+                '_preloadCallback({"code":0,"data":{"main":{"hasMoreFeeds":true,"pagenum":"2","externparam":"page=2","begintime":"1699999999"},"data":[{"uin":12345,"nickname":"Alice","abstime":1700000000,"appid":311,"key":"K1","html":"<div>a</div>"}]}});',
             );
 
-        const out = await getQzoneFeeds(cookies, '10000', 2, 10);
+        const out = await getQzoneFeeds(cookies, '10000', 1, 10);
 
-        expect(out).toEqual({
+        expect(out).toMatchObject({
             has_more: true,
             feeds: [
                 {
@@ -302,7 +306,7 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
         );
         const q = new URLSearchParams((url as string).split('?')[1]);
         expect(q.get('uin')).toBe('10000');
-        expect(q.get('pagenum')).toBe('2');
+        expect(q.get('pagenum')).toBe('1');
         expect(q.get('count')).toBe('10');
         expect(q.get('g_tk')).toBe(expectedGtk);
         // The request asks for JSONP — pin it so the JSONP-bodied response above
@@ -317,6 +321,7 @@ describe('qzone / getQzoneFeeds (HTTP layer)', () => {
         await expect(getQzoneFeeds(cookies, '10000')).resolves.toEqual({
             feeds: [],
             has_more: false,
+            next_cursor: null,
         });
     });
 

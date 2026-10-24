@@ -570,9 +570,11 @@ export interface GetQzoneMsgListParams extends JsonObject {
 }
 
 export interface GetQzoneFeedsParams extends JsonObject {
-    /** Page number starts at 1; only the first page is reliable upstream. */
+    /** Starts at 1. Without a cursor, earlier pages are traversed to reach this page. */
     page_num?: ActionNumberInput;
     count?: ActionNumberInput;
+    /** Pass next_cursor unchanged for the same account; omit page_num when continuing. */
+    cursor?: string;
 }
 
 export interface QzoneMsgIdParams extends JsonObject {

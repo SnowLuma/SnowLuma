@@ -122,3 +122,45 @@ console.log(result.comment_id, result.parent_comment_id);
 `post`, `postOwnerUin`, `parentComment` and `selectedReply` above are the post and comments chosen by the caller. For an ordinary reply to the parent, omit `reply_uin` and `reply_name`. For a nested reply, keep the **top-level parent** in `comment_id`/`comment_uin`; do not substitute the nested reply's own ID. New servers also include `parent_comment_id` and `parent_comment_uin` on each inline reply to preserve this association. Inline replies may be incomplete; absence from a page does not mean a comment was deleted.
 
 On success, `comment_id` is the **new reply's** ID and the result includes its parent ID and author. Those parent fields are optional in SDK types for compatibility with older servers. Non-empty `images` with a parent comment are rejected before upload: threaded replies currently support text only. Incomplete recipient/parent parameters are errors, and a failed reply never falls back to an ordinary comment or retries automatically. If an acknowledgement is malformed after sending, check the thread before retrying; the reply may already exist.
+
+## Read structured Qzone friend feeds
+
+`get_qzone_feeds` retains `page_num`, `count`, `feeds`, `has_more`, and each feed's
+original `html`. Newer servers also return `tid`, `content`, `content_complete`,
+`images`, `like_count`, and `comment_count`. A `null` value means the source did
+not establish that field; it does not mean zero or an empty post. A collapsed
+excerpt has `content_complete: false`. Images cover only pictures available in
+the post body, excluding avatars, comment pictures and video covers; they are
+not a complete album listing. Non-post feed types may have no `tid`.
+
+Use the returned `next_cursor` unchanged to continue on the same account:
+
+```ts
+let cursor: string | undefined;
+while (true) {
+    const page = await bot.raw('get_qzone_feeds', { count: 10, cursor });
+    for (const feed of page.feeds) {
+        console.log(feed.content, feed.images);
+    }
+    if (!page.has_more) {
+        break;
+    }
+    if (!page.next_cursor) {
+        throw new Error('This server did not provide a continuation cursor');
+    }
+    cursor = page.next_cursor;
+}
+```
+
+Omit `page_num` when using a cursor, or supply its corresponding page number.
+Without a cursor, requesting a later `page_num` walks earlier pages from the
+beginning and can take longer; requesting beyond the end returns an empty page.
+The service may return fewer entries than `count`, including empty intermediate
+pages with a continuation. Follow `has_more` and `next_cursor`, not array length.
+Invalid, foreign-account or stalled cursors fail visibly. Results reflect a live
+feed, not a frozen snapshot; posts may change between requests.
+
+The added result fields are optional in SDK types so older servers and existing
+consumer-created result objects remain supported. MCP discovers the same fields
+and cursor examples through `get_action` and calls this read-only action through
+`query_action`; its existing mode restrictions are unchanged.
