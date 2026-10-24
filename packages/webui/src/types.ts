@@ -172,6 +172,7 @@ export interface GlobalSettings {
     rkey: RKeyConfig;
     /** Music-card signing service URL. Empty = built-in default. */
     musicSignUrl: string;
+    videoUploadConcurrency?: number;
 }
 
 // ─── Notifications (account up/down webhooks) ───────────────────────────────

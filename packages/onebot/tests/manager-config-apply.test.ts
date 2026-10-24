@@ -1,3 +1,8 @@
+import * as globalConfig from '../src/global-config';
+import {
+    getVideoUploadConcurrency,
+    setVideoUploadConcurrency,
+} from '@snowluma/protocol/highway/upload-settings';
 import { currentRequestId, runWithRequestId } from '@snowluma/common/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { OneBotManager } from '../src/manager';
@@ -13,6 +18,27 @@ function config(trigger: string): OneBotConfig {
 }
 
 describe('OneBotManager config apply value ownership', () => {
+    it('applies video concurrency at startup and reloads it even with no active accounts', () => {
+        const load = vi.spyOn(globalConfig, 'loadGlobalSettings').mockReturnValue({
+            ...globalConfig.defaultGlobalSettings(),
+            videoUploadConcurrency: 3,
+        });
+
+        try {
+            const manager = new OneBotManager();
+            expect(getVideoUploadConcurrency()).toBe(3);
+            load.mockReturnValue({
+                ...globalConfig.defaultGlobalSettings(),
+                videoUploadConcurrency: 2,
+            });
+            manager.reloadGlobalSettings();
+            expect(getVideoUploadConcurrency()).toBe(2);
+        } finally {
+            load.mockRestore();
+            setVideoUploadConcurrency(1);
+        }
+    });
+
     it('passes each concurrent caller exact config value to the instance', async () => {
         const manager = new OneBotManager();
         const seen: OneBotConfig[] = [];

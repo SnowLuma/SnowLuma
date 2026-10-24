@@ -527,6 +527,10 @@ function prepareGlobalSettingsJson(
     const normalized = normalizeGlobalSettings(raw);
     const canonical: Record<string, unknown> = { rkey: normalized.rkey };
 
+    if (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, 'videoUploadConcurrency')) {
+        canonical.videoUploadConcurrency = normalized.videoUploadConcurrency;
+    }
+
     // Missing is the existing one-shot migration sentinel: startup scans legacy
     // onebot*.json only until snowluma.json first carries this key.
     if (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, 'musicSignUrl')) {

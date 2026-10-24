@@ -3,6 +3,7 @@ import { AlertTriangle, KeyRound, Music, Plus, RefreshCw, Trash2 } from 'lucide-
 import { SkeletonSwap } from '@/components/interior/skeleton-swap';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DropdownSelect } from '@/components/ui/dropdown-select';
 import { Label } from '@/components/ui/label';
 import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
@@ -221,6 +222,26 @@ export function GlobalConfigPanel() {
                             </div>
                         )}
                     </div>
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-xl border bg-card/40 p-4">
+                    <Label>视频上传连接数</Label>
+                    <DropdownSelect
+                        ariaLabel="视频上传连接数"
+                        value={String(config.videoUploadConcurrency ?? 1)}
+                        options={[
+                            { value: '1', label: '1 路（默认）' },
+                            { value: '2', label: '2 路' },
+                            { value: '3', label: '3 路' },
+                            { value: '4', label: '4 路' },
+                        ]}
+                        onChange={(value) =>
+                            commit({ ...config, videoUploadConcurrency: Number(value) })
+                        }
+                    />
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                        对所有账号的下一次视频上传生效。小视频仍使用单连接；多路上传的提速效果取决于网络和服务器，遇到拥塞时会降低并发。
+                    </p>
                 </div>
 
                 {/* music sign URL */}

@@ -1,3 +1,4 @@
+import { validateUploadConcurrency } from '@snowluma/protocol/highway/upload-settings';
 import { createLogger } from '@snowluma/common/logger';
 import fs from 'fs';
 import path from 'path';
@@ -20,10 +21,12 @@ export interface GlobalSettings {
     /** Music-card signing service URL. Deployment-wide (same service for every
      *  account), so global rather than per-UIN. Empty = use the built-in default. */
     musicSignUrl: string;
+    /** Video upload connections, 1–4. Omitted by older callers means one. */
+    videoUploadConcurrency?: number;
 }
 
 export function defaultGlobalSettings(): GlobalSettings {
-    return { rkey: { fallbackServers: [] }, musicSignUrl: '' };
+    return { rkey: { fallbackServers: [] }, musicSignUrl: '', videoUploadConcurrency: 1 };
 }
 
 /** Keep only well-formed, deduped http(s) URLs (must parse + have a host). */
@@ -86,6 +89,10 @@ export function normalizeGlobalSettings(value: unknown): GlobalSettings {
         out.musicSignUrl = v && isHttpUrl(v) ? v : '';
     }
 
+    if ('videoUploadConcurrency' in value) {
+        out.videoUploadConcurrency = validateUploadConcurrency(value.videoUploadConcurrency);
+    }
+
     return out;
 }
 
@@ -98,6 +105,11 @@ export function loadGlobalSettings(): GlobalSettings {
         const raw = fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf8');
         return normalizeGlobalSettings(JSON.parse(raw) as unknown);
     } catch (err) {
+        if (err instanceof RangeError) {
+            log.error('invalid global upload settings: %s', err.message);
+            throw err;
+        }
+
         log.warn(
             'config/snowluma.json is corrupt and will be ignored: %s',
             err instanceof Error ? err.message : String(err),
@@ -120,6 +132,12 @@ export function saveGlobalSettings(incoming: unknown): GlobalSettings {
             merged.rkey.fallbackServers = normalizeRkeyServers(incoming.rkey.fallbackServers);
         }
 
+        if ('videoUploadConcurrency' in incoming) {
+            merged.videoUploadConcurrency = validateUploadConcurrency(
+                incoming.videoUploadConcurrency,
+            );
+        }
+
         if (typeof incoming.musicSignUrl === 'string') {
             const v = incoming.musicSignUrl.trim();
             merged.musicSignUrl = v && isHttpUrl(v) ? v : '';
@@ -137,6 +155,7 @@ function toJson(settings: GlobalSettings): JsonObject {
     return {
         rkey: { fallbackServers: settings.rkey.fallbackServers },
         musicSignUrl: settings.musicSignUrl,
+        videoUploadConcurrency: settings.videoUploadConcurrency ?? 1,
     };
 }
 

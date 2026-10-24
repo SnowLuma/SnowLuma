@@ -1,3 +1,4 @@
+import { getVideoUploadConcurrency } from './upload-settings';
 import crypto from 'crypto';
 import fs from 'fs';
 import { promises as fsp } from 'fs';
@@ -341,7 +342,15 @@ export async function uploadVideoMsgInfo(
     element: MessageElement,
 ): Promise<Uint8Array> {
     const log = loggerFor(bridge);
+    const concurrency = getVideoUploadConcurrency();
+    const preparedAt = Date.now();
     const video = await loadVideo(element);
+    log.debug(
+        'video preparation done: bytes=%d elapsedMs=%d concurrency=%d',
+        video.fileSize,
+        Date.now() - preparedAt,
+        concurrency,
+    );
     log.debug(
         'uploading %d bytes md5=%s... → %s %s',
         video.fileSize,
@@ -354,6 +363,7 @@ export async function uploadVideoMsgInfo(
         const uploads: MediaSubFileUpload[] = [
             {
                 source: 'top',
+                concurrency,
                 cmdId: isGroup ? GROUP_VIDEO_CMD_ID : PRIVATE_VIDEO_CMD_ID,
                 bytes: video.bytes,
                 fileSource: video.fileSource, // streamed from disk (undefined on the fingerprint fast path)

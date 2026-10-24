@@ -679,6 +679,23 @@ describe('prepareRestorePlan — strict semantic preflight', () => {
         expect(canonical.webuiTls.enabled).toBe(false);
     });
 
+    it('preserves video concurrency in backups and rejects invalid restored values', () => {
+        const prepare = (videoUploadConcurrency: number) =>
+            prepareRestorePlan(
+                backupWith({
+                    'snowluma.json': {
+                        encoding: 'utf8',
+                        data: JSON.stringify({ videoUploadConcurrency }),
+                    },
+                }),
+                { restoreCredentials: false, readCurrent: () => null },
+            );
+        expect(JSON.parse(prepare(4).restore[0].data.toString('utf8')).videoUploadConcurrency).toBe(
+            4,
+        );
+        expect(() => prepare(5)).toThrow(/videoUploadConcurrency/);
+    });
+
     it('accepts owner-supported whitespace trimming without accepting changed values', () => {
         const prepared = prepareRestorePlan(
             backupWith({

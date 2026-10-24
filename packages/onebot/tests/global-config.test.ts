@@ -29,8 +29,13 @@ describe('global-config (config/snowluma.json)', () => {
         expect(defaultGlobalSettings()).toEqual({
             rkey: { fallbackServers: [] },
             musicSignUrl: '',
+            videoUploadConcurrency: 1,
         });
-        expect(loadGlobalSettings()).toEqual({ rkey: { fallbackServers: [] }, musicSignUrl: '' });
+        expect(loadGlobalSettings()).toEqual({
+            rkey: { fallbackServers: [] },
+            musicSignUrl: '',
+            videoUploadConcurrency: 1,
+        });
     });
 
     it('keeps only well-formed http(s) URLs, trims, and dedupes', () => {
@@ -55,10 +60,12 @@ describe('global-config (config/snowluma.json)', () => {
         expect(normalizeGlobalSettings({ rkey: 'nope' })).toEqual({
             rkey: { fallbackServers: [] },
             musicSignUrl: '',
+            videoUploadConcurrency: 1,
         });
         expect(normalizeGlobalSettings(null)).toEqual({
             rkey: { fallbackServers: [] },
             musicSignUrl: '',
+            videoUploadConcurrency: 1,
         });
     });
 
@@ -74,6 +81,7 @@ describe('global-config (config/snowluma.json)', () => {
         expect(onDisk).toEqual({
             rkey: { fallbackServers: ['https://r.example/rkey'] },
             musicSignUrl: '',
+            videoUploadConcurrency: 1,
         });
 
         expect(loadGlobalSettings().rkey.fallbackServers).toEqual(['https://r.example/rkey']);
@@ -98,6 +106,37 @@ describe('global-config (config/snowluma.json)', () => {
         const saved = saveGlobalSettings({ musicSignUrl: 'https://s.example/c' });
         expect(saved.musicSignUrl).toBe('https://s.example/c');
         expect(loadGlobalSettings().musicSignUrl).toBe('https://s.example/c');
+    });
+
+    it.each([1, 2, 3, 4])('persists %i video connections and preserves partial saves', (value) => {
+        expect(saveGlobalSettings({ videoUploadConcurrency: value }).videoUploadConcurrency).toBe(
+            value,
+        );
+        saveGlobalSettings({ musicSignUrl: 'https://sign.example/card' });
+        expect(loadGlobalSettings().videoUploadConcurrency).toBe(value);
+    });
+
+    it.each([0, 5, -1, 1.5, '2', null, false])(
+        'rejects invalid video concurrency %j without writing',
+        (value) => {
+            saveGlobalSettings({ videoUploadConcurrency: 3 });
+            const file = path.join(tempDir, 'config', 'snowluma.json');
+            const before = fs.readFileSync(file, 'utf8');
+            expect(() => saveGlobalSettings({ videoUploadConcurrency: value })).toThrow(
+                /integer from 1 to 4/,
+            );
+            expect(fs.readFileSync(file, 'utf8')).toBe(before);
+            expect(() => normalizeGlobalSettings({ videoUploadConcurrency: value })).toThrow();
+        },
+    );
+
+    it('reports an invalid persisted concurrency instead of silently ignoring it', () => {
+        fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+        fs.writeFileSync(
+            path.join(tempDir, 'config', 'snowluma.json'),
+            JSON.stringify({ videoUploadConcurrency: 99 }),
+        );
+        expect(() => loadGlobalSettings()).toThrow(/videoUploadConcurrency/);
     });
 
     describe('migrateGlobalSettings (musicSignUrl copy-up)', () => {
@@ -167,6 +206,10 @@ describe('global-config (config/snowluma.json)', () => {
     it('falls back to defaults when the file is corrupt', () => {
         fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
         fs.writeFileSync(path.join(tempDir, 'config', 'snowluma.json'), '{ not json', 'utf8');
-        expect(loadGlobalSettings()).toEqual({ rkey: { fallbackServers: [] }, musicSignUrl: '' });
+        expect(loadGlobalSettings()).toEqual({
+            rkey: { fallbackServers: [] },
+            musicSignUrl: '',
+            videoUploadConcurrency: 1,
+        });
     });
 });

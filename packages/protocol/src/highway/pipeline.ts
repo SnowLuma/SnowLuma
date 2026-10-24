@@ -41,6 +41,8 @@ export interface MediaSubFileUpload {
     source: 'top' | number;
     /** Highway command id for this sub-file. */
     cmdId: number;
+    /** Optional bounded parallel upload; only video bodies opt in. */
+    concurrency?: number;
     /** Bytes to upload. Empty when the caller is forwarding from cached
      *  fingerprints; in that case set fastOnlyError so we throw with a
      *  typed message when the server actually demands the bytes. Also empty
@@ -352,7 +354,28 @@ async function runNtv2UploadOperation(
             );
             const t0 = Date.now();
             setState('put_failed');
-            await uploadHighwayHttp(bridge, putSession, sub.cmdId, chunkSource, sub.md5, extend);
+
+            if (sub.concurrency === undefined) {
+                await uploadHighwayHttp(
+                    bridge,
+                    putSession,
+                    sub.cmdId,
+                    chunkSource,
+                    sub.md5,
+                    extend,
+                );
+            } else {
+                await uploadHighwayHttp(
+                    bridge,
+                    putSession,
+                    sub.cmdId,
+                    chunkSource,
+                    sub.md5,
+                    extend,
+                    { concurrency: sub.concurrency },
+                );
+            }
+
             log.debug('%s PUT done in %dms', label, Date.now() - t0);
             didPut = true;
             setState('unexpected_failure', true);

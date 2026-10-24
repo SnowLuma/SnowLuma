@@ -1,3 +1,4 @@
+import { setVideoUploadConcurrency } from '@snowluma/protocol/highway/upload-settings';
 import { createLogger, runWithoutRequestContext } from '@snowluma/common/logger';
 import type { BridgeInterface, BridgeSessionSource } from '@snowluma/core/bridge-interface';
 import { loadOneBotConfig, OneBotConfigValidationError } from './config';
@@ -155,6 +156,7 @@ export class OneBotManager {
     private readonly sessionReleaseDeadlineMs: number;
 
     constructor(options: OneBotManagerOptions = {}) {
+        setVideoUploadConcurrency(loadGlobalSettings().videoUploadConcurrency ?? 1);
         const envRaw = process.env[SESSION_RELEASE_DEADLINE_ENV];
 
         if (
@@ -267,6 +269,7 @@ export class OneBotManager {
      *  them to every live instance. Called after the WebUI saves global config. */
     reloadGlobalSettings(): void {
         const globalSettings = loadGlobalSettings();
+        setVideoUploadConcurrency(globalSettings.videoUploadConcurrency ?? 1);
 
         for (const instance of this.instances.values()) {
             instance.applyGlobalSettings(globalSettings);

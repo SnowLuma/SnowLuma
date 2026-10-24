@@ -1,3 +1,7 @@
+import {
+    getVideoUploadConcurrency,
+    setVideoUploadConcurrency,
+} from '@snowluma/protocol/highway/upload-settings';
 // video-upload tests cover the fingerprint (fast-upload) path. The
 // regular load path exercises ffmpeg + the OS temp dir + a streaming
 // SHA1 implementation; that machinery has its own seams worth testing
@@ -9,7 +13,7 @@
 // fastOnlyError difference (main has it; thumb doesn't — FALLBACK_THUMB
 // always provides bytes), and the video-specific OIDB fields.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { promises as fsp } from 'fs';
 import fs from 'fs';
 import os from 'os';
@@ -44,9 +48,25 @@ const FINGERPRINT = {
 } as any;
 
 describe('video-upload', () => {
+    afterEach(() => setVideoUploadConcurrency(1));
     beforeEach(() => {
         vi.mocked(pipeline.runNtv2Upload).mockClear();
         vi.mocked(pipeline.finalizeMediaMsgInfo).mockClear();
+    });
+
+    it('snapshots the global concurrency for video bodies without parallelizing covers', async () => {
+        expect(getVideoUploadConcurrency()).toBe(1);
+        setVideoUploadConcurrency(4);
+        const first = uploadVideoMsgInfo({} as any, true, 12345, FINGERPRINT);
+        setVideoUploadConcurrency(2);
+        await first;
+        const firstUpload = vi.mocked(pipeline.runNtv2Upload).mock.calls[0]![0];
+        expect(firstUpload.uploads[0]!.concurrency).toBe(4);
+        expect(firstUpload.uploads[1]!.concurrency).toBeUndefined();
+        await uploadVideoMsgInfo({} as any, false, 'recipient-uid', FINGERPRINT);
+        const secondUpload = vi.mocked(pipeline.runNtv2Upload).mock.calls[1]![0];
+        expect(secondUpload.uploads[0]!.concurrency).toBe(2);
+        expect(secondUpload.uploads[1]!.concurrency).toBeUndefined();
     });
 
     it('retains successful upload metadata for self-sent history', async () => {

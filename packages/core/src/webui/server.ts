@@ -2173,6 +2173,11 @@ export async function initWebUI(
                 'save global config failed: %s',
                 err instanceof Error ? err.message : String(err),
             );
+
+            if (err instanceof RangeError) {
+                return c.json({ success: false, message: err.message }, 400);
+            }
+
             return c.json({ success: false, message: '保存失败，请检查服务器日志' }, 500);
         }
     });

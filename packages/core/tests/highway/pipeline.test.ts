@@ -132,6 +132,36 @@ describe('pipeline — runNtv2Upload', () => {
         setLogLevel(previousLogLevel);
     });
 
+    it('passes concurrency only for the sub-file that explicitly opts in', async () => {
+        const bridge = makeBridge({
+            responseData: encodeOidbResponse({
+                upload: {
+                    uKey: 'main-key',
+                    subFileInfos: [{ uKey: 'cover-key' }],
+                    msgInfo: { msgInfoBody: [{}, {}], extBizInfo: {} },
+                },
+            }),
+        });
+        const media = {
+            bytes: new Uint8Array([1]),
+            md5: new Uint8Array(16),
+            sha1: new Uint8Array(20),
+        };
+        await runNtv2Upload(
+            baseParams({
+                bridge,
+                uploads: [
+                    { ...media, source: 'top', cmdId: 1005, concurrency: 4 },
+                    { ...media, source: 0, cmdId: 1006 },
+                ],
+            }),
+        );
+        const calls = vi.mocked(highway.uploadHighwayHttp).mock.calls;
+        expect(calls).toHaveLength(2);
+        expect(calls[0]?.[6]).toEqual({ concurrency: 4 });
+        expect(calls[1]?.[6]).toBeUndefined();
+    });
+
     it('records fast-upload selection and one completed media terminal', async () => {
         const bridge = makeBridge({
             responseData: encodeOidbResponse({
