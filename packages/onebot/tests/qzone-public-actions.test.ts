@@ -245,15 +245,34 @@ describe('qzone public actions', () => {
         },
     );
 
-    it('accepts a JSON-array string through the existing message coercer', async () => {
-        const commentPublicFeed = vi.fn().mockResolvedValue(result);
+    it.each(['comment_qzone_public_feed', 'reply_qzone_public_feed'])(
+        '%s preserves literal text even when it looks like JSON',
+        async (action) => {
+            const { method } = cases.find((entry) => entry.action === action)!;
+            const invoke = vi.fn().mockResolvedValue(result);
+            const handler = makeHandler({ [method]: invoke });
 
-        await makeHandler({ commentPublicFeed }).handle('comment_qzone_public_feed', {
-            feed,
-            content: '[{"type":0,"content":"hello"}]',
-        });
-        expect(commentPublicFeed).toHaveBeenCalledWith(feed, [{ type: 0, content: 'hello' }]);
-    });
+            for (const content of [
+                '[]',
+                '[1,2]',
+                '[{"type":0,"content":"hello"}]',
+                '  ["中文"]\n',
+                '{"text":"hello"}',
+            ]) {
+                expect(
+                    await handler.handle(action, { feed, comment, content, reply }),
+                ).toMatchObject({
+                    status: 'ok',
+                    retcode: 0,
+                });
+                expect(invoke).toHaveBeenLastCalledWith(
+                    ...(action === 'comment_qzone_public_feed'
+                        ? [feed, content]
+                        : [feed, comment, content, reply]),
+                );
+            }
+        },
+    );
 
     it.each(['comment_qzone_public_feed', 'reply_qzone_public_feed'])(
         '%s rejects missing, empty, scalar or mixed content without effects',

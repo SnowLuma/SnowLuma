@@ -505,6 +505,43 @@ export const f = {
             },
         );
     },
+    /** Literal text or upstream rich items; strings must never be decoded as messages. */
+    textOrObjectArray(): Field<string | JsonObject[]> {
+        return new FieldImpl<string | JsonObject[]>(
+            (raw, field) => {
+                if (typeof raw === 'string' && raw.length > 0) {
+                    return ok(raw);
+                }
+
+                if (
+                    Array.isArray(raw) &&
+                    raw.length > 0 &&
+                    raw.every(
+                        (item): item is JsonObject =>
+                            typeof item === 'object' && item !== null && !Array.isArray(item),
+                    )
+                ) {
+                    return ok(raw);
+                }
+
+                return err(field, 'expected non-empty text or a non-empty array of objects');
+            },
+            {
+                type: 'string | object[]',
+                required: true,
+                schema: {
+                    anyOf: [
+                        { type: 'string', minLength: 1 },
+                        {
+                            type: 'array',
+                            minItems: 1,
+                            items: { type: 'object', additionalProperties: true },
+                        },
+                    ],
+                },
+            },
+        );
+    },
     /** OneBot message union: string | segment[] | object. A string that looks
      *  like a JSON array is parsed (matches legacy `asMessage`); otherwise the
      *  value passes through. Output stays `JsonValue` — downstream ctx.* accept it. */

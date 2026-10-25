@@ -1,12 +1,16 @@
 import { defineAction, f } from '../action-kit';
-import { okResponse, type JsonObject, type JsonValue } from '../types';
+import { okResponse, type JsonObject } from '../types';
 
 const feed = f
     .object()
     .describe('get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段');
 const comment = f.object().describe('详情或评论页返回的完整评论对象，保留 user 等原始字段');
 const reply = f.object().describe('评论或回复页返回的完整回复对象，保留 user 等原始字段');
-const content = f.message().describe('非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段');
+const content = f
+    .textOrObjectArray()
+    .describe(
+        '非空文本，或非空上游 RichItem 对象数组；字符串始终原样发送，富文本请直接传对象数组，不是 OneBot 消息段',
+    );
 const objectResult = { type: 'object', additionalProperties: true };
 const feedSource =
     'feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。';
@@ -37,16 +41,6 @@ const replyExample: JsonObject = {
     user: { uin: '<uin>', uid: '<uid>', nick: '<nick>' },
     like: { id: '<like-id-from-reply>', count: 0, status: 0 },
 };
-
-function validContent(value: JsonValue): value is string | JsonObject[] {
-    return typeof value === 'string'
-        ? value.length > 0
-        : Array.isArray(value) &&
-              value.length > 0 &&
-              value.every(
-                  (item) => typeof item === 'object' && item !== null && !Array.isArray(item),
-              );
-}
 
 export const actions = [
     defineAction({
@@ -249,18 +243,8 @@ export const actions = [
         returns: '上游评论结果，包含新评论，保留未知字段。',
         returnsSchema: objectResult,
         params: { feed, content },
-        rules: (r) => [
-            r.rule('content must be non-empty text or a non-empty array of RichItem objects', (p) =>
-                validContent(p.content),
-            ),
-        ],
         run: async (p, ctx) =>
-            okResponse(
-                await ctx.bridge.apis.qzone.commentPublicFeed(
-                    p.feed,
-                    p.content as string | JsonObject[],
-                ),
-            ),
+            okResponse(await ctx.bridge.apis.qzone.commentPublicFeed(p.feed, p.content)),
     }),
     defineAction({
         name: 'reply_qzone_public_feed',
@@ -286,19 +270,9 @@ export const actions = [
         returns: '上游回复结果，包含新回复，保留未知字段。',
         returnsSchema: objectResult,
         params: { feed, comment, content, reply: reply.optional() },
-        rules: (r) => [
-            r.rule('content must be non-empty text or a non-empty array of RichItem objects', (p) =>
-                validContent(p.content),
-            ),
-        ],
         run: async (p, ctx) =>
             okResponse(
-                await ctx.bridge.apis.qzone.replyPublicFeed(
-                    p.feed,
-                    p.comment,
-                    p.content as string | JsonObject[],
-                    p.reply,
-                ),
+                await ctx.bridge.apis.qzone.replyPublicFeed(p.feed, p.comment, p.content, p.reply),
             ),
     }),
     defineAction({

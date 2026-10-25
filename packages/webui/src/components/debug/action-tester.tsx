@@ -26,6 +26,7 @@ import { ParamField } from '@/components/debug/param-field';
 import { Segmented } from '@/components/debug/segmented';
 import { useApi } from '@/lib/api';
 import { useDebugTasks } from '@/contexts/DebugTaskContext';
+import { buildActionParams } from '@/lib/action-params';
 import { clearHistory, loadHistory, pushHistory, type InvokeRecord } from '@/lib/debug-history';
 import { cn } from '@/lib/utils';
 import type { DebugActionDoc, DebugStreamFrame, QQInfo } from '@/types';
@@ -44,37 +45,6 @@ const MAX_STREAM_FRAMES = 2000;
 
 function qqAvatarUrl(uin: string) {
     return `/avatar/${encodeURIComponent(uin)}`;
-}
-
-function coerceParam(type: string, raw: string): unknown {
-    if (raw === '') {
-        return undefined;
-    }
-
-    if (/int|uint|number|messageId/i.test(type)) {
-        const n = Number(raw);
-        return Number.isFinite(n) ? n : raw;
-    }
-
-    if (type === 'bool' || type === 'boolean') {
-        return raw === 'true' || raw === '1';
-    }
-
-    if (type === 'message') {
-        const t = raw.trim();
-
-        if ((t.startsWith('[') && t.endsWith(']')) || (t.startsWith('{') && t.endsWith('}'))) {
-            try {
-                return JSON.parse(t);
-            } catch {
-                /* fall through to literal */
-            }
-        }
-
-        return raw;
-    }
-
-    return raw;
 }
 
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -171,19 +141,11 @@ export function ActionTester({
             return parsed as Record<string, unknown>;
         }
 
-        const out: Record<string, unknown> = {};
-
-        if (doc) {
-            for (const p of doc.params) {
-                const v = coerceParam(p.type, fields[p.name] ?? '');
-
-                if (v !== undefined) {
-                    out[p.name] = v;
-                }
-            }
+        try {
+            return buildActionParams(doc?.params ?? [], fields);
+        } catch (error) {
+            return { __error: error instanceof Error ? error.message : String(error) };
         }
-
-        return out;
     };
 
     const runInvoke = async () => {

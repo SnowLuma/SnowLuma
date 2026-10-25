@@ -5,6 +5,7 @@
 // group_id, an image a FileSource, a bool a switch, an enum a select.
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Dropdown } from '@/components/interior/dropdown';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Picker } from '@/components/ui/picker';
@@ -217,6 +218,26 @@ export function ParamField({
                 groupContext={groupContext}
                 mode={messageBuilderModeForAction(actionName)}
             />
+        );
+    }
+
+    if (param.type === 'object' || param.type === 'string | object[]') {
+        return (
+            <div className="space-y-1.5">
+                <Textarea
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    aria-label={param.name}
+                    placeholder={param.type === 'object' ? '{\n  \n}' : '"你好"'}
+                    className="min-h-24 font-mono text-xs"
+                    spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                    {param.type === 'object'
+                        ? '粘贴完整 JSON 对象，保留原始字段。'
+                        : '文本填写 JSON 字符串（如 "你好"），富文本填写对象数组。'}
+                </p>
+            </div>
         );
     }
 

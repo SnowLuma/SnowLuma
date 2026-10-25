@@ -1549,17 +1549,28 @@ export const ACTIONS: CatalogAction[] = [
       },
       {
         "name": "content",
-        "type": "message",
+        "type": "string | object[]",
         "required": true,
         "schema": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          ]
         },
-        "desc": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+        "desc": "非空文本，或非空上游 RichItem 对象数组；字符串始终原样发送，富文本请直接传对象数组，不是 OneBot 消息段"
       }
     ],
-    "invariants": [
-      "content must be non-empty text or a non-empty array of RichItem objects"
-    ],
+    "invariants": [],
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1569,7 +1580,21 @@ export const ACTIONS: CatalogAction[] = [
           "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
         },
         "content": {
-          "description": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          ],
+          "description": "非空文本，或非空上游 RichItem 对象数组；字符串始终原样发送，富文本请直接传对象数组，不是 OneBot 消息段"
         }
       },
       "required": [
@@ -13892,12 +13917,25 @@ export const ACTIONS: CatalogAction[] = [
       },
       {
         "name": "content",
-        "type": "message",
+        "type": "string | object[]",
         "required": true,
         "schema": {
-          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          ]
         },
-        "desc": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+        "desc": "非空文本，或非空上游 RichItem 对象数组；字符串始终原样发送，富文本请直接传对象数组，不是 OneBot 消息段"
       },
       {
         "name": "reply",
@@ -13910,9 +13948,7 @@ export const ACTIONS: CatalogAction[] = [
         "desc": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
       }
     ],
-    "invariants": [
-      "content must be non-empty text or a non-empty array of RichItem objects"
-    ],
+    "invariants": [],
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -13927,7 +13963,21 @@ export const ACTIONS: CatalogAction[] = [
           "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
         },
         "content": {
-          "description": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          ],
+          "description": "非空文本，或非空上游 RichItem 对象数组；字符串始终原样发送，富文本请直接传对象数组，不是 OneBot 消息段"
         },
         "reply": {
           "type": "object",
