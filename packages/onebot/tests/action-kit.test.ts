@@ -114,6 +114,35 @@ describe('f.array(...).nonEmpty — per-element + non-empty', () => {
     });
 });
 
+describe('f.object — open JSON object', () => {
+    const spec = defineAction({
+        name: 't',
+        params: { value: f.object() },
+        run: () => okResponse(),
+    });
+
+    it('preserves nested and unknown fields', () => {
+        const value = { identity: { id: 'opaque' }, future: [1, null, { enabled: true }] };
+        expect(expectOk(spec.parse({ value })).value).toBe(value);
+        expect(f.object().toJsonSchema()).toEqual({ type: 'object', additionalProperties: true });
+    });
+
+    it.each([null, [], 'text', 1, false])('rejects non-object %j', (value) => {
+        expect(expectErr(spec.parse({ value })).field).toBe('value');
+    });
+
+    it('uses the normal required and optional field policies', () => {
+        expect(expectErr(spec.parse({})).reason).toBe('is required');
+        const optional = defineAction({
+            name: 't',
+            params: { value: f.object().optional() },
+            run: () => okResponse(),
+        });
+        expect(expectOk(optional.parse({}))).toEqual({ value: undefined });
+        expect(expectErr(optional.parse({ value: null })).field).toBe('value');
+    });
+});
+
 describe('f.message — union passthrough + JSON-array string', () => {
     const spec = defineAction({ name: 't', params: { m: f.message() }, run: () => okResponse() });
     it('parses a JSON-array string, passes plain string / array through', () => {

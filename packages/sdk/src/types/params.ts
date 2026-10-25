@@ -589,6 +589,66 @@ export type SetQzoneProfileParams = JsonObject &
         | { name?: ActionStringInput; description: ActionStringInput }
     );
 
+/** Non-empty text or a non-empty array of upstream rich-text items. */
+export type QzonePublicContent = string | JsonObject[];
+
+export interface GetQzonePublicFeedsParams extends JsonObject {
+    /** Opaque account-bound next_cursor from the previous page. */
+    cursor?: string;
+}
+
+export interface QzonePublicFeedParams extends JsonObject {
+    /** The original feed cells returned in get_qzone_public_feeds.feeds. */
+    feed: JsonObject;
+}
+
+export interface GetQzonePublicCommentsParams extends QzonePublicFeedParams {
+    /** Upstream attach_info from the detail or previous comment page. */
+    cursor: string;
+}
+
+export interface QzonePublicCommentParams extends QzonePublicFeedParams {
+    /** Preserve the complete upstream parent comment. */
+    comment: JsonObject;
+}
+
+export interface GetQzonePublicRepliesParams extends QzonePublicCommentParams {
+    /** Omit to use comment.reply_attach_info; then pass the reply page's cursor unchanged. */
+    cursor?: string;
+    /** Defaults to 20; must be at least 1. */
+    page_size?: ActionNumberInput;
+}
+
+export interface QzonePublicInteractionParams extends QzonePublicFeedParams {
+    /** Defaults to true; false cancels the interaction. */
+    enable?: ActionBooleanInput;
+}
+
+export interface SetQzonePublicCommentLikeParams extends QzonePublicCommentParams {
+    /** Omit for the parent comment; provide the complete upstream reply to like that reply. */
+    reply?: JsonObject;
+    /** Defaults to true; false cancels the like. */
+    enable?: ActionBooleanInput;
+}
+
+export interface CommentQzonePublicFeedParams extends QzonePublicFeedParams {
+    content: QzonePublicContent;
+}
+
+export interface ReplyQzonePublicFeedParams extends CommentQzonePublicFeedParams {
+    comment: JsonObject;
+    /** Preserve a specific upstream reply when addressing its author. */
+    reply?: JsonObject;
+}
+
+export interface QzonePublicReplyParams extends QzonePublicCommentParams {
+    reply: JsonObject;
+}
+
+export interface ForwardQzonePublicFeedParams extends QzonePublicFeedParams {
+    reason?: string;
+}
+
 export interface QzoneMsgIdParams extends JsonObject {
     tid: ActionStringInput;
 }

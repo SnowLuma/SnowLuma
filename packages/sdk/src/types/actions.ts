@@ -84,6 +84,7 @@ import type {
     ActionUserIdParams,
     AddCustomFaceParams,
     CommentQzoneParams,
+    CommentQzonePublicFeedParams,
     CreateFlashTaskParams,
     CustomFaceIdParams,
     DownloadFileStreamParams,
@@ -98,12 +99,22 @@ import type {
     GetQzoneFeedsParams,
     GetQzoneMsgListParams,
     GetQzoneProfileParams,
+    GetQzonePublicFeedsParams,
+    GetQzonePublicCommentsParams,
+    GetQzonePublicRepliesParams,
     GroupAlbumCommentParams,
     GroupAlbumMediaLikeParams,
     GroupAlbumMediaParams,
     LikeQzoneParams,
     ModifyCustomFaceParams,
     QzoneMsgIdParams,
+    QzonePublicFeedParams,
+    QzonePublicCommentParams,
+    QzonePublicReplyParams,
+    QzonePublicInteractionParams,
+    SetQzonePublicCommentLikeParams,
+    ReplyQzonePublicFeedParams,
+    ForwardQzonePublicFeedParams,
     RenameFlashFileParams,
     RequestDecryptKeyParams,
     SendFlashMsgParams,
@@ -187,6 +198,7 @@ import type {
     QzoneMsgListResult,
     QzonePublishResult,
     QzoneProfileResult,
+    QzonePublicFeedsPage,
     QzoneUpdateRightResult,
     RkeyServerResult,
     SendFlashMsgResult,
@@ -361,11 +373,14 @@ export interface SnowLumaActionMap {
     };
     clean_stream_temp_file: { params: JsonObject; data: CleanStreamTempFileResult };
     comment_qzone: { params: CommentQzoneParams; data: QzoneCommentResult };
+    comment_qzone_public_feed: { params: CommentQzonePublicFeedParams; data: JsonObject };
     create_flash_task: { params: CreateFlashTaskParams; data: CreateFlashTaskResult };
     del_group_album_media: { params: GroupAlbumMediaParams; data: DeleteGroupAlbumMediaResult };
     delete_custom_face: { params: CustomFaceIdParams; data: EmptyData };
     delete_flash_file: { params: FilesetIdParams; data: EmptyData };
     delete_qzone_msg: { params: QzoneMsgIdParams; data: EmptyData };
+    delete_qzone_public_comment: { params: QzonePublicCommentParams; data: JsonObject };
+    delete_qzone_public_reply: { params: QzonePublicReplyParams; data: JsonObject };
     do_group_album_comment: { params: GroupAlbumCommentParams; data: GroupAlbumCommentResult };
     download_file_image_stream: {
         params: DownloadFileStreamParams;
@@ -400,6 +415,11 @@ export interface SnowLumaActionMap {
     get_qzone_feeds: { params: GetQzoneFeedsParams; data: QzoneFeedsResult };
     get_qzone_msg_list: { params: GetQzoneMsgListParams; data: QzoneMsgListResult };
     get_qzone_profile: { params: GetQzoneProfileParams; data: QzoneProfileResult };
+    get_qzone_public_capabilities: { params: JsonObject; data: JsonObject };
+    get_qzone_public_feeds: { params: GetQzonePublicFeedsParams; data: QzonePublicFeedsPage };
+    get_qzone_public_feed_detail: { params: QzonePublicFeedParams; data: JsonObject };
+    get_qzone_public_comments: { params: GetQzonePublicCommentsParams; data: JsonObject };
+    get_qzone_public_replies: { params: GetQzonePublicRepliesParams; data: JsonObject };
     get_rkey_server: { params: JsonObject; data: RkeyServerResult };
     get_share_link: { params: FilesetIdParams; data: string };
     like_qzone: { params: LikeQzoneParams; data: EmptyData };
@@ -407,6 +427,7 @@ export interface SnowLumaActionMap {
     modify_custom_face: { params: ModifyCustomFaceParams; data: EmptyData };
     move_custom_face_to_front: { params: CustomFaceIdParams; data: EmptyData };
     rename_flash_file: { params: RenameFlashFileParams; data: EmptyData };
+    reply_qzone_public_feed: { params: ReplyQzonePublicFeedParams; data: JsonObject };
     request_decrypt_key: { params: RequestDecryptKeyParams; data: DecryptKeyResult };
     send_ark_share: { params: SharePeerParams; data: ArkShareResult };
     send_flash_msg: { params: SendFlashMsgParams; data: SendFlashMsgResult };
@@ -428,6 +449,11 @@ export interface SnowLumaActionMap {
     set_qzone_ban: { params: SetQzoneBanParams; data: EmptyData };
     set_qzone_msg_right: { params: SetQzoneMsgRightParams; data: QzoneUpdateRightResult };
     set_qzone_profile: { params: SetQzoneProfileParams; data: EmptyData };
+    set_qzone_public_upvote: { params: QzonePublicInteractionParams; data: JsonObject };
+    set_qzone_public_comment_like: { params: SetQzonePublicCommentLikeParams; data: JsonObject };
+    set_qzone_public_like: { params: QzonePublicInteractionParams; data: JsonObject };
+    set_qzone_public_follow: { params: QzonePublicInteractionParams; data: JsonObject };
+    forward_qzone_public_feed: { params: ForwardQzonePublicFeedParams; data: JsonObject };
     share_group_ex: { params: ActionGroupIdParams; data: string };
     share_peer: { params: SharePeerParams; data: ArkShareResult };
     test_download_stream: { params: TestDownloadStreamParams; data: TestDownloadStreamResult };

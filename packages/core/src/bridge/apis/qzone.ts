@@ -1,3 +1,4 @@
+import type { JsonObject } from '@snowluma/common/json';
 import {
     commentQzoneMsg,
     deleteQzoneMsg,
@@ -23,11 +24,29 @@ import {
     type QzoneUpdateRightResult,
     type QzoneUploadImageResult,
 } from '@snowluma/protocol/web/qzone';
+import {
+    getQzonePublicCapabilities,
+    getQzonePublicFeeds,
+    getQzonePublicFeedDetail,
+    getQzonePublicComments,
+    getQzonePublicReplies,
+    setQzonePublicUpvote,
+    setQzonePublicLike,
+    setQzonePublicCommentLike,
+    commentQzonePublicFeed,
+    replyQzonePublicFeed,
+    deleteQzonePublicComment,
+    deleteQzonePublicReply,
+    setQzonePublicFollow,
+    forwardQzonePublicFeed,
+    type QzonePublicContent,
+    type QzonePublicFeedsPage,
+} from '@snowluma/protocol/web/qzone-public';
 import type { BridgeContext } from '../bridge-context';
 
 /**
- * Personal QQ-Zone (个人空间) web API: 说说 (feed) read/write, likes,
- * comments, image upload — all over the cookie-backed qzone.qq.com CGIs,
+ * Personal QQ-Zone (个人空间) web API: 说说, public recommendations, likes,
+ * comments and image upload over the cookie-backed Qzone web interfaces,
  * reusing the same `getCookies('qzone.qq.com')` plumbing as GroupAlbumApi.
  * Distinct from the group-album surface, which lives on GroupAlbumApi.
  */
@@ -42,6 +61,105 @@ export class QzoneApi {
     async setProfile(profile: QzoneProfileUpdate): Promise<void> {
         const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
         await setQzoneProfile(cookieObject, this.ctx.identity.uin, profile);
+    }
+
+    async getPublicCapabilities(): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzonePublicCapabilities(cookies, this.ctx.identity.uin);
+    }
+
+    async getPublicFeeds(cursor?: string): Promise<QzonePublicFeedsPage> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzonePublicFeeds(cookies, this.ctx.identity.uin, cursor);
+    }
+
+    async getPublicFeedDetail(feed: JsonObject): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzonePublicFeedDetail(cookies, feed);
+    }
+
+    async getPublicComments(feed: JsonObject, cursor: string): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzonePublicComments(cookies, feed, cursor);
+    }
+
+    async getPublicReplies(
+        feed: JsonObject,
+        comment: JsonObject,
+        cursor = '',
+        pageSize = 20,
+    ): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzonePublicReplies(cookies, feed, comment, cursor, pageSize);
+    }
+
+    async setPublicUpvote(feed: JsonObject, enable = true): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return setQzonePublicUpvote(cookies, feed, enable);
+    }
+
+    async setPublicLike(feed: JsonObject, enable = true): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return setQzonePublicLike(cookies, feed, enable);
+    }
+
+    async setPublicCommentLike(
+        feed: JsonObject,
+        comment: JsonObject,
+        enable = true,
+        reply?: JsonObject,
+    ): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return setQzonePublicCommentLike(cookies, feed, comment, enable, reply);
+    }
+
+    async commentPublicFeed(feed: JsonObject, content: QzonePublicContent): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        const user = {
+            uin: this.ctx.identity.uin,
+            uid: this.ctx.identity.selfUid ?? '',
+            nick: this.ctx.identity.nickname,
+        };
+        return commentQzonePublicFeed(cookies, feed, user, content);
+    }
+
+    async replyPublicFeed(
+        feed: JsonObject,
+        comment: JsonObject,
+        content: QzonePublicContent,
+        reply?: JsonObject,
+    ): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        const user = {
+            uin: this.ctx.identity.uin,
+            uid: this.ctx.identity.selfUid ?? '',
+            nick: this.ctx.identity.nickname,
+        };
+        return replyQzonePublicFeed(cookies, feed, user, comment, content, reply);
+    }
+
+    async deletePublicComment(feed: JsonObject, comment: JsonObject): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return deleteQzonePublicComment(cookies, feed, comment);
+    }
+
+    async deletePublicReply(
+        feed: JsonObject,
+        comment: JsonObject,
+        reply: JsonObject,
+    ): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return deleteQzonePublicReply(cookies, feed, comment, reply);
+    }
+
+    async setPublicFollow(feed: JsonObject, enable = true): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return setQzonePublicFollow(cookies, feed, enable);
+    }
+
+    async forwardPublicFeed(feed: JsonObject, reason = ''): Promise<JsonObject> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return forwardQzonePublicFeed(cookies, feed, reason);
     }
 
     /**

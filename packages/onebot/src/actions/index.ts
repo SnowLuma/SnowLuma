@@ -18,6 +18,7 @@ import { actions as requestActions } from './request';
 import { actions as extendedActions } from './extended';
 import { actions as groupAlbumActions } from './group-album';
 import { actions as qzoneActions } from './qzone';
+import { actions as qzonePublicActions } from './qzone-public';
 import { actions as streamFileActions } from './stream-file';
 import { actions as streamDownloadActions } from './stream-download';
 import { actions as systemFaceActions } from './system-face';
@@ -295,7 +296,7 @@ export const ACTION_GROUPS: readonly ActionGroup[] = [
     { category: '请求', actions: requestActions },
     { category: '扩展', actions: extendedActions },
     { category: '群相册', actions: groupAlbumActions },
-    { category: '空间', actions: qzoneActions },
+    { category: '空间', actions: [...qzoneActions, ...qzonePublicActions] },
     { category: '系统表情', actions: systemFaceActions },
     { category: '流式接口', actions: [...streamFileActions, ...streamDownloadActions] },
 ];
