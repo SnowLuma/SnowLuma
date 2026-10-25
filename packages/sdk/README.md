@@ -181,6 +181,52 @@ for (const comment of detail.comments) {
 
 分页参数及 `commentlist` / `list_3` 字段参考 [Qzone-API](https://github.com/SmartHypercube/Qzone-API/blob/master/qzone.py)。实际分页和可见内容取决于 QQ 空间服务端。
 
+### 空友爱看与公共空间
+
+公共空间动作使用推荐域 `3` 的 JSON 接口，与上面的旧空间 CGI 动作分开。先读取 `get_qzone_public_feeds`，再把返回的完整 `feed` 对象传给详情和互动动作，保留其中的身份、传递数据及未知字段；不要用旧说说 `tid` 拼造。
+
+| 动作 | 主要参数 |
+| --- | --- |
+| `get_qzone_public_capabilities` | 无；读取当前账号的入口能力 |
+| `get_qzone_public_feeds` | 可选 `cursor` |
+| `get_qzone_public_feed_detail` | `feed` |
+| `get_qzone_public_comments` | `feed`、`cursor` |
+| `get_qzone_public_replies` | `feed`、完整 `comment`，可选 `cursor`、`page_size`（默认 20） |
+| `set_qzone_public_upvote` / `set_qzone_public_like` / `set_qzone_public_follow` | `feed`，可选 `enable`（默认 `true`，`false` 取消） |
+| `set_qzone_public_comment_like` | `feed`、完整 `comment`，可选完整 `reply`、`enable`（默认 `true`） |
+| `comment_qzone_public_feed` | `feed`、`content` |
+| `reply_qzone_public_feed` | `feed`、完整 `comment`、`content`，可选完整 `reply` |
+| `delete_qzone_public_comment` / `delete_qzone_public_reply` | `feed`、完整 `comment`；删除回复还需完整 `reply` |
+| `forward_qzone_public_feed` | `feed`，可选 `reason`（默认空字符串） |
+
+“推”与“赞”是不同的互动，分别使用 `set_qzone_public_upvote` 和 `set_qzone_public_like`。评论或回复的 `content` 接受非空文本或非空的上游富文本对象数组。详情、评论、回复及写操作保留上游结果字段，`raw` 返回这些 JSON 对象；列表的 `feeds` 已去掉上游每项的 `.feed` 包装，其余字段保持开放。
+
+QQ 上游会对评论换行做归一化，返回的富文本保持上游格式。
+
+`set_qzone_public_comment_like` 为评论点赞；提供 `reply` 时改为给该回复点赞，`enable: false` 取消。保留评论或回复自带的 `like.id`，不要将它替换成评论 ID。
+
+```ts
+const page = await bot.raw('get_qzone_public_feeds', {});
+if (page.has_more && page.next_cursor) {
+  const next = await bot.raw('get_qzone_public_feeds', { cursor: page.next_cursor });
+  console.log(next.feeds);
+}
+
+const feed = page.feeds[0];
+if (feed) {
+  const detail = await bot.raw('get_qzone_public_feed_detail', { feed });
+  if (detail.has_more === true && typeof detail.attach_info === 'string') {
+    const comments = await bot.raw('get_qzone_public_comments', {
+      feed,
+      cursor: detail.attach_info,
+    });
+    console.log(comments);
+  }
+}
+```
+
+列表续页必须原样传回 `next_cursor`，根据 `has_more` 判断结束，不能因本页不足 10 条而停止。详情中的首批评论位于 `feed.feed.cell_comment.comments`；后续评论使用详情或上一评论页的 `attach_info` 作为 `cursor`。读取回复时，首次可省略 `cursor` 使用完整评论自带的 `reply_attach_info`，之后传上一回复页的 `reply_attach_info`。这些游标各有用途，列表游标还绑定当前账号。登录或访问权限失败会抛出 `SnowLumaApiError`。
+
 ## Message Builder
 
 ```ts

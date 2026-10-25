@@ -4,10 +4,19 @@ import { actions as extended } from '../src/actions/extended';
 import { actions as albums } from '../src/actions/group-album';
 import { actions as groupAdmin } from '../src/actions/group-admin';
 import { actions as qzone } from '../src/actions/qzone';
+import { actions as qzonePublic } from '../src/actions/qzone-public';
 import { actions as streamDownload } from '../src/actions/stream-download';
 import { actions as streamFile } from '../src/actions/stream-file';
 
-const actions = [...extended, ...albums, ...groupAdmin, ...qzone, ...streamDownload, ...streamFile];
+const actions = [
+    ...extended,
+    ...albums,
+    ...groupAdmin,
+    ...qzone,
+    ...qzonePublic,
+    ...streamDownload,
+    ...streamFile,
+];
 const examples = Object.entries(actionParams).filter(
     ([name]) => name !== '.handle_quick_operation_async',
 );

@@ -115,6 +115,58 @@ export const invalidQzoneProfilePatch: ActionParams<'set_qzone_profile'> = {
     // @ts-expect-error profile fields accept string, number or boolean primitives
     description: [],
 };
+const publicPage = await http.raw('get_qzone_public_feeds', {});
+export const publicCells: JsonObject[] = publicPage.feeds;
+export const publicHasMore: boolean = publicPage.has_more;
+export const publicCursor: string | null = publicPage.next_cursor;
+
+if (publicPage.has_more && publicPage.next_cursor) {
+    await http.raw('get_qzone_public_feeds', { cursor: publicPage.next_cursor });
+}
+
+declare const publicFeed: JsonObject;
+declare const publicComment: JsonObject;
+export const publicReplyDefaults: ActionParams<'get_qzone_public_replies'> = {
+    feed: publicFeed,
+    comment: publicComment,
+};
+export const publicUpvoteDefault: ActionParams<'set_qzone_public_upvote'> = { feed: publicFeed };
+export const publicLikeDefault: ActionParams<'set_qzone_public_like'> = { feed: publicFeed };
+export const publicFollowDefault: ActionParams<'set_qzone_public_follow'> = { feed: publicFeed };
+export const publicCommentLikeDefault: ActionParams<'set_qzone_public_comment_like'> = {
+    feed: publicFeed,
+    comment: publicComment,
+};
+export const publicReplyLike: ActionParams<'set_qzone_public_comment_like'> = {
+    feed: publicFeed,
+    comment: publicComment,
+    reply: { id: '18446744073709551615', like: { id: 'reply-like-key' } },
+    enable: false,
+};
+export const publicReplyToComment: ActionParams<'reply_qzone_public_feed'> = {
+    feed: publicFeed,
+    comment: publicComment,
+    content: 'Reply',
+};
+export const publicForwardDefault: ActionParams<'forward_qzone_public_feed'> = { feed: publicFeed };
+export const publicReplyResult: JsonObject = await ws.raw(
+    'reply_qzone_public_feed',
+    actionParams.reply_qzone_public_feed,
+);
+// @ts-expect-error follow-up comments require attach_info as the cursor
+export const publicCommentsWithoutCursor: ActionParams<'get_qzone_public_comments'> = {
+    feed: publicFeed,
+};
+export const invalidPublicContent: ActionParams<'comment_qzone_public_feed'> = {
+    feed: publicFeed,
+    // @ts-expect-error public content does not coerce numeric primitives
+    content: 123,
+};
+export const invalidPublicRichItems: ActionParams<'comment_qzone_public_feed'> = {
+    feed: publicFeed,
+    // @ts-expect-error rich-text arrays contain JSON objects, not strings
+    content: ['text'],
+};
 const speech = await ws.raw('get_record_text', { message_id: -42 });
 const transcription: string = speech.text;
 const flash = await http.raw('get_fileset_info', { fileset_id: 'files' });

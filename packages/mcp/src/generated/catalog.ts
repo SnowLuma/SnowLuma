@@ -1498,6 +1498,89 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "comment_qzone_public_feed",
+    "aliases": [],
+    "summary": "评论推荐动态，支持文本或上游富文本条目",
+    "returns": "上游评论结果，包含新评论，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "评论推荐动态",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "content": "感谢分享"
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "content",
+        "type": "message",
+        "required": true,
+        "schema": {
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+        },
+        "desc": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+      }
+    ],
+    "invariants": [
+      "content must be non-empty text or a non-empty array of RichItem objects"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "content": {
+          "description": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+        }
+      },
+      "required": [
+        "feed",
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "complete_group_todo",
     "aliases": [],
     "summary": "完成群待办",
@@ -2454,6 +2537,229 @@ export const ACTIONS: CatalogAction[] = [
       },
       "required": [
         "tid"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "delete_qzone_public_comment",
+    "aliases": [],
+    "summary": "删除推荐动态的一条评论（需有权限）",
+    "returns": "上游删除结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "删除一条评论",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "comment",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "comment": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+        }
+      },
+      "required": [
+        "feed",
+        "comment"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "delete_qzone_public_reply",
+    "aliases": [],
+    "summary": "删除推荐动态评论下的一条回复（需有权限）",
+    "returns": "上游删除结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "删除一条回复",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          },
+          "reply": {
+            "id": "<reply-id-from-comments-or-replies>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-reply>",
+              "count": 0,
+              "status": 0
+            }
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。 reply 使用该评论下的完整回复对象。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "comment",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+      },
+      {
+        "name": "reply",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "comment": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+        },
+        "reply": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+        }
+      },
+      "required": [
+        "feed",
+        "comment",
+        "reply"
       ],
       "additionalProperties": true
     },
@@ -4172,6 +4478,89 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "扩展"
+  },
+  {
+    "name": "forward_qzone_public_feed",
+    "aliases": [],
+    "summary": "将推荐动态转发到当前账号空间",
+    "returns": "上游转发结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "转发推荐动态到我的空间",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "reason": "分享这条动态"
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 只转发，不同时评论或发送给 QQ 联系人。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "转发附言，可为空",
+        "default": ""
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "reason": {
+          "type": "string",
+          "description": "转发附言，可为空",
+          "default": ""
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
   },
   {
     "name": "friend_poke",
@@ -11325,6 +11714,388 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "get_qzone_public_capabilities",
+    "aliases": [],
+    "summary": "读取当前账号的空友爱看入口与推权限",
+    "returns": "当前账号的上游入口能力对象，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "查询当前账号是否有空友爱看入口及推能力",
+        "params": {}
+      }
+    ],
+    "readOnly": true,
+    "params": [],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_public_comments",
+    "aliases": [],
+    "summary": "继续读取推荐动态评论",
+    "returns": "上游评论页对象，保留评论、分页和未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "读取详情之后的下一页评论",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "cursor": "<attach_info-from-detail-or-comments>"
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 先读详情获取初始评论及 attach_info，再原样传入 cursor。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "desc": "详情或上一评论页返回的 attach_info"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "详情或上一评论页返回的 attach_info"
+        }
+      },
+      "required": [
+        "feed",
+        "cursor"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_public_feed_detail",
+    "aliases": [],
+    "summary": "读取推荐动态详情及初始评论",
+    "returns": "上游详情 data；初始评论位于 feed.feed.cell_comment.comments，续页使用 attach_info。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "读取推荐动态详情",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_public_feeds",
+    "aliases": [],
+    "summary": "读取空友爱看推荐动态，支持独立游标分页",
+    "returns": "推荐动态原始 cell 对象及分页状态，保留其余上游页面字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "feeds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "原始动态 cell 对象，后续详情和互动需原样传入"
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "服务端是否报告还有下一页"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "下一页游标；无下一页时为 null"
+        }
+      },
+      "required": [
+        "feeds",
+        "has_more",
+        "next_cursor"
+      ]
+    },
+    "examples": [
+      {
+        "summary": "读取空友爱看推荐首页",
+        "params": {}
+      },
+      {
+        "summary": "继续读取推荐动态",
+        "params": {
+          "cursor": "<next_cursor-from-get_qzone_public_feeds>"
+        },
+        "notes": "cursor 原样使用上次返回的 next_cursor，仅适用于同一账号；has_more=false 时停止。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "desc": "上次返回的 next_cursor，省略则刷新首页"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "description": "上次返回的 next_cursor，省略则刷新首页"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_public_replies",
+    "aliases": [],
+    "summary": "继续读取指定评论的回复",
+    "returns": "上游回复页对象，保留回复、分页和未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "读取某条评论的后续回复",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。 首次续读使用评论自带的 reply_attach_info；之后传上一回复页的游标。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "comment",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "上一回复页的 reply_attach_info；省略则使用评论自带游标",
+        "default": ""
+      },
+      {
+        "name": "page_size",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "请求的回复数量",
+        "default": 20
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "comment": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+        },
+        "cursor": {
+          "type": "string",
+          "description": "上一回复页的 reply_attach_info；省略则使用评论自带游标",
+          "default": ""
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "请求的回复数量",
+          "default": 20
+        }
+      },
+      "required": [
+        "feed",
+        "comment"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "get_recent_contact",
     "aliases": [],
     "summary": "获取最近会话（占位）",
@@ -12985,6 +13756,193 @@ export const ACTIONS: CatalogAction[] = [
       "additionalProperties": true
     },
     "category": "群文件"
+  },
+  {
+    "name": "reply_qzone_public_feed",
+    "aliases": [],
+    "summary": "回复推荐动态的评论或其中某条回复",
+    "returns": "上游回复结果，包含新回复，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "回复一条评论",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          },
+          "content": "感谢回复"
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。"
+      },
+      {
+        "summary": "回复评论中的某条回复",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          },
+          "content": [
+            {
+              "type": 0,
+              "content": "我也这么认为"
+            }
+          ],
+          "reply": {
+            "id": "<reply-id-from-comments-or-replies>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-reply>",
+              "count": 0,
+              "status": 0
+            }
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。 reply 使用该评论下的完整回复对象。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "comment",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+      },
+      {
+        "name": "content",
+        "type": "message",
+        "required": true,
+        "schema": {
+          "description": "OneBot message: string | segment[] | object. In segment arrays, text segments whose text field is exactly \"\" are compatibility placeholders and do not count as sendable segments; missing, null, and whitespace-only text remain subject to normal validation."
+        },
+        "desc": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+      },
+      {
+        "name": "reply",
+        "type": "object",
+        "required": false,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+      }
+    ],
+    "invariants": [
+      "content must be non-empty text or a non-empty array of RichItem objects"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "comment": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+        },
+        "content": {
+          "description": "非空文本，或非空上游 RichItem 对象数组；不是 OneBot 消息段"
+        },
+        "reply": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+        }
+      },
+      "required": [
+        "feed",
+        "comment",
+        "content"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
   },
   {
     "name": "request_decrypt_key",
@@ -17552,6 +18510,436 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "set_qzone_public_comment_like",
+    "aliases": [],
+    "summary": "点赞或取消赞推荐动态中的评论或回复",
+    "returns": "上游普通赞操作结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "点赞一条评论",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          }
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 comment 可取 get_qzone_public_feed_detail 返回的 feed.feed.cell_comment.comments，或后续评论页；保留完整对象。 必须保留评论原始 like.id。"
+      },
+      {
+        "summary": "取消赞某条回复",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "comment": {
+            "id": "<comment-id-from-detail-or-comments>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-comment>",
+              "count": 0,
+              "status": 0
+            },
+            "reply_attach_info": ""
+          },
+          "reply": {
+            "id": "<reply-id-from-comments-or-replies>",
+            "user": {
+              "uin": "<uin>",
+              "uid": "<uid>",
+              "nick": "<nick>"
+            },
+            "like": {
+              "id": "<like-id-from-reply>",
+              "count": 0,
+              "status": 0
+            }
+          },
+          "enable": false
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 reply 使用该评论下的完整回复对象，保留其原始 like.id。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "comment",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+      },
+      {
+        "name": "enable",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "true 点赞，false 取消赞",
+        "default": true
+      },
+      {
+        "name": "reply",
+        "type": "object",
+        "required": false,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "comment": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "详情或评论页返回的完整评论对象，保留 user 等原始字段"
+        },
+        "enable": {
+          "type": "boolean",
+          "description": "true 点赞，false 取消赞",
+          "default": true
+        },
+        "reply": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "评论或回复页返回的完整回复对象，保留 user 等原始字段"
+        }
+      },
+      "required": [
+        "feed",
+        "comment"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "set_qzone_public_follow",
+    "aliases": [],
+    "summary": "蹲或取消蹲推荐动态作者",
+    "returns": "上游关系操作结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "蹲这条推荐动态的作者",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "enable": true
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。 feed 需保留作者 cell_user_info。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "enable",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "true 蹲，false 取消蹲",
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "enable": {
+          "type": "boolean",
+          "description": "true 蹲，false 取消蹲",
+          "default": true
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "set_qzone_public_like",
+    "aliases": [],
+    "summary": "点赞或取消赞推荐动态",
+    "returns": "上游普通赞操作结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "点赞推荐动态",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "enable": true
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "enable",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "true 点赞，false 取消赞",
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "enable": {
+          "type": "boolean",
+          "description": "true 点赞，false 取消赞",
+          "default": true
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "set_qzone_public_upvote",
+    "aliases": [],
+    "summary": "推或取消推空友爱看动态（独立于普通赞）",
+    "returns": "上游推操作结果，保留未知字段。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "examples": [
+      {
+        "summary": "推一条推荐动态",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": {},
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            }
+          },
+          "enable": true
+        },
+        "notes": "feed 必须原样取自 get_qzone_public_feeds 的 feeds 数组，不能用旧说说 tid 拼造；示例中的占位字段须整体替换。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+      },
+      {
+        "name": "enable",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "desc": "true 推，false 取消推",
+        "default": true
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "get_qzone_public_feeds 返回的完整 feeds 条目，保留所有原始 cell 字段"
+        },
+        "enable": {
+          "type": "boolean",
+          "description": "true 推，false 取消推",
+          "default": true
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "set_restart",
     "aliases": [],
     "summary": "重启（不支持）",
@@ -19014,7 +20402,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 12
+    "count": 26
   },
   {
     "category": "系统表情",

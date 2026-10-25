@@ -401,6 +401,15 @@ export interface QzoneProfileResult extends JsonObject {
     description: string;
 }
 
+export interface QzonePublicFeedsPage extends JsonObject {
+    /** Original feed cells, with the upstream item.feed wrapper removed. */
+    feeds: JsonObject[];
+    /** Controls pagination even when a page contains fewer than ten items. */
+    has_more: boolean;
+    /** Account-bound continuation; null when the list ends. */
+    next_cursor: string | null;
+}
+
 export interface QzoneFeed extends JsonObject {
     uin: number;
     nickname: string;

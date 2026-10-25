@@ -491,6 +491,20 @@ export const f = {
             { type: 'bool', required: true, schema: { type: 'boolean' } },
         );
     },
+    /** JSON object, preserving unknown fields without coercing scalars or arrays. */
+    object(): Field<JsonObject> {
+        return new FieldImpl<JsonObject>(
+            (raw, field) =>
+                typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+                    ? ok(raw)
+                    : err(field, 'expected an object'),
+            {
+                type: 'object',
+                required: true,
+                schema: { type: 'object', additionalProperties: true },
+            },
+        );
+    },
     /** OneBot message union: string | segment[] | object. A string that looks
      *  like a JSON array is parsed (matches legacy `asMessage`); otherwise the
      *  value passes through. Output stays `JsonValue` — downstream ctx.* accept it. */
