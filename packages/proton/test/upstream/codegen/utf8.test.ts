@@ -1,3 +1,4 @@
+import { deepStrictEqual } from 'node:assert';
 import { describe, it, expect } from 'vitest';
 import { schemaRegistry } from '../schema';
 import { generateCode } from '../../../src/codegen/generator';
@@ -38,7 +39,8 @@ describe('UTF-8 codecs', () => {
         for (const length of [31, 32, 33, 42, 43, 63, 64, 65, 127, 128, 129, 4096]) {
             for (const unit of ['a', 'é', '中文', '🚀', '\ud800', '\udc00', 'a\ud800']) {
                 const value = unit.repeat(length);
-                expect(encode({ value })).toEqual(wire(encoder.encode(value)));
+                // Generic iterable equality repeats per-byte work on these large views.
+                deepStrictEqual(encode({ value }), wire(encoder.encode(value)));
             }
         }
     });
@@ -49,7 +51,8 @@ describe('UTF-8 codecs', () => {
         ]) {
             for (let byte = 0; byte < 128; byte++) {
                 const value = String.fromCharCode(byte).repeat(length);
-                expect(encode({ value })).toEqual(
+                deepStrictEqual(
+                    encode({ value }),
                     length ? wire(encoder.encode(value)) : new Uint8Array(),
                 );
                 expect(decode(wire(encoder.encode(value)))).toEqual({ value });
@@ -179,7 +182,7 @@ describe('UTF-8 codecs', () => {
         for (const length of [4093, 4094, 4095, 4096, 4097, 8191]) {
             for (const suffix of ['é', '中', '🚀', '\ud800', '\udc00', '\ud800x']) {
                 const value = 'a'.repeat(length) + suffix + '中文🚀'.repeat(4000);
-                expect(encode({ value })).toEqual(wire(encoder.encode(value)));
+                deepStrictEqual(encode({ value }), wire(encoder.encode(value)));
             }
         }
     });
