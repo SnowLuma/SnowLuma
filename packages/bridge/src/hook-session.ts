@@ -23,6 +23,12 @@ const LOGIN_IDENTITY_OBSERVE_INTERVAL_MS = 30_000;
 const LOGIN_HINT_MAX_ATTEMPTS = 3;
 const LOGIN_HINT_RETRY_DELAYS_MS = [3000, 9000] as const;
 
+/** How long to wait for the hook control pipe after a successful manual-map load.
+ *  `loadModuleManualAsync` resolving only proves the loader thread was created; the
+ *  payload may still fail to initialise inside the target, leaving the pipe absent
+ *  and the session stuck at "connecting" (issue #578). */
+const PIPE_READY_TIMEOUT_MS = 8000;
+
 /** QQ emits this response periodically while its MSF receive path is healthy.
  *  Seeing it once arms the watchdog; before that, silence is UNKNOWN rather
  *  than unhealthy so QQ versions that do not expose this command cannot be
@@ -48,6 +54,8 @@ export type HookSessionDeps = {
     pipeWatcher: {
         isPipeLive: (pid: number) => boolean;
         tickNow?: () => Promise<void>;
+        /** Optional so lightweight test doubles keep working; PipeWatcher provides it. */
+        waitForPipe?: (pid: number, timeoutMs?: number, intervalMs?: number) => Promise<boolean>;
     };
     /** Sink for parsed packets. Called with the BridgeManager-shaped
      * PacketInfo for every packet received while logged in. If omitted,
@@ -396,6 +404,23 @@ export class HookSession extends EventEmitter {
                         this.pid,
                     );
                     this.injectResult = await this.injector.inject(this.pid);
+                    // [issue #578] A resolved inject call is not proof the hook came up:
+                    // the manual-map thread can exist while the payload fails to
+                    // initialise, in which case the control pipe is never created and
+                    // the UI would report `injected` but sit at "connecting" forever.
+                    // Wait for the pipe, and surface a real error when it never appears.
+                    // The catch block below still re-checks isPipeLive(), so a hook that
+                    // simply came up late is not misreported as a failure.
+                    const pipeReady = this.pipeWatcher.waitForPipe
+                        ? await this.pipeWatcher.waitForPipe(this.pid, PIPE_READY_TIMEOUT_MS)
+                        : true; // test doubles without the capability keep the old behaviour
+                    if (!pipeReady) {
+                        throw new Error(
+                            `inject returned success but no SnowLuma control pipe was ` +
+                                `detected within ${PIPE_READY_TIMEOUT_MS / 1000}s (PID=${this.pid}); ` +
+                                `the in-process hook most likely failed to initialise`,
+                        );
+                    }
                     this.injected = true;
                     this._method = this.injectResult.method;
                     this.log.trace(

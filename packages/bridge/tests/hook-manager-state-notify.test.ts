@@ -133,7 +133,9 @@ describe('HookManager.onSessionsChanged', () => {
         ctx.manager.dispose();
     });
 
-    it('fires when the watcher reports the pipe came up (status: connecting → loaded)', async () => {
+    // Loading now waits for the control pipe after injecting (issue #578), so this
+    // case needs more than the default 5s: the pipe is only marked live afterwards.
+    it('fires when the watcher reports the pipe came up (status: connecting → loaded)', { timeout: 20_000 }, async () => {
         const ctx = makeManager({ processes: [4242] });
         await ctx.pipeWatcher.start();
         await flush();
@@ -270,6 +272,9 @@ describe('HookManager account re-probe', () => {
             let nickname = 'Alice';
             const ctx = makeManager({
                 processes: [4242],
+                // loadProcess now waits for the hook pipe after injecting (issue #578);
+                // mark it live so this case does not sit in the wait.
+                livePipes: [4242],
                 detectAccounts: async () => [{ uin: '10001', uid: 'u_a', nickname, pid: 4242 }],
             });
 

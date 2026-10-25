@@ -31,9 +31,14 @@ function makeManager(opts: {
     onSessionsChanged?: () => void;
     inject?: (pid: number) => Promise<HookInjectResult>;
     detectAccounts?: (pids: readonly number[]) => Promise<AccountLoginState[]>;
+    /** PIDs whose hook control pipe already counts as live.
+     *  A load now waits for the pipe after injecting (issue #578), so cases that
+     *  exercise a successful injection must mark their PID here or they will sit
+     *  in the wait until it times out. */
+    livePipes?: number[];
 }) {
     let pids = opts.processes ?? [];
-    const live = new Set<number>();
+    const live = new Set<number>(opts.livePipes ?? []);
     const inject = vi.fn(
         opts.inject ??
             (async () => ({
@@ -86,6 +91,8 @@ function makeManager(opts: {
         manager,
         inject,
         pipeWatcher,
+        /** Hook control pipes currently considered live. Mark a PID after a successful injection. */
+        live,
         setProcesses: (next: number[]) => {
             pids = next;
         },
@@ -146,10 +153,10 @@ describe('HookManager runtime TRACE', () => {
                     'target process does not map /lib/x86_64-linux-gnu/libc.so.6 while resolving mmap',
                 );
             })
-            .mockImplementationOnce(() => ({
-                method: 'loadModuleManual' as const,
-                handle: DUMMY_HANDLE,
-            }));
+            .mockImplementationOnce(() => {
+        ctx.live.add(4242);
+                return { method: 'loadModuleManual' as const, handle: DUMMY_HANDLE };
+            });
 
         try {
             await ctx.pipeWatcher.start();
@@ -158,10 +165,17 @@ describe('HookManager runtime TRACE', () => {
             await ctx.pipeWatcher.tickNow();
             await flush();
             await flush();
-
-            const attempts = managerTrace(entries).filter((entry) =>
-                entry.message.startsWith('hook_autoload_'),
-            );
+            await flush(); // load now awaits the control pipe after injecting (issue #578)
+            // Loading now awaits the control pipe after injecting (issue #578), and this
+            // auto-load runs in the background — wait for its terminal trace before asserting.
+            let attempts: LogEntry[] = [];
+            for (let i = 0; i < 60; i += 1) {
+                attempts = managerTrace(entries).filter((entry) =>
+                    entry.message.startsWith('hook_autoload_'),
+                );
+                if (attempts.length >= 4) break;
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
             expect(attempts.map((entry) => entry.message)).toEqual([
                 'hook_autoload_start pid=4242 attempt=1 maxAttempts=3',
                 expect.stringMatching(
@@ -200,6 +214,7 @@ describe('HookManager runtime TRACE', () => {
             await flush();
             const manualLoad = ctx.manager.loadProcess(4242);
             resolveInjection({ method: 'loadModuleManual', handle: DUMMY_HANDLE });
+            ctx.live.add(4242);
             await manualLoad;
             await flush();
 
