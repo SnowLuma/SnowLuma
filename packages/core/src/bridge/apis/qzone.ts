@@ -4,16 +4,20 @@ import {
     getQzoneFeeds,
     getQzoneMsgDetail,
     getQzoneMsgList,
+    getQzoneProfile,
     publishQzoneMsg,
     replyQzoneComment,
     setQzoneBlack,
     setQzoneLike,
+    setQzoneProfile,
     updateQzoneMsgRight,
     uploadQzoneImageFromSource,
     type QzoneCommentResult,
     type QzoneFeedsPage,
     type QzoneMsgDetailResult,
     type QzoneMsgListResult,
+    type QzoneProfile,
+    type QzoneProfileUpdate,
     type QzonePublishResult,
     type QzoneReplyTarget,
     type QzoneUpdateRightResult,
@@ -29,6 +33,16 @@ import type { BridgeContext } from '../bridge-context';
  */
 export class QzoneApi {
     constructor(private readonly ctx: BridgeContext) {}
+
+    async getProfile(targetUin?: number): Promise<QzoneProfile> {
+        const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzoneProfile(cookieObject, this.ctx.identity.uin, targetUin?.toString());
+    }
+
+    async setProfile(profile: QzoneProfileUpdate): Promise<void> {
+        const cookieObject = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        await setQzoneProfile(cookieObject, this.ctx.identity.uin, profile);
+    }
 
     /**
      * 获取说说列表。`targetUin` 省略时取机器人自己的空间。

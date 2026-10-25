@@ -36,6 +36,69 @@ const qzoneCommentProperties = {
 const qzoneCommentRequired = ['uin', 'name', 'time', 'content', 'comment_id'];
 
 export const actions = [
+    defineAction({
+        name: 'get_qzone_profile',
+        examples: [
+            {
+                summary: '获取当前账号的空间名称和说明',
+                params: {},
+            },
+            {
+                summary: '获取指定账号的空间名称和说明',
+                params: { target_uin: 10001 },
+                notes: '需要有该空间的访问权限。',
+            },
+        ],
+        readOnly: true,
+        summary: '获取 QQ 空间名称和说明（默认当前账号）',
+        returns: '空间名称和说明。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: '空间名称' },
+                description: { type: 'string', description: '空间说明' },
+            },
+            required: ['name', 'description'],
+        },
+        params: {
+            target_uin: f.userId().describe('目标 QQ 号，省略则取机器人自己').optional(),
+        },
+        run: async (p, ctx) => okResponse(await ctx.bridge.apis.qzone.getProfile(p.target_uin)),
+    }),
+
+    defineAction({
+        name: 'set_qzone_profile',
+        examples: [
+            {
+                summary: '修改当前账号的空间名称和说明',
+                params: { name: '我的空间', description: '记录日常' },
+                notes: '仅修改提供的字段；空字符串表示清空对应字段。',
+            },
+            {
+                summary: '清空当前账号的空间说明',
+                params: { description: '' },
+            },
+        ],
+        readOnly: false,
+        summary: '修改当前账号的 QQ 空间名称或说明',
+        returnsSchema: {
+            type: 'null',
+            description: '成功时 data 为 null；失败另见响应的 status、retcode 和 wording',
+        },
+        params: {
+            name: f.string().describe('新的空间名称，空字符串表示清空，省略则保留').optional(),
+            description: f
+                .string()
+                .describe('新的空间说明，空字符串表示清空，省略则保留')
+                .optional(),
+        },
+        rules: (r) => [r.atLeastOneOf('name', 'description')],
+        run: async (p, ctx) => {
+            await ctx.bridge.apis.qzone.setProfile(p);
+            return okResponse(null);
+        },
+    }),
+
     // get_qzone_msg_list — 获取 QQ 空间说说列表。无 go-cqhttp 标准，自定义命名。
     // 默认取机器人自己的空间；传 target_uin 可查看指定账号（需有权限）。
     // 复用 qzone.qq.com 的 cookie/g_tk 基建（与群相册同源），纯 web，无 trpc。

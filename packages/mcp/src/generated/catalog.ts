@@ -11261,6 +11261,70 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "get_qzone_profile",
+    "aliases": [],
+    "summary": "获取 QQ 空间名称和说明（默认当前账号）",
+    "returns": "空间名称和说明。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "空间名称"
+        },
+        "description": {
+          "type": "string",
+          "description": "空间说明"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ]
+    },
+    "examples": [
+      {
+        "summary": "获取当前账号的空间名称和说明",
+        "params": {}
+      },
+      {
+        "summary": "获取指定账号的空间名称和说明",
+        "params": {
+          "target_uin": 10001
+        },
+        "notes": "需要有该空间的访问权限。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "目标 QQ 号，省略则取机器人自己"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "目标 QQ 号，省略则取机器人自己",
+          "x-role": "user_id"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "get_recent_contact",
     "aliases": [],
     "summary": "获取最近会话（占位）",
@@ -17424,6 +17488,70 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "set_qzone_profile",
+    "aliases": [],
+    "summary": "修改当前账号的 QQ 空间名称或说明",
+    "returnsSchema": {
+      "type": "null",
+      "description": "成功时 data 为 null；失败另见响应的 status、retcode 和 wording"
+    },
+    "examples": [
+      {
+        "summary": "修改当前账号的空间名称和说明",
+        "params": {
+          "name": "我的空间",
+          "description": "记录日常"
+        },
+        "notes": "仅修改提供的字段；空字符串表示清空对应字段。"
+      },
+      {
+        "summary": "清空当前账号的空间说明",
+        "params": {
+          "description": ""
+        }
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "新的空间名称，空字符串表示清空，省略则保留"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "desc": "新的空间说明，空字符串表示清空，省略则保留"
+      }
+    ],
+    "invariants": [
+      "at least one of: name, description"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "新的空间名称，空字符串表示清空，省略则保留"
+        },
+        "description": {
+          "type": "string",
+          "description": "新的空间说明，空字符串表示清空，省略则保留"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "set_restart",
     "aliases": [],
     "summary": "重启（不支持）",
@@ -18886,7 +19014,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 10
+    "count": 12
   },
   {
     "category": "系统表情",

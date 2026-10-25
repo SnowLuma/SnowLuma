@@ -74,9 +74,11 @@ export const feedContent: string | null | undefined = feeds.feeds[0].content;
 export const feedPhotos: string[] | null | undefined = feeds.feeds[0].images;
 export const feedLikeCount: number | null | undefined = feeds.feeds[0].like_count;
 export const feedCursor: string | null | undefined = feeds.next_cursor;
+
 if (feedCursor) {
     await http.raw('get_qzone_feeds', { cursor: feedCursor, count: 10 });
 }
+
 export const legacyFeedsResult: ActionResult<'get_qzone_feeds'> = {
     feeds: [{ uin: 10002, nickname: 'User', time: 1, appid: 311, key: 'post', html: '' }],
     has_more: false,
@@ -93,6 +95,26 @@ export const legacyQzoneComment: ActionParams<'comment_qzone'> = {
     images: ['https://example.com/image.png'],
 };
 export const legacyQzoneResult: ActionResult<'comment_qzone'> = { comment_id: '' };
+const qzoneProfile = await http.raw('get_qzone_profile', actionParams.get_qzone_profile);
+export const qzoneName: string = qzoneProfile.name;
+export const qzoneDescription: string = qzoneProfile.description;
+export const ownQzoneProfile = http.raw('get_qzone_profile', {});
+export const qzoneProfileUpdate: Promise<null> = ws.raw('set_qzone_profile', {
+    name: 'Space',
+    description: '',
+});
+export const qzoneNameOnly: ActionParams<'set_qzone_profile'> = { name: 'Space' };
+export const qzoneDescriptionOnly: ActionParams<'set_qzone_profile'> = { description: '' };
+export const qzoneScalarFields: ActionParams<'set_qzone_profile'> = {
+    name: 123,
+    description: false,
+};
+// @ts-expect-error a space profile patch requires at least one field
+export const emptyQzoneProfilePatch: ActionParams<'set_qzone_profile'> = {};
+export const invalidQzoneProfilePatch: ActionParams<'set_qzone_profile'> = {
+    // @ts-expect-error profile fields accept string, number or boolean primitives
+    description: [],
+};
 const speech = await ws.raw('get_record_text', { message_id: -42 });
 const transcription: string = speech.text;
 const flash = await http.raw('get_fileset_info', { fileset_id: 'files' });

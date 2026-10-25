@@ -1,13 +1,78 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import type { QzoneMsgDetailResult } from '../src';
+import type { QzoneMsgDetailResult, QzoneProfileResult } from '../src';
 import {
     SnowLumaAbortError,
+    SnowLumaApiError,
     SnowLumaAuthError,
     SnowLumaHttpClient,
     SnowLumaParseError,
 } from '../src';
 
 describe('SnowLumaHttpClient', () => {
+    it('reads typed space profiles for the current and an explicit account', async () => {
+        const data: QzoneProfileResult = { name: 'Space', description: 'Description' };
+        const fetchImpl = vi
+            .fn()
+            .mockImplementation(
+                async () => new Response(JSON.stringify({ status: 'ok', retcode: 0, data })),
+            );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const own = await client.raw('get_qzone_profile', {});
+        const other = await client.raw('get_qzone_profile', { target_uin: '10002' });
+
+        expectTypeOf(own).toEqualTypeOf<QzoneProfileResult>();
+        expect(other).toEqual(data);
+        expect(
+            fetchImpl.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string)),
+        ).toEqual([
+            { action: 'get_qzone_profile', params: {} },
+            { action: 'get_qzone_profile', params: { target_uin: '10002' } },
+        ]);
+    });
+
+    it('preserves omitted and empty space profile fields and returns null', async () => {
+        const fetchImpl = vi
+            .fn()
+            .mockImplementation(
+                async () => new Response(JSON.stringify({ status: 'ok', retcode: 0, data: null })),
+            );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const result = await client.raw('set_qzone_profile', { name: 'Space' });
+
+        expectTypeOf(result).toEqualTypeOf<null>();
+        expect(result).toBeNull();
+        await expect(client.raw('set_qzone_profile', { description: '' })).resolves.toBeNull();
+        expect(
+            fetchImpl.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string)),
+        ).toEqual([
+            { action: 'set_qzone_profile', params: { name: 'Space' } },
+            { action: 'set_qzone_profile', params: { description: '' } },
+        ]);
+    });
+
+    it('propagates space profile update failures', async () => {
+        const fetchImpl = vi.fn(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        status: 'failed',
+                        retcode: 1200,
+                        data: null,
+                        wording: 'Qzone requires verification',
+                    }),
+                ),
+        );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const request = client.raw('set_qzone_profile', { name: 'Space' });
+
+        await expect(request).rejects.toMatchObject({
+            name: 'SnowLumaApiError',
+            retcode: 1200,
+            wording: 'Qzone requires verification',
+        });
+        await expect(request).rejects.toBeInstanceOf(SnowLumaApiError);
+    });
+
     it('reads a typed Qzone comment page through raw', async () => {
         const data: QzoneMsgDetailResult = {
             tid: 'T1',

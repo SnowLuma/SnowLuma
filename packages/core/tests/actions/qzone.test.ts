@@ -21,6 +21,61 @@ describe('apis/qzone', () => {
     }
 
     it.each([undefined, 20002])(
+        'getProfile reads owner %s with the current account credentials',
+        async (targetUin) => {
+            const { bridge, getCookies } = bridgeWithWeb();
+            const profile = { name: 'My space', description: 'Notes' };
+            const getProfile = vi.spyOn(qzoneWeb, 'getQzoneProfile').mockResolvedValue(profile);
+
+            expect(await new QzoneApi(bridge as never).getProfile(targetUin)).toEqual(profile);
+            expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+            expect(getProfile).toHaveBeenCalledWith(
+                { p_skey: 'PSK' },
+                '10001',
+                targetUin?.toString(),
+            );
+        },
+    );
+
+    it('getProfile propagates cookie and protocol failures', async () => {
+        const { bridge, getCookies } = bridgeWithWeb();
+        const api = new QzoneApi(bridge as never);
+        const getProfile = vi
+            .spyOn(qzoneWeb, 'getQzoneProfile')
+            .mockRejectedValue(new Error('denied'));
+
+        await expect(api.getProfile(20002)).rejects.toThrow('denied');
+        getCookies.mockRejectedValueOnce(new Error('cookie failure'));
+        await expect(api.getProfile()).rejects.toThrow('cookie failure');
+        expect(getProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([{ name: 'New name' }, { description: '' }, { name: '', description: 'New notes' }])(
+        'setProfile writes only the supplied fields to the current account (%j)',
+        async (profile) => {
+            const { bridge, getCookies } = bridgeWithWeb();
+            const setProfile = vi.spyOn(qzoneWeb, 'setQzoneProfile').mockResolvedValue();
+
+            await new QzoneApi(bridge as never).setProfile(profile);
+            expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+            expect(setProfile).toHaveBeenCalledWith({ p_skey: 'PSK' }, '10001', profile);
+        },
+    );
+
+    it('setProfile propagates cookie and protocol failures', async () => {
+        const { bridge, getCookies } = bridgeWithWeb();
+        const api = new QzoneApi(bridge as never);
+        const setProfile = vi
+            .spyOn(qzoneWeb, 'setQzoneProfile')
+            .mockRejectedValue(new Error('captcha required'));
+
+        await expect(api.setProfile({ name: 'New name' })).rejects.toThrow('captcha required');
+        getCookies.mockRejectedValueOnce(new Error('cookie failure'));
+        await expect(api.setProfile({ description: 'Notes' })).rejects.toThrow('cookie failure');
+        expect(setProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([undefined, 20002])(
         'getMsgDetail uses current-account credentials for owner %s',
         async (targetUin) => {
             const { bridge, getCookies } = bridgeWithWeb();

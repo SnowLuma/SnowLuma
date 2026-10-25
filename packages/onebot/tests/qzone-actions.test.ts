@@ -10,6 +10,110 @@ function makeHandler(qzone: Record<string, unknown>): ApiHandler {
 }
 
 describe('qzone actions', () => {
+    it.each([undefined, '20002'])(
+        'get_qzone_profile returns the requested profile and normalizes owner %s',
+        async (targetUin) => {
+            const profile = { name: 'My space', description: 'Notes' };
+            const getProfile = vi.fn().mockResolvedValue(profile);
+            const params = targetUin === undefined ? {} : { target_uin: targetUin };
+
+            expect(
+                await makeHandler({ getProfile }).handle('get_qzone_profile', params),
+            ).toMatchObject({
+                status: 'ok',
+                retcode: 0,
+                data: profile,
+            });
+            expect(getProfile).toHaveBeenCalledWith(targetUin === undefined ? undefined : 20002);
+        },
+    );
+
+    it.each([0, 'bad'])(
+        'get_qzone_profile rejects invalid owners before fetching (%s)',
+        async (targetUin) => {
+            const getProfile = vi.fn();
+
+            expect(
+                await makeHandler({ getProfile }).handle('get_qzone_profile', {
+                    target_uin: targetUin,
+                }),
+            ).toMatchObject({
+                status: 'failed',
+                retcode: 1400,
+            });
+            expect(getProfile).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['get_qzone_profile', 'set_qzone_profile'])(
+        '%s exposes upstream errors',
+        async (action) => {
+            const failure = new Error('qzone profile failed: code=-3000 need login');
+            const method = vi.fn().mockRejectedValue(failure);
+            const handler = makeHandler({ getProfile: method, setProfile: method });
+            const params = action === 'set_qzone_profile' ? { name: 'New name' } : {};
+            const response = await handler.handle(action, params);
+
+            expect(response).toMatchObject({ status: 'failed', retcode: 100 });
+            expect(response.wording).toContain('code=-3000 need login');
+        },
+    );
+
+    it.each([{ name: 'New name' }, { description: '' }, { name: '', description: 'New notes' }])(
+        'set_qzone_profile forwards supplied fields and preserves explicit empty values (%j)',
+        async (params) => {
+            const setProfile = vi.fn().mockResolvedValue(undefined);
+
+            expect(
+                await makeHandler({ setProfile }).handle('set_qzone_profile', params),
+            ).toMatchObject({
+                status: 'ok',
+                retcode: 0,
+                data: null,
+            });
+            expect(setProfile).toHaveBeenCalledWith({
+                name: params.name,
+                description: params.description,
+            });
+        },
+    );
+
+    it.each([{}, { target_uin: 20002 }, { name: {} }, { description: [] }])(
+        'set_qzone_profile rejects missing or invalid updates before writing (%j)',
+        async (params) => {
+            const setProfile = vi.fn();
+
+            expect(
+                await makeHandler({ setProfile }).handle('set_qzone_profile', params),
+            ).toMatchObject({
+                status: 'failed',
+                retcode: 1400,
+            });
+            expect(setProfile).not.toHaveBeenCalled();
+        },
+    );
+
+    it('set_qzone_profile cannot select a different account', async () => {
+        const setProfile = vi.fn().mockResolvedValue(undefined);
+
+        await makeHandler({ setProfile }).handle('set_qzone_profile', {
+            name: 'New name',
+            target_uin: 20002,
+        });
+        expect(setProfile).toHaveBeenCalledWith({ name: 'New name', description: undefined });
+    });
+
+    it('classifies profile reads and writes separately', () => {
+        expect(
+            actions.find((action) => action.names.includes('get_qzone_profile'))?.describe()
+                .readOnly,
+        ).toBe(true);
+        expect(
+            actions.find((action) => action.names.includes('set_qzone_profile'))?.describe()
+                .readOnly,
+        ).toBe(false);
+    });
+
     it('get_qzone_feeds retains defaults and forwards optional continuation without stripping result fields', async () => {
         const result = { feeds: [], has_more: true, next_cursor: 'next' };
         const getFeeds = vi.fn().mockResolvedValue(result);
