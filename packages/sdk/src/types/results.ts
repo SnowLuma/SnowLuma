@@ -396,6 +396,11 @@ export interface QzoneMsgListResult extends JsonObject {
     msglist: QzoneEmotion[];
 }
 
+export interface QzoneProfileResult extends JsonObject {
+    name: string;
+    description: string;
+}
+
 export interface QzoneFeed extends JsonObject {
     uin: number;
     nickname: string;

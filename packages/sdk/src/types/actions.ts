@@ -97,6 +97,7 @@ import type {
     GetQunAlbumListParams,
     GetQzoneFeedsParams,
     GetQzoneMsgListParams,
+    GetQzoneProfileParams,
     GroupAlbumCommentParams,
     GroupAlbumMediaLikeParams,
     GroupAlbumMediaParams,
@@ -115,6 +116,7 @@ import type {
     SetGroupRobotAddOptionParams,
     SetQzoneBanParams,
     SetQzoneMsgRightParams,
+    SetQzoneProfileParams,
     SharePeerParams,
     TestDownloadStreamParams,
     UploadFileStreamParams,
@@ -184,6 +186,7 @@ import type {
     QzoneFeedsResult,
     QzoneMsgListResult,
     QzonePublishResult,
+    QzoneProfileResult,
     QzoneUpdateRightResult,
     RkeyServerResult,
     SendFlashMsgResult,
@@ -396,6 +399,7 @@ export interface SnowLumaActionMap {
     get_qun_album_list: { params: GetQunAlbumListParams; data: QunAlbumListResult };
     get_qzone_feeds: { params: GetQzoneFeedsParams; data: QzoneFeedsResult };
     get_qzone_msg_list: { params: GetQzoneMsgListParams; data: QzoneMsgListResult };
+    get_qzone_profile: { params: GetQzoneProfileParams; data: QzoneProfileResult };
     get_rkey_server: { params: JsonObject; data: RkeyServerResult };
     get_share_link: { params: FilesetIdParams; data: string };
     like_qzone: { params: LikeQzoneParams; data: EmptyData };
@@ -423,6 +427,7 @@ export interface SnowLumaActionMap {
     set_group_robot_add_option: { params: SetGroupRobotAddOptionParams; data: EmptyData };
     set_qzone_ban: { params: SetQzoneBanParams; data: EmptyData };
     set_qzone_msg_right: { params: SetQzoneMsgRightParams; data: QzoneUpdateRightResult };
+    set_qzone_profile: { params: SetQzoneProfileParams; data: EmptyData };
     share_group_ex: { params: ActionGroupIdParams; data: string };
     share_peer: { params: SharePeerParams; data: ArkShareResult };
     test_download_stream: { params: TestDownloadStreamParams; data: TestDownloadStreamResult };

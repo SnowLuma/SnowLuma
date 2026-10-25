@@ -70,6 +70,17 @@ export interface QzoneMsgListResult {
     msglist: QzoneEmotion[];
 }
 
+export interface QzoneProfile {
+    [key: string]: JsonValue;
+    name: string;
+    description: string;
+}
+
+export interface QzoneProfileUpdate {
+    name?: string;
+    description?: string;
+}
+
 export interface QzoneCommentReply {
     [key: string]: JsonValue;
     uin: number;
@@ -2227,4 +2238,80 @@ export async function updateQzoneMsgRight(
     }
 
     return { ugc_right: Number(data.ugc_right ?? right) };
+}
+
+interface RawQzoneProfileResponse {
+    code?: number;
+    subcode?: number;
+    message?: string;
+    data?: {
+        spacename?: string;
+        desc?: string;
+    };
+}
+
+export async function getQzoneProfile(
+    cookieObject: Record<string, string>,
+    selfUin: string,
+    targetUin = selfUin,
+): Promise<QzoneProfile> {
+    const params = new URLSearchParams({
+        uin: targetUin,
+        vuin: selfUin,
+        fupdate: '1',
+        rd: String(Math.random()),
+        g_tk: getBknFromCookie(cookieObject),
+    });
+    const url = `https://h5.qzone.qq.com/proxy/domain/base.qzone.qq.com/cgi-bin/user/cgi_userinfo_get_all?${params}`;
+    const text = await RequestUtil.HttpGetText(url, 'GET', '', {
+        Cookie: cookieToString(cookieObject),
+    });
+    const response = parseQzoneJson<RawQzoneProfileResponse>(text);
+
+    if (response.code !== 0 || (response.subcode !== undefined && response.subcode !== 0)) {
+        throw new Error(
+            `qzone profile failed: code=${response.code} subcode=${response.subcode ?? 0} ${response.message ?? ''}`.trim(),
+        );
+    }
+
+    if (typeof response.data?.spacename !== 'string' || typeof response.data.desc !== 'string') {
+        throw new Error('invalid qzone profile response');
+    }
+
+    return { name: response.data.spacename, description: response.data.desc };
+}
+
+export async function setQzoneProfile(
+    cookieObject: Record<string, string>,
+    selfUin: string,
+    profile: QzoneProfileUpdate,
+): Promise<void> {
+    const params = new URLSearchParams({ uin: selfUin, pageindex: '3', fupdate: '1' });
+    let bitmap = 0;
+
+    // The space settings form uses a field bitmap; omit the separate rich-text signature.
+    // https://qzonestyle.gtimg.cn/qzone/v6/setting/profile/scripts/profile.js
+    if (profile.name !== undefined) {
+        params.set('spacename', profile.name.replaceAll('\r', ''));
+        bitmap |= 2048;
+    }
+
+    if (profile.description !== undefined) {
+        params.set('desc', profile.description.replaceAll('\r', ''));
+        bitmap |= 4096;
+    }
+
+    params.set('mb', String(bitmap));
+    const url = `https://h5.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/user/cgi_apply_updateuserinfo_new?g_tk=${getBknFromCookie(cookieObject)}`;
+    const text = await RequestUtil.HttpGetText(url, 'POST', params.toString(), {
+        Cookie: cookieToString(cookieObject),
+        'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    const response = parseQzoneJson<RawQzoneProfileResponse>(text);
+
+    if (response.code !== 0 || (response.subcode !== undefined && response.subcode !== 0)) {
+        throw new Error(
+            `qzone profile update failed: code=${response.code} subcode=${response.subcode ?? 0} ${response.message ?? ''}`.trim(),
+        );
+    }
 }

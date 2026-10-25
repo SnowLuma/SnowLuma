@@ -577,6 +577,18 @@ export interface GetQzoneFeedsParams extends JsonObject {
     cursor?: string;
 }
 
+export interface GetQzoneProfileParams extends JsonObject {
+    /** Defaults to the current account's space. */
+    target_uin?: ActionNumberInput;
+}
+
+/** Updates the current account's space; omitted fields are preserved. */
+export type SetQzoneProfileParams = JsonObject &
+    (
+        | { name: ActionStringInput; description?: ActionStringInput }
+        | { name?: ActionStringInput; description: ActionStringInput }
+    );
+
 export interface QzoneMsgIdParams extends JsonObject {
     tid: ActionStringInput;
 }

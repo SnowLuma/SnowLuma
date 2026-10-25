@@ -144,6 +144,21 @@ const response = await bot.rawResponse('get_status');
 
 `raw` 会在 SnowLuma 返回 `status: "failed"` 或非零 `retcode` 时抛出 `SnowLumaApiError`；`rawResponse` 会保留完整响应。
 
+### 读取与修改空间资料
+
+`get_qzone_profile` 返回 QQ 空间的名称和说明；这两个字段独立于 QQ 昵称和个性签名。
+
+```ts
+const profile = await bot.raw('get_qzone_profile', {}); // 当前账号
+console.log(profile.name, profile.description);
+await bot.raw('get_qzone_profile', { target_uin: '10002' });
+
+await bot.raw('set_qzone_profile', { name: '我的空间' });
+await bot.raw('set_qzone_profile', { description: '' }); // 清空说明
+```
+
+`set_qzone_profile` 只修改当前账号，至少提供 `name`、`description` 中的一项；省略字段保持原值，空字符串表示清空。成功返回 `null`，登录失效、访问受限或上游要求验证时会抛出 `SnowLumaApiError`。修改后可再次读取资料确认结果。
+
 ### 读取空间说说评论
 
 `get_qzone_msg_detail` 是只读扩展动作，`raw` 提供参数和结果类型：

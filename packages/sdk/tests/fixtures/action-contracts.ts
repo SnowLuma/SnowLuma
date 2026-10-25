@@ -56,6 +56,7 @@ export const actionParams = {
     get_qun_album_list: { group_id: '10001', attach_info: '' },
     get_qzone_feeds: { page_num: '1', count: '10', cursor: 'cursor-from-previous-response' },
     get_qzone_msg_list: { target_uin: '10002', pos: '0', num: '20' },
+    get_qzone_profile: { target_uin: '10002' },
     get_rkey_server: {},
     get_share_link: fileset,
     like_qzone: qzoneLike,
@@ -99,6 +100,7 @@ export const actionParams = {
     },
     set_qzone_ban: { user_id: '10002', enable: false },
     set_qzone_msg_right: { tid: 'post', ugc_right: '128', target_uins: ['10002'] },
+    set_qzone_profile: { name: 'Space', description: '' },
     share_group_ex: { group_id: '10001' },
     share_peer: peer,
     test_download_stream: { error: false },
@@ -155,6 +157,7 @@ export type CoveredAction =
     | 'get_qun_album_list'
     | 'get_qzone_feeds'
     | 'get_qzone_msg_list'
+    | 'get_qzone_profile'
     | 'get_rkey_server'
     | 'get_share_link'
     | 'like_qzone'
@@ -176,6 +179,7 @@ export type CoveredAction =
     | 'set_group_robot_add_option'
     | 'set_qzone_ban'
     | 'set_qzone_msg_right'
+    | 'set_qzone_profile'
     | 'share_group_ex'
     | 'share_peer'
     | 'test_download_stream'
@@ -364,6 +368,7 @@ export const actionResults = {
             },
         ],
     },
+    get_qzone_profile: { name: 'Space', description: 'Description' },
     get_rkey_server: { expired_time: 1, name: 'SnowLuma', private_rkey: 'fixture' },
     get_share_link: 'https://example.com/share',
     like_qzone: null,
@@ -385,6 +390,7 @@ export const actionResults = {
     set_group_robot_add_option: null,
     set_qzone_ban: null,
     set_qzone_msg_right: { ugc_right: 128 },
+    set_qzone_profile: null,
     share_group_ex: '{}',
     share_peer: { arkMsg: '{}' },
     test_download_stream: {
