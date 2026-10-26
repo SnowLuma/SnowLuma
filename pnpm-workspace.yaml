@@ -16,7 +16,7 @@ overrides:
   'hono': ~4.13.11
   'postcss@<=8.5.22': ^8.5.23
   'ip-address@<10.7.1': ^10.7.1
-  'body-parser@<2.3.0': ^2.3.0
+  'body-parser@>=2.0.0 <2.4.0': ^2.4.0
   'brace-expansion@<5.0.12': ^5.0.12
   'undici@>=8.0.0 <8.12.2': 8.12.2
   'browserslist@<4.28.7': 4.28.7
@@ -26,6 +26,7 @@ overrides:
   'seroval@<1.6.3': 1.6.3
   'source-map-js@<1.2.2': 1.2.2
   'proxy-addr@<2.0.8': 2.0.8
+  'zod@>=4.0.0 <4.6.6': ^4.6.6
 
 peerDependencyRules:
   allowedVersions:

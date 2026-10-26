@@ -109,7 +109,7 @@
     "@types/node": "catalog:",
     "@types/semver": "7.7.1",
     "typescript": "catalog:",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "dependencies": {
     "@zxcvbn-ts/core": "^4.1.2",

@@ -52,7 +52,7 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "@types/ws": "^8.18.1",
     "@modelcontextprotocol/ext-apps": "^2.0.3"
   },
