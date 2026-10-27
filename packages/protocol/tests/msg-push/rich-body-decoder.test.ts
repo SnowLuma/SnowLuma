@@ -106,6 +106,30 @@ describe('decodeRichBody / XML forward attributes', () => {
         },
     );
 
+    it.each([0, 35])(
+        'uses a MultiMsg filename as the forward id when m_resid is absent (service=%s)',
+        (serviceId) => {
+            const uuid = 'C125CE25-AE7E-4E1A-ABDC-9750918162EB';
+            const fileName = `MultiMsg_${uuid}`;
+            const xml =
+                '<msg serviceID="35" templateID="1" action="viewMultiMsg" ' +
+                `m_fileName="${fileName}" tSum="2" flag="3" />`;
+            expect(decodeRichBody(xmlCardBody(xml, serviceId), true)).toEqual([
+                { type: 'forward', resId: fileName, forwardUuid: fileName },
+            ]);
+        },
+    );
+
+    it.each([
+        '<msg serviceID="35" action="viewMultiMsg" m_fileName="C125CE25-AE7E-4E1A-ABDC-9750918162EB" />',
+        '<msg serviceID="35" action="viewMultiMsg" m_fileName="MultiMsg_not-a-uuid" />',
+        '<msg serviceID="35" action="share" m_fileName="MultiMsg_C125CE25-AE7E-4E1A-ABDC-9750918162EB" />',
+    ])('preserves an unrecognised resid-less XML card: %s', (xml) => {
+        expect(decodeRichBody(xmlCardBody(xml), true)).toEqual([
+            { type: 'xml', text: xml, subType: 0 },
+        ]);
+    });
+
     it.each([
         '<msg><title>serviceID="35" m_resid="fake"</title></msg>',
         '<msg><!-- serviceID="35" m_resid="fake" --></msg>',

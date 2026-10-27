@@ -1064,7 +1064,11 @@ export class ForwardApi {
                         continue;
                     }
 
-                    const body = piggybackByUuid.get(uuid);
+                    const body =
+                        piggybackByUuid.get(uuid) ??
+                        (uuid.startsWith('MultiMsg_')
+                            ? piggybackByUuid.get(uuid.slice('MultiMsg_'.length))
+                            : undefined);
 
                     if (!body) {
                         continue;

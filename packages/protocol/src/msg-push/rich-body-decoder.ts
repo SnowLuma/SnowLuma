@@ -107,6 +107,9 @@ function decodeCardData(data: Uint8Array, remainingOutputBytes: number) {
     return { ...decoded, budgetBytes: decoded.outputBytes };
 }
 
+const MULTI_MSG_FILE_NAME_PATTERN =
+    /^MultiMsg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function isXmlCardContent(content: string): boolean {
     const trimmed = content.trim();
     return trimmed.startsWith('<') && trimmed.endsWith('>');
@@ -143,9 +146,18 @@ function decodeRichMsgCard(
         // XML forwards link bundled inner messages by m_fileName, just as
         // LightApp forwards use uniseq. Keep it for the outer payload lookup.
         const fileName = rootAttributes?.get('m_fileName') || undefined;
+        // Some nested previews have no downloadable resId. Their stable
+        // MultiMsg_<UUID> filename identifies the bundled inner layer instead.
+        const forwardId =
+            resId ||
+            (rootAttributes?.get('action') === 'viewMultiMsg' &&
+            fileName &&
+            MULTI_MSG_FILE_NAME_PATTERN.test(fileName)
+                ? fileName
+                : undefined);
         return {
-            element: resId
-                ? { type: 'forward', resId, forwardUuid: fileName }
+            element: forwardId
+                ? { type: 'forward', resId: forwardId, forwardUuid: fileName }
                 : { type: 'xml', text: content, subType: svcId },
             error: null,
             inputBytes: data.length,
