@@ -45,4 +45,13 @@ describe('get_stranger_info action', () => {
         expect(schema?.required).toContain('remark');
         expect(schema?.required).toContain('long_nick');
     });
+
+    it('documents the NapCat-compatible birthday fields as optional integers', () => {
+        const schema = getStrangerInfo.describe().returnsSchema;
+
+        for (const field of ['birthday_year', 'birthday_month', 'birthday_day']) {
+            expect(schema?.properties?.[field]).toMatchObject({ type: 'integer' });
+            expect(schema?.required).not.toContain(field);
+        }
+    });
 });

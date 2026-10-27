@@ -13,6 +13,13 @@ export interface UserProfileInfo {
      *  `FetchStrangerService.cs` confirms `// Level`. */
     level: number;
     regTime?: number;
+    /**
+     * 生日 — OIDB 0xFE1_2 bytes-property key 20031。
+     * 月日未设置时三项均缺省；出生年份未公开（年份为 0）时仅缺省 birthdayYear。
+     */
+    birthdayYear?: number;
+    birthdayMonth?: number;
+    birthdayDay?: number;
     vipFlag?: boolean;
     yearVipFlag?: boolean;
     svipFlag?: boolean;

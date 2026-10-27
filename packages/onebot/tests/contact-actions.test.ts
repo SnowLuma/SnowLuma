@@ -739,6 +739,9 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
                 qid: 'my_qid',
                 level: 64,
                 regTime: 1_200_000_000,
+                birthdayYear: 2000,
+                birthdayMonth: 3,
+                birthdayDay: 15,
                 svipFlag: true,
                 yearVipFlag: false,
                 vipLevel: 7,
@@ -752,6 +755,9 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
             qqLevel: 64,
             level: 64,
             reg_time: 1_200_000_000,
+            birthday_year: 2000,
+            birthday_month: 3,
+            birthday_day: 15,
             is_vip: true,
             is_years_vip: false,
             vip_level: 7,
@@ -765,9 +771,30 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
         });
         const out = await getStrangerInfo(bridge, 55555);
 
-        for (const field of ['reg_time', 'is_vip', 'is_years_vip', 'vip_level']) {
+        for (const field of [
+            'reg_time',
+            'birthday_year',
+            'birthday_month',
+            'birthday_day',
+            'is_vip',
+            'is_years_vip',
+            'vip_level',
+        ]) {
             expect(out).not.toHaveProperty(field);
         }
+    });
+
+    it('omits only birthday_year when the birth year is hidden', async () => {
+        const bridge = fakeBridge({
+            fetchUserProfile: vi.fn(async () => ({
+                ...makeProfile(55555, 'member'),
+                birthdayMonth: 12,
+                birthdayDay: 31,
+            })),
+        });
+        const out = await getStrangerInfo(bridge, 55555);
+        expect(out).toMatchObject({ birthday_month: 12, birthday_day: 31 });
+        expect(out).not.toHaveProperty('birthday_year');
     });
 
     it('returns a fetched profile', async () => {

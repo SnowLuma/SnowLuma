@@ -49,7 +49,7 @@ export const actions = [
         summary: '获取陌生人信息',
         readOnly: true,
         returns:
-            '用户资料，含账号标识、等级别名和可用的注册时间、会员信息。注册时间或会员信息未返回时省略对应字段；登录天数暂无可靠来源，不返回占位值。',
+            '用户资料，含账号标识、等级别名和可用的注册时间、生日、会员信息。注册时间、生日或会员信息未返回时省略对应字段，出生年份未公开时只省略年份；登录天数暂无可靠来源，不返回占位值。',
         returnsSchema: {
             type: 'object',
             properties: {
@@ -64,6 +64,18 @@ export const actions = [
                 qq_level: { type: 'integer', description: 'QQ 等级（仅查到资料时返回）' },
                 qqLevel: { type: 'integer', description: 'QQ 等级，同 qq_level' },
                 reg_time: { type: 'integer', description: '注册时间戳（秒），不可用时省略' },
+                birthday_year: {
+                    type: 'integer',
+                    description: '生日年份，兼容 NapCat；未公开或不可用时省略',
+                },
+                birthday_month: {
+                    type: 'integer',
+                    description: '生日月份（1-12），兼容 NapCat；不可用时省略',
+                },
+                birthday_day: {
+                    type: 'integer',
+                    description: '生日日期（1-31），兼容 NapCat；不可用时省略',
+                },
                 is_vip: { type: 'boolean', description: '超级会员状态，兼容 NapCat；不可用时省略' },
                 is_years_vip: { type: 'boolean', description: '年费会员状态，不可用时省略' },
                 vip_level: { type: 'integer', description: '会员等级，不可用时省略' },

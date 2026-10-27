@@ -22,7 +22,7 @@ import type {
     OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { UserProfileInfo } from '../../qq-info';
-import { applyOnlineStatus, applyProfileDetails } from './fetch-user-profile';
+import { applyBirthday, applyOnlineStatus, applyProfileDetails } from './fetch-user-profile';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 const REQUESTED_KEYS = [
@@ -109,6 +109,7 @@ export namespace FetchUserProfileByUid {
             info.level = numMap.get(105) ?? 0;
             applyOnlineStatus(info, bytesMap, numMap);
             applyProfileDetails(info, numMap);
+            applyBirthday(info, bytesMap);
             // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
             info.qidianMasterFlag = numMap.get(42031) ?? 0;
             info.qidianCrewFlag = numMap.get(40410) ?? 0;
