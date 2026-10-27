@@ -8,6 +8,13 @@ import { MuteMember } from '@snowluma/protocol/oidb-services/group-admin/mute-me
 import { SetAddOption } from '@snowluma/protocol/oidb-services/group-admin/set-add-option';
 import { SetAddRequest } from '@snowluma/protocol/oidb-services/group-admin/set-add-request';
 import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin';
+import { GetAdminPermissions } from '@snowluma/protocol/oidb-services/group-admin/get-admin-permissions';
+import {
+    SetAdminPermissions,
+    type GroupAdminPermissionPatch,
+} from '@snowluma/protocol/oidb-services/group-admin/set-admin-permissions';
+import { SetAdminReceiveVerify } from '@snowluma/protocol/oidb-services/group-admin/set-admin-receive-verify';
+import { createLogger } from '@snowluma/common/logger';
 import { SetGroupName } from '@snowluma/protocol/oidb-services/group-admin/set-group-name';
 import { SetGroupRemark } from '@snowluma/protocol/oidb-services/group-admin/set-group-remark';
 import { SetMemberCard } from '@snowluma/protocol/oidb-services/group-admin/set-member-card';
@@ -38,6 +45,8 @@ import { SetSpecialTitle } from '@snowluma/protocol/oidb-services/group-admin/se
 import { ModifyGroupExtInfo } from '@snowluma/protocol/oidb-services/group-admin/modify-group-ext-info';
 import { OidbError } from '@snowluma/protocol/oidb-service';
 import type { BridgeContext } from '../bridge-context';
+
+const log = createLogger('Bridge.GroupAdmin');
 
 /** QQ only accepts this write from the group owner (#411). */
 export const MEMBER_PERMISSIONS_OWNER_ONLY =
@@ -341,6 +350,57 @@ export class GroupAdminApi {
 
     setAdmin(groupId: number, userId: number, enable: boolean): Promise<void> {
         return SetAdmin.invoke(this.ctx, { groupId, userId, enable });
+    }
+
+    async getAdminPermissions(groupId: number, userId: number) {
+        const logger = log.child({ uin: Number(this.ctx.identity.uin) });
+        logger.debug('Reading administrator permissions group=%s user=%s', groupId, userId);
+        const snapshot = await GetAdminPermissions.invoke(this.ctx, { groupId, userId });
+        logger.debug(
+            'Administrator permissions received group=%s user=%s recall=%s kick=%s limit=%s',
+            groupId,
+            userId,
+            snapshot.recallMemberMessage,
+            snapshot.kickMember,
+            snapshot.kickMemberPerDay,
+        );
+        return {
+            group_id: groupId,
+            user_id: userId,
+            recall_member_message: snapshot.recallMemberMessage,
+            kick_member: snapshot.kickMember,
+            kick_member_per_day: snapshot.kickMemberPerDay,
+        };
+    }
+
+    async setAdminPermissions(
+        groupId: number,
+        userId: number,
+        patch: GroupAdminPermissionPatch,
+    ): Promise<void> {
+        const logger = log.child({ uin: Number(this.ctx.identity.uin) });
+        logger.debug(
+            'Setting administrator permissions group=%s user=%s recall=%s kick=%s limit=%s',
+            groupId,
+            userId,
+            patch.recallMemberMessage,
+            patch.kickMember,
+            patch.kickMemberPerDay,
+        );
+        await SetAdminPermissions.invoke(this.ctx, { groupId, userId, ...patch });
+        logger.debug('Administrator permissions acknowledged group=%s user=%s', groupId, userId);
+    }
+
+    async setAdminReceiveVerify(groupId: number, userId: number, enable: boolean): Promise<void> {
+        const logger = log.child({ uin: Number(this.ctx.identity.uin) });
+        logger.debug(
+            'Setting administrator receive-verify group=%s user=%s enable=%s',
+            groupId,
+            userId,
+            enable,
+        );
+        await SetAdminReceiveVerify.invoke(this.ctx, { groupId, userId, enable });
+        logger.debug('Administrator receive-verify confirmed group=%s user=%s', groupId, userId);
     }
 
     setCard(groupId: number, userId: number, card: string): Promise<void> {
