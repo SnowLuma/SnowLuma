@@ -30,6 +30,15 @@ const qzonePublicReply = {
 // The same examples are compiled against the published declarations and parsed
 // by the real server action definitions. They never invoke QQ or perform I/O.
 export const actionParams = {
+    get_group_admin_permissions: { group_id: '10001', user_id: '10002' },
+    set_group_admin_permissions: {
+        group_id: '10001',
+        user_id: '10002',
+        recall_member_message: false,
+        kick_member: true,
+        kick_member_per_day: '20',
+    },
+    set_group_admin_receive_verify: { group_id: '10001', user_id: '10002', enable: 'on' },
     _get_friend_dress: { user_id: '10002' },
     add_custom_face: { file: 'file:///fixture.png' },
     cancel_group_album_media_like: mediaLike,
@@ -180,6 +189,9 @@ export const actionParams = {
 // Keep this independent of SnowLumaActionMap: a missing map entry must fail the
 // consumer's coverage check rather than silently remove that example.
 export type CoveredAction =
+    | 'get_group_admin_permissions'
+    | 'set_group_admin_permissions'
+    | 'set_group_admin_receive_verify'
     | '_get_friend_dress'
     | 'add_custom_face'
     | 'cancel_group_album_media_like'
@@ -268,6 +280,15 @@ const flashInfo = {
 };
 
 export const actionResults = {
+    get_group_admin_permissions: {
+        group_id: 10001,
+        user_id: 10002,
+        recall_member_message: null,
+        kick_member: true,
+        kick_member_per_day: 20,
+    },
+    set_group_admin_permissions: null,
+    set_group_admin_receive_verify: null,
     _get_friend_dress: {
         target_uin: '10002',
         is_svip: true,

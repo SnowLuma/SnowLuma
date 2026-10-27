@@ -6514,6 +6514,111 @@ export const ACTIONS: CatalogAction[] = [
     "category": "扩展"
   },
   {
+    "name": "get_group_admin_permissions",
+    "aliases": [],
+    "summary": "读取指定管理员的撤回、移除成员及每日移除上限",
+    "returns": "服务器返回的管理员权限；未返回或未指定的开关为 null。每日上限仅在移除权限开启时返回，0 表示不限。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer"
+        },
+        "user_id": {
+          "type": "integer"
+        },
+        "recall_member_message": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "撤回成员消息；null 表示服务器未指定"
+        },
+        "kick_member": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "移除群成员；null 表示服务器未指定"
+        },
+        "kick_member_per_day": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "每日可移除人数，0 不限；权限关闭或未指定时为 null"
+        }
+      },
+      "required": [
+        "group_id",
+        "user_id",
+        "recall_member_message",
+        "kick_member",
+        "kick_member_per_day"
+      ],
+      "additionalProperties": false
+    },
+    "examples": [
+      {
+        "summary": "读取管理员权限",
+        "params": {
+          "group_id": 20001,
+          "user_id": 10001
+        },
+        "notes": "user_id 为目标管理员 QQ 号；不包含接收验证消息开关。"
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": true,
+        "role": "member_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "QQ 号"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号",
+          "x-role": "group_id"
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "QQ 号",
+          "x-role": "member_id"
+        }
+      },
+      "required": [
+        "group_id",
+        "user_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群管理"
+  },
+  {
     "name": "get_group_admin_settings",
     "aliases": [],
     "summary": "获取群管理设置的当前值",
@@ -16519,6 +16624,198 @@ export const ACTIONS: CatalogAction[] = [
     "category": "群管理"
   },
   {
+    "name": "set_group_admin_permissions",
+    "aliases": [],
+    "summary": "设置指定管理员的撤回和移除成员权限",
+    "returnsSchema": {
+      "type": "null",
+      "description": "服务器确认请求后 data 为 null；不代表已经过客户端回读验证。可用 get_group_admin_permissions 查询。"
+    },
+    "examples": [
+      {
+        "summary": "允许管理员每日移除至多 10 人",
+        "params": {
+          "group_id": 20001,
+          "user_id": 10001,
+          "kick_member": true,
+          "kick_member_per_day": 10
+        },
+        "notes": "需要当前账号具有修改权限；不会授予管理员角色。仅修改显式字段。开启移除必须提供上限，0 表示不限；修改上限需同时传 kick_member=true。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": true,
+        "role": "member_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "QQ 号"
+      },
+      {
+        "name": "recall_member_message",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      {
+        "name": "kick_member",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      {
+        "name": "kick_member_per_day",
+        "type": "int",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        }
+      }
+    ],
+    "invariants": [
+      "at least one of: recall_member_message, kick_member",
+      "kick_member=true requires kick_member_per_day: 0, 5, 10, 20, 50, 100 or 200",
+      "kick_member_per_day requires kick_member=true"
+    ],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号",
+          "x-role": "group_id"
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "QQ 号",
+          "x-role": "member_id"
+        },
+        "recall_member_message": {
+          "type": "boolean"
+        },
+        "kick_member": {
+          "type": "boolean"
+        },
+        "kick_member_per_day": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "group_id",
+        "user_id"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群管理"
+  },
+  {
+    "name": "set_group_admin_receive_verify",
+    "aliases": [],
+    "summary": "设置指定管理员是否接收加群验证消息",
+    "returnsSchema": {
+      "type": "null",
+      "description": "服务器响应确认目标群和管理员后 data 为 null；未确认目标时返回错误。"
+    },
+    "examples": [
+      {
+        "summary": "开启接收验证消息",
+        "params": {
+          "group_id": 20001,
+          "user_id": 10001,
+          "enable": true
+        },
+        "notes": "user_id 为目标管理员 QQ 号；需要当前账号具有修改权限。独立于撤回和移除成员权限。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "group_id",
+        "type": "uint",
+        "required": true,
+        "role": "group_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "群号"
+      },
+      {
+        "name": "user_id",
+        "type": "uint",
+        "required": true,
+        "role": "member_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "QQ 号"
+      },
+      {
+        "name": "enable",
+        "type": "bool",
+        "required": true,
+        "schema": {
+          "type": "boolean"
+        }
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "群号",
+          "x-role": "group_id"
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "QQ 号",
+          "x-role": "member_id"
+        },
+        "enable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "group_id",
+        "user_id",
+        "enable"
+      ],
+      "additionalProperties": true
+    },
+    "category": "群管理"
+  },
+  {
     "name": "set_group_album_media_like",
     "aliases": [],
     "returnsSchema": {
@@ -20432,7 +20729,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "群管理",
-    "count": 21
+    "count": 24
   },
   {
     "category": "群文件",

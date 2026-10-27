@@ -48,6 +48,9 @@ const getGroupTags = requireAction('get_group_tags');
 const addGroupTag = requireAction('add_group_tag');
 const deleteGroupTag = requireAction('delete_group_tag');
 const setGroupAdmin = requireAction('set_group_admin');
+const getAdminPermissions = requireAction('get_group_admin_permissions');
+const setAdminPermissions = requireAction('set_group_admin_permissions');
+const setAdminReceiveVerify = requireAction('set_group_admin_receive_verify');
 const setGroupCard = requireAction('set_group_card');
 const setGroupName = requireAction('set_group_name');
 const setGroupLeave = requireAction('set_group_leave');
@@ -73,6 +76,9 @@ describe('group admin actions catalog', () => {
             ['add_group_tag'],
             ['delete_group_tag'],
             ['set_group_admin'],
+            ['get_group_admin_permissions'],
+            ['set_group_admin_permissions'],
+            ['set_group_admin_receive_verify'],
             ['set_group_card'],
             ['set_group_name'],
             ['set_group_leave'],
@@ -82,6 +88,9 @@ describe('group admin actions catalog', () => {
             ['set_group_portrait'],
         ]);
         expect(actions.map((action) => action.kind)).toEqual([
+            'normal',
+            'normal',
+            'normal',
             'normal',
             'normal',
             'normal',
@@ -980,6 +989,96 @@ describe('set_group_member_permissions describe', () => {
                 allow_member_create_group: { type: 'boolean' },
             },
         });
+    });
+});
+
+describe('per-administrator permissions', () => {
+    const target = { group_id: 12345, user_id: 67890 };
+
+    it.each([
+        {},
+        { kick_member_per_day: 20 },
+        { kick_member: true },
+        { kick_member: false, kick_member_per_day: 20 },
+        { kick_member: true, kick_member_per_day: 1 },
+        { kick_member: true, kick_member_per_day: 201 },
+    ])('rejects an ambiguous or invalid patch before effects: %j', async (patch) => {
+        const set = vi.fn();
+        const { ctx } = adminCtx({ setAdminPermissions: set });
+        expect(setAdminPermissions.parse({ ...target, ...patch }).ok).toBe(false);
+        await expect(
+            setAdminPermissions.toHandler(ctx)({ ...target, ...patch }),
+        ).resolves.toMatchObject({ status: 'failed' });
+        expect(set).not.toHaveBeenCalled();
+    });
+
+    it.each([0, 5, 10, 20, 50, 100, 200])(
+        'accepts a supported explicit daily limit %s',
+        (limit) => {
+            expect(
+                setAdminPermissions.parse({
+                    ...target,
+                    kick_member: 'yes',
+                    kick_member_per_day: String(limit),
+                }),
+            ).toMatchObject({
+                ok: true,
+                value: { ...target, kick_member: true, kick_member_per_day: limit },
+            });
+        },
+    );
+
+    it('forwards false and preserves omitted permissions without promoting the member', async () => {
+        const set = vi.fn(async () => {});
+        const promote = vi.fn();
+        const { ctx } = adminCtx({ setAdminPermissions: set, setAdmin: promote });
+        await expect(
+            setAdminPermissions.toHandler(ctx)({ ...target, recall_member_message: 'no' }),
+        ).resolves.toEqual({ status: 'ok', retcode: 0, data: null });
+        expect(set).toHaveBeenCalledExactlyOnceWith(12345, 67890, {
+            recallMemberMessage: false,
+            kickMember: undefined,
+            kickMemberPerDay: undefined,
+        });
+        expect(promote).not.toHaveBeenCalled();
+    });
+
+    it('requires an explicit receive-verification switch and forwards false', async () => {
+        expect(setAdminReceiveVerify.parse(target)).toMatchObject({ ok: false, field: 'enable' });
+        const set = vi.fn(async () => {});
+        const { ctx } = adminCtx({ setAdminReceiveVerify: set });
+        await expect(
+            setAdminReceiveVerify.toHandler(ctx)({ ...target, enable: 'off' }),
+        ).resolves.toEqual({ status: 'ok', retcode: 0, data: null });
+        expect(set).toHaveBeenCalledExactlyOnceWith(12345, 67890, false);
+    });
+
+    it('returns nullable permissions without defaulting them to true', async () => {
+        const snapshot = {
+            ...target,
+            recall_member_message: null,
+            kick_member: true,
+            kick_member_per_day: 0,
+        };
+        const get = vi.fn(async () => snapshot);
+        const { ctx } = adminCtx({ getAdminPermissions: get });
+        await expect(getAdminPermissions.toHandler(ctx)(target)).resolves.toEqual({
+            status: 'ok',
+            retcode: 0,
+            data: snapshot,
+        });
+        expect(get).toHaveBeenCalledExactlyOnceWith(12345, 67890);
+        expect(getAdminPermissions.describe().readOnly).toBe(true);
+    });
+
+    it('propagates a rejected or unconfirmed update', async () => {
+        const set = vi.fn(async () => {
+            throw new Error('target not confirmed');
+        });
+        const { ctx } = adminCtx({ setAdminReceiveVerify: set });
+        await expect(
+            setAdminReceiveVerify.toHandler(ctx)({ ...target, enable: true }),
+        ).rejects.toThrow('target not confirmed');
     });
 });
 

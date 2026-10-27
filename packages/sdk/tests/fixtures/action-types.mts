@@ -43,6 +43,54 @@ export type QuickAlias = AssertTrue<
 declare const http: SnowLumaHttpClient;
 declare const ws: SnowLumaWebSocketClient;
 
+const adminPermissions = await http.raw('get_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+});
+export const adminRecall: boolean | null = adminPermissions.recall_member_message;
+export const adminKickLimit: number | null = adminPermissions.kick_member_per_day;
+await http.raw('set_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+    recall_member_message: false,
+});
+await http.raw('set_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+    kick_member: false,
+});
+await http.raw('set_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+    kick_member: true,
+    kick_member_per_day: 0,
+});
+await http.raw('set_group_admin_receive_verify', {
+    group_id: 10001,
+    user_id: 10002,
+    enable: false,
+});
+// @ts-expect-error a patch must change a permission
+http.raw('set_group_admin_permissions', { group_id: 10001, user_id: 10002 });
+// @ts-expect-error enabling removal requires an explicit limit
+http.raw('set_group_admin_permissions', { group_id: 10001, user_id: 10002, kick_member: true });
+http.raw('set_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+    kick_member: false,
+    // @ts-expect-error a limit without enabling removal is invalid
+    kick_member_per_day: 20,
+});
+http.raw('set_group_admin_permissions', {
+    group_id: 10001,
+    user_id: 10002,
+    kick_member: true,
+    // @ts-expect-error only supported limits may be written
+    kick_member_per_day: 1,
+});
+// @ts-expect-error receive-verification enable is required
+http.raw('set_group_admin_receive_verify', { group_id: 10001, user_id: 10002 });
+
 export const uploadedFile: Promise<UploadFileStreamComplete> = http.uploadFileStream(
     new Blob(['file']),
 );

@@ -508,6 +508,36 @@ export interface SetGroupNewMemberHistoryVisibilityParams extends ActionGroupIdP
     visible: ActionBooleanInput;
 }
 
+export interface GroupAdminTargetParams extends ActionGroupIdParams {
+    user_id: ActionNumberInput;
+}
+
+export type GroupAdminKickLimit = 0 | 5 | 10 | 20 | 50 | 100 | 200;
+
+/** Only supplied permissions change. Enabling removal requires an explicit limit. */
+export type SetGroupAdminPermissionsParams = GroupAdminTargetParams &
+    (
+        | {
+              recall_member_message: ActionBooleanInput;
+              kick_member?: never;
+              kick_member_per_day?: never;
+          }
+        | {
+              recall_member_message?: ActionBooleanInput;
+              kick_member: false;
+              kick_member_per_day?: never;
+          }
+        | {
+              recall_member_message?: ActionBooleanInput;
+              kick_member: true;
+              kick_member_per_day: GroupAdminKickLimit | `${GroupAdminKickLimit}`;
+          }
+    );
+
+export interface SetGroupAdminReceiveVerifyParams extends GroupAdminTargetParams {
+    enable: ActionBooleanInput;
+}
+
 export type SetGroupMemberPermissionsParams = ActionGroupIdParams &
     (
         | {

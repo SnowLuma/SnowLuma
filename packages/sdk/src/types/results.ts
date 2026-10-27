@@ -270,6 +270,16 @@ export type GroupAdminSettings = {
     no_code_finger_open: number;
 };
 
+export interface GroupAdminPermissions {
+    group_id: number;
+    user_id: number;
+    /** Null means the server did not specify this permission. */
+    recall_member_message: boolean | null;
+    kick_member: boolean | null;
+    /** Zero means unlimited; null means removal is disabled or unspecified. */
+    kick_member_per_day: number | null;
+}
+
 export interface GroupTodoListItem {
     message_id: number;
     message_seq: number;

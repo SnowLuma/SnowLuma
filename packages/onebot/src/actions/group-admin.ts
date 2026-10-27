@@ -467,6 +467,120 @@ export const actions = [
     }),
 
     groupUserAction({
+        name: 'get_group_admin_permissions',
+        summary: '读取指定管理员的撤回、移除成员及每日移除上限',
+        readOnly: true,
+        examples: [
+            {
+                summary: '读取管理员权限',
+                params: { group_id: 20001, user_id: 10001 },
+                notes: 'user_id 为目标管理员 QQ 号；不包含接收验证消息开关。',
+            },
+        ],
+        returns:
+            '服务器返回的管理员权限；未返回或未指定的开关为 null。每日上限仅在移除权限开启时返回，0 表示不限。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                group_id: { type: 'integer' },
+                user_id: { type: 'integer' },
+                recall_member_message: {
+                    type: ['boolean', 'null'],
+                    description: '撤回成员消息；null 表示服务器未指定',
+                },
+                kick_member: {
+                    type: ['boolean', 'null'],
+                    description: '移除群成员；null 表示服务器未指定',
+                },
+                kick_member_per_day: {
+                    type: ['integer', 'null'],
+                    description: '每日可移除人数，0 不限；权限关闭或未指定时为 null',
+                },
+            },
+            required: [
+                'group_id',
+                'user_id',
+                'recall_member_message',
+                'kick_member',
+                'kick_member_per_day',
+            ],
+            additionalProperties: false,
+        },
+        run: async (p, ctx) =>
+            okResponse(await ctx.bridge.apis.groupAdmin.getAdminPermissions(p.group_id, p.user_id)),
+    }),
+
+    groupUserAction({
+        name: 'set_group_admin_permissions',
+        summary: '设置指定管理员的撤回和移除成员权限',
+        examples: [
+            {
+                summary: '允许管理员每日移除至多 10 人',
+                params: {
+                    group_id: 20001,
+                    user_id: 10001,
+                    kick_member: true,
+                    kick_member_per_day: 10,
+                },
+                notes: '需要当前账号具有修改权限；不会授予管理员角色。仅修改显式字段。开启移除必须提供上限，0 表示不限；修改上限需同时传 kick_member=true。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description:
+                '服务器确认请求后 data 为 null；不代表已经过客户端回读验证。可用 get_group_admin_permissions 查询。',
+        },
+        params: {
+            recall_member_message: f.bool().optional(),
+            kick_member: f.bool().optional(),
+            kick_member_per_day: f.int({ min: 0, max: 200 }).optional(),
+        },
+        rules: (r) => [
+            r.atLeastOneOf('recall_member_message', 'kick_member'),
+            r.rule(
+                'kick_member=true requires kick_member_per_day: 0, 5, 10, 20, 50, 100 or 200',
+                (p) =>
+                    p.kick_member !== true ||
+                    (p.kick_member_per_day !== undefined &&
+                        [0, 5, 10, 20, 50, 100, 200].includes(p.kick_member_per_day)),
+            ),
+            r.rule(
+                'kick_member_per_day requires kick_member=true',
+                (p) => p.kick_member_per_day === undefined || p.kick_member === true,
+            ),
+        ],
+        run: async (p, ctx) => {
+            await ctx.bridge.apis.groupAdmin.setAdminPermissions(p.group_id, p.user_id, {
+                recallMemberMessage: p.recall_member_message,
+                kickMember: p.kick_member,
+                kickMemberPerDay: p.kick_member_per_day,
+            });
+            return okResponse();
+        },
+    }),
+
+    groupUserAction({
+        name: 'set_group_admin_receive_verify',
+        summary: '设置指定管理员是否接收加群验证消息',
+        examples: [
+            {
+                summary: '开启接收验证消息',
+                params: { group_id: 20001, user_id: 10001, enable: true },
+                notes: 'user_id 为目标管理员 QQ 号；需要当前账号具有修改权限。独立于撤回和移除成员权限。',
+            },
+        ],
+        returnsSchema: {
+            type: 'null',
+            description: '服务器响应确认目标群和管理员后 data 为 null；未确认目标时返回错误。',
+        },
+        params: { enable: f.bool() },
+        run: async (p, ctx) => {
+            await ctx.bridge.apis.groupAdmin.setAdminReceiveVerify(p.group_id, p.user_id, p.enable);
+            return okResponse();
+        },
+    }),
+
+    groupUserAction({
         name: 'set_group_card',
         examples: [
             {

@@ -227,6 +227,43 @@ if (feed) {
 
 列表续页必须原样传回 `next_cursor`，根据 `has_more` 判断结束，不能因本页不足 10 条而停止。详情中的首批评论位于 `feed.feed.cell_comment.comments`；后续评论使用详情或上一评论页的 `attach_info` 作为 `cursor`。读取回复时，首次可省略 `cursor` 使用完整评论自带的 `reply_attach_info`，之后传上一回复页的 `reply_attach_info`。这些游标各有用途，列表游标还绑定当前账号。登录或访问权限失败会抛出 `SnowLumaApiError`。
 
+### 单个管理员权限
+
+`set_group_admin` 用于授予或取消管理员身份。对已有管理员，可通过以下动作读取或修改权限；调用账号需要具有 QQ 服务端要求的管理权限。
+
+| 动作 | 参数与结果 |
+| --- | --- |
+| `get_group_admin_permissions` | `group_id`、`user_id`；返回撤回权限、移除权限和每日移除上限 |
+| `set_group_admin_permissions` | `group_id`、`user_id`，以及至少一个 `recall_member_message` / `kick_member` |
+| `set_group_admin_receive_verify` | `group_id`、`user_id`、必填 `enable`；独立设置接收加群验证消息 |
+
+```ts
+await bot.raw('set_group_admin_permissions', {
+  group_id: 123456,
+  user_id: 10001,
+  recall_member_message: false,
+  kick_member: true,
+  kick_member_per_day: 20,
+});
+
+const permissions = await bot.raw('get_group_admin_permissions', {
+  group_id: 123456,
+  user_id: 10001,
+});
+
+await bot.raw('set_group_admin_receive_verify', {
+  group_id: 123456,
+  user_id: 10001,
+  enable: false,
+});
+```
+
+只修改显式提供的权限。开启移除权限必须明确提供 `kick_member_per_day`，支持 `0`、`5`、`10`、`20`、`50`、`100`、`200`，其中 `0` 表示不限。修改上限也须同时传 `kick_member: true`；关闭或省略移除权限时不能提供上限。SDK 的 `kick_member` 使用布尔值，以便类型检查约束上限。
+
+读取结果包含 `group_id`、`user_id`、`recall_member_message`、`kick_member`、`kick_member_per_day`。服务器未指定的开关返回 `null`；移除权限关闭或未指定时，上限也为 `null`。当前读取接口不返回接收验证消息状态。
+
+两个写动作分别发送一次请求，不自动重试或授予管理员身份。权限写入成功表示服务器确认请求；接收验证消息写入还会核对响应中的群号和成功管理员列表。两者均返回 `null`。完整的客户端显示和实际权限效果仍需真实 QQ 验证，不能以接口成功替代验收。
+
 ## Message Builder
 
 ```ts

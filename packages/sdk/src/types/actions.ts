@@ -53,6 +53,9 @@ import type {
     SetGroupAddRequestParams,
     SetGroupAddOptionParams,
     SetGroupAdminParams,
+    GroupAdminTargetParams,
+    SetGroupAdminPermissionsParams,
+    SetGroupAdminReceiveVerifyParams,
     SetGroupBanParams,
     SetGroupCardParams,
     SetGroupKickParams,
@@ -145,6 +148,7 @@ import type {
     FriendCategoryResult,
     FriendMessageHistory,
     GroupAdminSettings,
+    GroupAdminPermissions,
     GroupCategoryTagList,
     GroupAtAllRemainInfo,
     GroupFileSystemInfo,
@@ -242,6 +246,9 @@ export interface SnowLumaActionMap {
     add_group_tag: { params: GroupCategoryTagNameParams; data: EmptyData };
     delete_group_tag: { params: GroupCategoryTagNameParams; data: EmptyData };
     set_group_admin: { params: SetGroupAdminParams; data: EmptyData };
+    get_group_admin_permissions: { params: GroupAdminTargetParams; data: GroupAdminPermissions };
+    set_group_admin_permissions: { params: SetGroupAdminPermissionsParams; data: EmptyData };
+    set_group_admin_receive_verify: { params: SetGroupAdminReceiveVerifyParams; data: EmptyData };
     set_group_card: { params: SetGroupCardParams; data: EmptyData };
     set_group_name: { params: SetGroupNameParams; data: EmptyData };
     set_group_leave: { params: GroupIdParams; data: EmptyData };
