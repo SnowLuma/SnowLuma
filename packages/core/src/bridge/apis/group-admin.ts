@@ -9,6 +9,7 @@ import { SetAddOption } from '@snowluma/protocol/oidb-services/group-admin/set-a
 import { SetAddRequest } from '@snowluma/protocol/oidb-services/group-admin/set-add-request';
 import { SetAdmin } from '@snowluma/protocol/oidb-services/group-admin/set-admin';
 import { GetAdminPermissions } from '@snowluma/protocol/oidb-services/group-admin/get-admin-permissions';
+import { GetAdminReceiveVerify } from '@snowluma/protocol/oidb-services/group-admin/get-admin-receive-verify';
 import {
     SetAdminPermissions,
     type GroupAdminPermissionPatch,
@@ -355,14 +356,18 @@ export class GroupAdminApi {
     async getAdminPermissions(groupId: number, userId: number) {
         const logger = log.child({ uin: Number(this.ctx.identity.uin) });
         logger.debug('Reading administrator permissions group=%s user=%s', groupId, userId);
-        const snapshot = await GetAdminPermissions.invoke(this.ctx, { groupId, userId });
+        const [snapshot, receiveVerify] = await Promise.all([
+            GetAdminPermissions.invoke(this.ctx, { groupId, userId }),
+            GetAdminReceiveVerify.invoke(this.ctx, { groupId, userId }),
+        ]);
         logger.debug(
-            'Administrator permissions received group=%s user=%s recall=%s kick=%s limit=%s',
+            'Administrator permissions received group=%s user=%s recall=%s kick=%s limit=%s receiveVerify=%s',
             groupId,
             userId,
             snapshot.recallMemberMessage,
             snapshot.kickMember,
             snapshot.kickMemberPerDay,
+            receiveVerify,
         );
         return {
             group_id: groupId,
@@ -370,6 +375,7 @@ export class GroupAdminApi {
             recall_member_message: snapshot.recallMemberMessage,
             kick_member: snapshot.kickMember,
             kick_member_per_day: snapshot.kickMemberPerDay,
+            receive_verify: receiveVerify,
         };
     }
 

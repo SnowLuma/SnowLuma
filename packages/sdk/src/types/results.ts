@@ -278,6 +278,8 @@ export interface GroupAdminPermissions {
     kick_member: boolean | null;
     /** Zero means unlimited; null means removal is disabled or unspecified. */
     kick_member_per_day: number | null;
+    /** Whether join-verification messages are received; null means the state was not returned. */
+    receive_verify: boolean | null;
 }
 
 export interface GroupTodoListItem {

@@ -468,13 +468,13 @@ export const actions = [
 
     groupUserAction({
         name: 'get_group_admin_permissions',
-        summary: '读取指定管理员的撤回、移除成员及每日移除上限',
+        summary: '读取指定管理员的撤回、移除成员、每日移除上限及接收验证消息状态',
         readOnly: true,
         examples: [
             {
                 summary: '读取管理员权限',
                 params: { group_id: 20001, user_id: 10001 },
-                notes: 'user_id 为目标管理员 QQ 号；不包含接收验证消息开关。',
+                notes: 'user_id 为目标管理员 QQ 号；包含接收加群验证消息状态。',
             },
         ],
         returns:
@@ -496,6 +496,10 @@ export const actions = [
                     type: ['integer', 'null'],
                     description: '每日可移除人数，0 不限；权限关闭或未指定时为 null',
                 },
+                receive_verify: {
+                    type: ['boolean', 'null'],
+                    description: '是否接收加群验证消息；null 表示服务器未返回状态',
+                },
             },
             required: [
                 'group_id',
@@ -503,6 +507,7 @@ export const actions = [
                 'recall_member_message',
                 'kick_member',
                 'kick_member_per_day',
+                'receive_verify',
             ],
             additionalProperties: false,
         },

@@ -63,3 +63,30 @@ export interface SetGroupAdminReceiveVerifyResponse {
     groupCode?: pb<1, uint_64>;
     result?: pb<2, GroupAdminReceiveVerifyResult>;
 }
+
+export interface GroupAdminReceiveVerifyIdentity {
+    uid?: pb<2, string>;
+    uin?: pb_optional<4, uint_64>;
+}
+
+export interface GroupAdminReceiveVerifyFilter {
+    memberFlagExt?: pb<104, uint_32>;
+}
+
+export interface GetGroupAdminReceiveVerifyRequest {
+    groupCode?: pb<1, uint_64>;
+    field2?: pb<2, uint_32>;
+    field3?: pb_optional<3, uint_32>;
+    filter?: pb<4, GroupAdminReceiveVerifyFilter>;
+    members?: pb_repeated<5, GroupAdminReceiveVerifyIdentity>;
+}
+
+export interface GroupAdminReceiveVerifyMember {
+    identity?: pb<1, GroupAdminReceiveVerifyIdentity>;
+    memberFlagExt?: pb_optional<104, uint_32>;
+}
+
+export interface GetGroupAdminReceiveVerifyResponse {
+    groupCode?: pb<1, uint_64>;
+    members?: pb_repeated<2, GroupAdminReceiveVerifyMember>;
+}

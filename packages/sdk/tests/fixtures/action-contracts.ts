@@ -286,6 +286,7 @@ export const actionResults = {
         recall_member_message: null,
         kick_member: true,
         kick_member_per_day: 20,
+        receive_verify: false,
     },
     set_group_admin_permissions: null,
     set_group_admin_receive_verify: null,

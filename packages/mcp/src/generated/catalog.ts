@@ -6516,7 +6516,7 @@ export const ACTIONS: CatalogAction[] = [
   {
     "name": "get_group_admin_permissions",
     "aliases": [],
-    "summary": "读取指定管理员的撤回、移除成员及每日移除上限",
+    "summary": "读取指定管理员的撤回、移除成员、每日移除上限及接收验证消息状态",
     "returns": "服务器返回的管理员权限；未返回或未指定的开关为 null。每日上限仅在移除权限开启时返回，0 表示不限。",
     "returnsSchema": {
       "type": "object",
@@ -6547,6 +6547,13 @@ export const ACTIONS: CatalogAction[] = [
             "null"
           ],
           "description": "每日可移除人数，0 不限；权限关闭或未指定时为 null"
+        },
+        "receive_verify": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "是否接收加群验证消息；null 表示服务器未返回状态"
         }
       },
       "required": [
@@ -6554,7 +6561,8 @@ export const ACTIONS: CatalogAction[] = [
         "user_id",
         "recall_member_message",
         "kick_member",
-        "kick_member_per_day"
+        "kick_member_per_day",
+        "receive_verify"
       ],
       "additionalProperties": false
     },
@@ -6565,7 +6573,7 @@ export const ACTIONS: CatalogAction[] = [
           "group_id": 20001,
           "user_id": 10001
         },
-        "notes": "user_id 为目标管理员 QQ 号；不包含接收验证消息开关。"
+        "notes": "user_id 为目标管理员 QQ 号；包含接收加群验证消息状态。"
       }
     ],
     "readOnly": true,

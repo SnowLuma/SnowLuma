@@ -49,6 +49,7 @@ const adminPermissions = await http.raw('get_group_admin_permissions', {
 });
 export const adminRecall: boolean | null = adminPermissions.recall_member_message;
 export const adminKickLimit: number | null = adminPermissions.kick_member_per_day;
+export const adminReceiveVerify: boolean | null = adminPermissions.receive_verify;
 await http.raw('set_group_admin_permissions', {
     group_id: 10001,
     user_id: 10002,

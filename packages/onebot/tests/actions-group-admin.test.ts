@@ -1053,23 +1053,27 @@ describe('per-administrator permissions', () => {
         expect(set).toHaveBeenCalledExactlyOnceWith(12345, 67890, false);
     });
 
-    it('returns nullable permissions without defaulting them to true', async () => {
-        const snapshot = {
-            ...target,
-            recall_member_message: null,
-            kick_member: true,
-            kick_member_per_day: 0,
-        };
-        const get = vi.fn(async () => snapshot);
-        const { ctx } = adminCtx({ getAdminPermissions: get });
-        await expect(getAdminPermissions.toHandler(ctx)(target)).resolves.toEqual({
-            status: 'ok',
-            retcode: 0,
-            data: snapshot,
-        });
-        expect(get).toHaveBeenCalledExactlyOnceWith(12345, 67890);
-        expect(getAdminPermissions.describe().readOnly).toBe(true);
-    });
+    it.each([true, false, null])(
+        'returns receive-verification state %s and nullable permissions',
+        async (receiveVerify) => {
+            const snapshot = {
+                ...target,
+                recall_member_message: null,
+                kick_member: true,
+                kick_member_per_day: 0,
+                receive_verify: receiveVerify,
+            };
+            const get = vi.fn(async () => snapshot);
+            const { ctx } = adminCtx({ getAdminPermissions: get });
+            await expect(getAdminPermissions.toHandler(ctx)(target)).resolves.toEqual({
+                status: 'ok',
+                retcode: 0,
+                data: snapshot,
+            });
+            expect(get).toHaveBeenCalledExactlyOnceWith(12345, 67890);
+            expect(getAdminPermissions.describe().readOnly).toBe(true);
+        },
+    );
 
     it('propagates a rejected or unconfirmed update', async () => {
         const set = vi.fn(async () => {

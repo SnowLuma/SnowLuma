@@ -233,7 +233,7 @@ if (feed) {
 
 | 动作 | 参数与结果 |
 | --- | --- |
-| `get_group_admin_permissions` | `group_id`、`user_id`；返回撤回权限、移除权限和每日移除上限 |
+| `get_group_admin_permissions` | `group_id`、`user_id`；返回撤回权限、移除权限、每日移除上限和接收验证消息状态 |
 | `set_group_admin_permissions` | `group_id`、`user_id`，以及至少一个 `recall_member_message` / `kick_member` |
 | `set_group_admin_receive_verify` | `group_id`、`user_id`、必填 `enable`；独立设置接收加群验证消息 |
 
@@ -260,7 +260,7 @@ await bot.raw('set_group_admin_receive_verify', {
 
 只修改显式提供的权限。开启移除权限必须明确提供 `kick_member_per_day`，支持 `0`、`5`、`10`、`20`、`50`、`100`、`200`，其中 `0` 表示不限。修改上限也须同时传 `kick_member: true`；关闭或省略移除权限时不能提供上限。SDK 的 `kick_member` 使用布尔值，以便类型检查约束上限。
 
-读取结果包含 `group_id`、`user_id`、`recall_member_message`、`kick_member`、`kick_member_per_day`。服务器未指定的开关返回 `null`；移除权限关闭或未指定时，上限也为 `null`。当前读取接口不返回接收验证消息状态。
+读取结果包含 `group_id`、`user_id`、`recall_member_message`、`kick_member`、`kick_member_per_day`、`receive_verify`。`receive_verify` 表示是否接收加群验证消息。服务器未返回或未指定的状态为 `null`；移除权限关闭或未指定时，上限也为 `null`。各项来自独立查询，不保证同一时刻的状态；任何查询失败都会报错。
 
 两个写动作分别发送一次请求，不自动重试或授予管理员身份。权限写入成功表示服务器确认请求；接收验证消息写入还会核对响应中的群号和成功管理员列表。两者均返回 `null`。完整的客户端显示和实际权限效果仍需真实 QQ 验证，不能以接口成功替代验收。
 
