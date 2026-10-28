@@ -1,0 +1,72 @@
+{
+  "schema": 5,
+  "preset": "sl-public-release",
+  "generated_at": "2026-10-28T13:08:58Z",
+  "nnphook": {
+    "repository": "SnowLuma/nnphook",
+    "ref": "3a198af2eefe0a403cf794e2d267c0f8edb7fe57",
+    "commit": "3a198af2eefe0a403cf794e2d267c0f8edb7fe57"
+  },
+  "release_tag": "native-l3-3a198af",
+  "build_run_url": "https://github.com/SnowLuma/SnowLumaNative/releases/tag/native-l3-3a198af",
+  "features": {
+    "SNOWLUMA_EXTENDED": "OFF",
+    "NNP_LICENSE": "OFF",
+    "NNP_UNLOCK": "OFF",
+    "NNP_INJECT_GATE": "OFF",
+    "NNP_ANTI_DETECT": "OFF",
+    "NNP_SIGN_DETMARK_SANITIZE": "OFF",
+    "NNP_ENABLE_LOG": "OFF",
+    "NNP_PUBLIC_DIAG": "OFF",
+    "NNP_BUILD_SIGNER": "OFF",
+    "NNP_BUILD_TESTS": "OFF",
+    "NNP_BLOCK_SENSITIVE_SEND": "ON",
+    "NNP_OBF_LEVEL": "3",
+    "NNP_OBF_SEED_OVERRIDE": "",
+    "CMAKE_BUILD_TYPE": "Release"
+  },
+  "obf": {
+    "pass_version": 3,
+    "kind": "source-l1",
+    "protected_list": "scripts/obf/protected_functions.txt",
+    "level": 3
+  },
+  "toolchains": {
+    "linux-x64": "",
+    "linux-arm64": "",
+    "win32-x64": "",
+    "node": ""
+  },
+  "artifacts": [
+    {
+      "name": "snowluma-linux-x64.node",
+      "sha256": "25c597a1d53dc72d5171ed58c6e6e1d6c5afdf78ceffc1ac7549e482a7bd5400",
+      "size": 278344
+    },
+    {
+      "name": "snowluma-linux-x64.so",
+      "sha256": "efc6a50840f0e037b6242c80dabecf8fd6524791a2928346ba56a32ee134bfb3",
+      "size": 228656
+    },
+    {
+      "name": "snowluma-linux-arm64.node",
+      "sha256": "6417375a06579fffa0b90720325122dcb9cc76ef441bb6446aac06ff22bab950",
+      "size": 237144
+    },
+    {
+      "name": "snowluma-linux-arm64.so",
+      "sha256": "4624170e7f865c6e787552c7a2b52401ceb00c8f0bb64a0d58877b153d8e56a9",
+      "size": 199776
+    },
+    {
+      "name": "snowluma-win32-x64.node",
+      "sha256": "6d8aa2479d774f333e76cc158ff09a5dc95e8b69074c73ea71865d7d7122b806",
+      "size": 344064
+    },
+    {
+      "name": "snowluma-win32-x64.dll",
+      "sha256": "5cb46ffc0910a1cc3151184fb3c7dab147fa381c75773e732e40fe688b230a44",
+      "size": 425984
+    }
+  ]
+}
