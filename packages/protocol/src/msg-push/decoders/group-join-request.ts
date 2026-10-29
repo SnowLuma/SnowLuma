@@ -21,7 +21,9 @@ export const decodeGroupJoinRequest: MsgPushDecoder = (ctx) => {
         fromUid: join.targetUid ?? '',
         subType: 'add',
         message: '',
-        flag: '',
+        // Legacy flag: the approval path can resolve it from the request inbox
+        // even when the pipeline cannot find a pending request to enrich from.
+        flag: `add:${join.groupUin ?? 0}:${join.targetUid ?? ''}`,
     };
     return [ev];
 };
@@ -45,7 +47,11 @@ export const decodeGroupInvitation: MsgPushDecoder = (ctx) => {
         invitedUid: inner.targetUid ?? '',
         subType: 'invite',
         message: '',
-        flag: '',
+        // Self-invite notices never carry the approval msgseq, and they are
+        // absent from the UIN-based request inbox -- but the UID-based one used
+        // by `set_group_add_request` legacy parsing does return them. Ship the
+        // legacy flag so the event stays actionable (#125).
+        flag: `invite:${inner.groupUin ?? 0}:${inner.invitorUid ?? ''}`,
     };
     return [ev];
 };
@@ -67,7 +73,8 @@ export const decodeGroupInvite: MsgPushDecoder = (ctx) => {
         invitedUin: ctx.selfUin,
         subType: 'invite',
         message: '',
-        flag: '',
+        // See decodeGroupInvitation: keep the event actionable without the card.
+        flag: `invite:${invite.groupUin ?? 0}:${invite.invitorUid ?? ''}`,
     };
     return [ev];
 };
