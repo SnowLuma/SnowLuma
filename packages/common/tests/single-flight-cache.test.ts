@@ -13,6 +13,37 @@ function deferred<T>() {
 }
 
 describe('SingleFlightCache', () => {
+    it('reads fresh or explicitly stale snapshots without loading and clears them on invalidation', async () => {
+        let clock = 0;
+        const load = vi
+            .fn<() => Promise<string>>()
+            .mockResolvedValueOnce('old')
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValue('current');
+        const cache = createSingleFlightCache<string, string>({
+            ttlMs: 100,
+            load,
+            now: () => clock,
+        });
+        expect(cache.peek('key')).toBeUndefined();
+        expect(load).not.toHaveBeenCalled();
+        await cache.get('key');
+        expect(cache.peek('key')).toBe('old');
+        clock = 100;
+        expect(cache.peek('key')).toBeUndefined();
+        expect(cache.peek('key', { allowStale: true })).toBe('old');
+        await expect(cache.get('key')).rejects.toThrow('offline');
+        expect(cache.peek('key', { allowStale: true })).toBe('old');
+        await cache.get('key');
+        expect(cache.peek('key')).toBe('current');
+        cache.invalidate('key');
+        expect(cache.peek('key', { allowStale: true })).toBeUndefined();
+        await cache.get('key');
+        cache.clear();
+        expect(cache.peek('key', { allowStale: true })).toBeUndefined();
+        expect(load).toHaveBeenCalledTimes(4);
+    });
+
     it.each(['invalidate', 'clear'] as const)(
         '%s detaches pending loads from the cache',
         async (operation) => {
