@@ -352,12 +352,12 @@ describe('apis/profile', () => {
             errorCode: 0,
             errorMessage: '',
             responseData: Buffer.from(
-                protobuf_encode<OidbBase<Oidb0xe17Resp>>({
-                    body: {
-                        jsonBody: JSON.stringify({
-                            rpt_block_list: [{ uin: 10001 }, { uin: 10002 }],
-                        }),
-                    } as any,
+                protobuf_encode<Oidb0xe17Resp>({
+                    jsonBody: JSON.stringify({
+                        ActionStatus: 'OK',
+                        ErrorCode: 0,
+                        rpt_block_list: [{ uin: 10001 }, { uin: 10002 }],
+                    }),
                 }),
             ),
         });

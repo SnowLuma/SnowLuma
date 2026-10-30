@@ -1,93 +1,101 @@
 import { describe, expect, it, vi } from 'vitest';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type { Oidb0xe17Req, Oidb0xe17Resp } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
-
+import type { IdentityService } from '../../../src/identity-service';
 import { GetUnidirectionalFriendList } from '../../../src/oidb-services/profile/get-unidirectional-friend-list';
+import { s, v } from '../_pb-oracle';
 
-function makeDeps(responseJson?: unknown) {
-    const responseData =
-        responseJson !== undefined
-            ? Buffer.from(
-                  protobuf_encode<OidbBase<Oidb0xe17Resp>>({
-                      body: { jsonBody: JSON.stringify(responseJson) },
-                  }),
-              )
-            : Buffer.alloc(0);
-    const r: SendPacketResult = {
+function makeDeps(json: unknown = { ActionStatus: 'OK', ErrorCode: 0, rpt_block_list: [] }) {
+    const result: SendPacketResult = {
         success: true,
         gotResponse: true,
         errorCode: 0,
         errorMessage: '',
-        responseData,
+        responseData: Buffer.from([
+            ...v(1, 0xe17),
+            ...v(2, 0),
+            ...v(3, 0),
+            ...s(4, JSON.stringify(json)),
+        ]),
     };
     return {
-        sendRawPacket: vi.fn(async () => r),
-        identity: { uin: '10001' } as any,
+        sendRawPacket: vi.fn(async (_cmd: string, _body: Uint8Array) => result),
+        identity: { uin: '10001' } as IdentityService,
     };
 }
 
-describe('GetUnidirectionalFriendList namespace', () => {
-    it('declares 0xE17_0', () => {
-        expect(GetUnidirectionalFriendList.command).toBe(0xe17);
-        expect(GetUnidirectionalFriendList.subCommand).toBe(0);
-    });
-
-    it('overrides the wire name to MQUpdateSvc.OidbSvc.0xe17_0', async () => {
-        const deps = makeDeps({ rpt_block_list: [] });
-        await GetUnidirectionalFriendList.invoke(deps);
-        expect(deps.sendRawPacket.mock.calls[0]![0]).toBe(
-            'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0',
+describe('GetUnidirectionalFriendList', () => {
+    it('uses the direct JSON request and response captured for this service', async () => {
+        const list = [{ uint64_uin: '20002', extra: { keep: true } }];
+        const deps = makeDeps({ ActionStatus: 'OK', ErrorCode: 0, rpt_block_list: list });
+        await expect(GetUnidirectionalFriendList.invoke(deps)).resolves.toEqual(list);
+        const [command, bytes] = deps.sendRawPacket.mock.calls[0]!;
+        expect(command).toBe('MQUpdateSvc_com_qq_ti.web.OidbSvc.0xe17_0');
+        expect(Buffer.from(bytes)).toEqual(
+            Buffer.from([
+                ...v(2, 0),
+                ...s(
+                    3,
+                    JSON.stringify({
+                        uint64_uin: '10001',
+                        uint64_top: 0,
+                        uint32_req_num: 99,
+                        bytes_cookies: '',
+                    }),
+                ),
+            ]),
         );
     });
 
-    describe('serialize', () => {
-        it('JSON-encodes the request body with the bot uin and fixed pagination', async () => {
-            const deps = makeDeps({ rpt_block_list: [] });
-            await GetUnidirectionalFriendList.invoke(deps);
-            const [, bytes] = deps.sendRawPacket.mock.calls[0]!;
-            const env = protobuf_decode<OidbBase<Oidb0xe17Req>>(bytes);
-            const parsed = JSON.parse(env.body?.jsonBody ?? '{}');
-            expect(parsed).toEqual({
-                uint64_uin: '10001',
-                uint64_top: 0,
-                uint32_req_num: 99,
-                bytes_cookies: '',
-            });
-        });
+    it('returns a verified empty list', async () => {
+        await expect(GetUnidirectionalFriendList.invoke(makeDeps())).resolves.toEqual([]);
     });
 
-    describe('deserialize', () => {
-        it('parses the embedded JSON body and returns rpt_block_list', () => {
-            const out = GetUnidirectionalFriendList.deserialize({} as any, {
-                jsonBody: JSON.stringify({ rpt_block_list: [{ uin: 10001 }, { uin: 10002 }] }),
-            });
-            expect(out).toEqual([{ uin: 10001 }, { uin: 10002 }]);
+    it('surfaces JSON business failures instead of returning an empty list', async () => {
+        const deps = makeDeps({
+            ActionStatus: 'FAIL',
+            ErrorCode: 302,
+            ErrorInfo: 'parse json failed',
         });
-
-        it('returns [] when rpt_block_list is absent', () => {
-            const out = GetUnidirectionalFriendList.deserialize({} as any, {
-                jsonBody: JSON.stringify({}),
-            });
-            expect(out).toEqual([]);
-        });
-
-        it('throws when jsonBody is empty / missing', () => {
-            expect(() => GetUnidirectionalFriendList.deserialize({} as any, {})).toThrow(
-                'get unidirectional friend list empty',
-            );
-            expect(() =>
-                GetUnidirectionalFriendList.deserialize({} as any, { jsonBody: '' }),
-            ).toThrow('get unidirectional friend list empty');
-        });
+        await expect(GetUnidirectionalFriendList.invoke(deps)).rejects.toThrow(
+            '302 parse json failed',
+        );
     });
 
-    describe('invoke (e2e)', () => {
-        it('returns the parsed block list', async () => {
-            const deps = makeDeps({ rpt_block_list: [{ uin: 999 }] });
-            const out = await GetUnidirectionalFriendList.invoke(deps);
-            expect(out).toEqual([{ uin: 999 }]);
+    it.each([
+        null,
+        {},
+        { ActionStatus: 'OK', ErrorCode: 0 },
+        { ActionStatus: 'OK', ErrorCode: 0, rpt_block_list: [null] },
+        { ActionStatus: 'OK', ErrorCode: 0, rpt_block_list: {} },
+    ])('rejects malformed response data (%j)', async (json) => {
+        await expect(GetUnidirectionalFriendList.invoke(makeDeps(json))).rejects.toThrow();
+    });
+
+    it('surfaces outer errors, invalid JSON, empty replies and transport failures', async () => {
+        const deps = makeDeps();
+
+        for (const [responseData, message] of [
+            [Buffer.from([...v(3, 5), ...s(5, 'denied')]), 'denied'],
+            [Buffer.from(s(4, '{')), 'JSON'],
+            [Buffer.from(v(1, 0xe17)), 'empty'],
+            [Buffer.alloc(0), 'empty'],
+        ] as const) {
+            deps.sendRawPacket.mockResolvedValue({
+                success: true,
+                gotResponse: true,
+                errorCode: 0,
+                errorMessage: '',
+                responseData,
+            });
+            await expect(GetUnidirectionalFriendList.invoke(deps)).rejects.toThrow(message);
+        }
+
+        deps.sendRawPacket.mockResolvedValue({
+            success: false,
+            gotResponse: false,
+            errorCode: 5,
+            errorMessage: 'disconnected',
         });
+        await expect(GetUnidirectionalFriendList.invoke(deps)).rejects.toThrow('disconnected');
     });
 });
