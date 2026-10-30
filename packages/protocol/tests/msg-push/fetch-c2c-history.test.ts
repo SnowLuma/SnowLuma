@@ -23,6 +23,7 @@ import {
     fetchC2cMessageRange,
     fetchC2cRoamMessagePage,
 } from '../../src/msg-push';
+import { s, v } from '../oidb-services/_pb-oracle';
 
 const identity = { findFriend: () => undefined } as unknown as IdentityService;
 const previousLogLevel = getLogLevel();
@@ -341,6 +342,38 @@ describe('fetchC2cMessageRange / SsoGetC2cMsg', () => {
 });
 
 describe('fetchC2cRoamMessagePage / SsoGetRoamMsg', () => {
+    it('rejects business errors before interpreting an empty history page', async () => {
+        const response = Buffer.from([...v(1, 123), ...s(2, 'request rejected')]);
+        await expect(
+            fetchC2cRoamMessagePage(
+                { sendRawPacket: async () => okResult(response) },
+                identity,
+                10001,
+                'u_friend',
+                1700000100,
+                200,
+            ),
+        ).rejects.toThrow('result=123 request rejected');
+    });
+
+    it.each([
+        { bytes: [...v(1, 100000301)], cursor: { time: 0, random: 0 } },
+        {
+            bytes: [...s(3, 'u_friend'), ...v(4, 1), ...v(5, 1700000000), ...v(6, 77)],
+            cursor: { time: 1700000000, random: 77 },
+        },
+    ])('preserves a server-confirmed end of history', async ({ bytes, cursor }) => {
+        const result = await fetchC2cRoamMessagePage(
+            { sendRawPacket: async () => okResult(Buffer.from(bytes)) },
+            identity,
+            10001,
+            'u_friend',
+            1700000100,
+            20,
+        );
+        expect(result).toEqual({ messages: [], cursor, isComplete: true });
+    });
+
     it('encodes the timestamp cursor and orders both sides by canonical NT sequence', async () => {
         let captured: { cmd: string; body: Uint8Array } | null = null;
         const response = protobuf_encode<SsoGetRoamMsgResponse>({

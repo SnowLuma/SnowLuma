@@ -33,7 +33,10 @@ export interface SsoGetRoamMsg {
 }
 
 export interface SsoGetRoamMsgResponse {
+    result?: pb<1, uint_32>;
+    errorMessage?: pb<2, string>;
     friendUid?: pb<3, string>;
+    isComplete?: pb<4, bool>;
     timestamp?: pb<5, uint_32>;
     random?: pb<6, uint_32>;
     messages?: pb_repeated<7, PushMsgBody>;

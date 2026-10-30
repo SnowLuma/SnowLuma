@@ -33,6 +33,7 @@ interface RawSender {
 export interface C2cRoamPage {
     messages: FriendMessage[];
     cursor: { time: number; random: number };
+    isComplete: boolean;
 }
 
 function decodeC2cMessages(
@@ -166,6 +167,17 @@ export async function fetchC2cRoamMessagePage(
         requirePacketResponse(result, 'SsoGetRoamMsg'),
     );
 
+    if (response.result === 100000301) {
+        log.debug('SsoGetRoamMsg reached the end of private history');
+        return { messages: [], cursor: { time: 0, random: 0 }, isComplete: true };
+    }
+
+    if (response.result) {
+        throw new Error(
+            `SsoGetRoamMsg failed: result=${response.result} ${response.errorMessage ?? ''}`.trim(),
+        );
+    }
+
     if (response.friendUid && response.friendUid !== friendUid) {
         throw new Error(`SsoGetRoamMsg response friend uid mismatch: ${response.friendUid}`);
     }
@@ -175,7 +187,7 @@ export async function fetchC2cRoamMessagePage(
     messages.sort((a, b) => (a.ntMsgSeq ?? 0) - (b.ntMsgSeq ?? 0) || a.time - b.time);
     const cursor = { time: response.timestamp ?? 0, random: response.random ?? 0 };
     log.debug(
-        'SsoGetRoamMsg decoded friend=%s before=%d/%d count=%d wire=%d usable=%d next=%d/%d',
+        'SsoGetRoamMsg decoded friend=%s before=%d/%d count=%d wire=%d usable=%d next=%d/%d complete=%s',
         friendUid,
         beforeTime,
         beforeRandom,
@@ -184,6 +196,7 @@ export async function fetchC2cRoamMessagePage(
         messages.length,
         cursor.time,
         cursor.random,
+        response.isComplete === true,
     );
-    return { messages, cursor };
+    return { messages, cursor, isComplete: response.isComplete === true };
 }

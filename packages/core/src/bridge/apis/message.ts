@@ -254,6 +254,7 @@ type FriendMessage = Extract<QQEventVariant, { kind: 'friend_message' }>;
 // ── Group-history fetch guards (the server frequency-limits / kicks abusive
 //    pulls, so keep each request small, bound the loop, and space the sends). ──
 const HISTORY_MAX_COUNT = 200; // hard cap on messages returned per call
+const PRIVATE_HISTORY_PAGE_SIZE = 100;
 const HISTORY_CHUNK_SEQ = 30; // sequence span per server request (small packet)
 const HISTORY_MAX_REQUESTS = 12; // bound the walk-back loop
 const HISTORY_MIN_GAP_MS = 300; // minimum spacing between SsoGetGroupMsg sends
@@ -1543,7 +1544,7 @@ export class MessageApi {
                     selfUin,
                     friendUid,
                     cursor.time,
-                    want - collected.size,
+                    Math.min(want - collected.size, PRIVATE_HISTORY_PAGE_SIZE),
                     cursor.random,
                 ),
             );
@@ -1564,7 +1565,7 @@ export class MessageApi {
                 break;
             }
 
-            if (page.cursor.time === 0 && page.cursor.random === 0) {
+            if (page.isComplete || (page.cursor.time === 0 && page.cursor.random === 0)) {
                 reachedEnd = true;
                 break;
             }
@@ -1572,11 +1573,6 @@ export class MessageApi {
             const nextCursorKey = `${page.cursor.time}:${page.cursor.random}`;
 
             if (seenCursors.has(nextCursorKey)) {
-                if (page.messages.length === 0) {
-                    reachedEnd = true;
-                    break;
-                }
-
                 throw new Error(
                     `private roam history cursor did not advance from ${cursor.time}/${cursor.random}`,
                 );

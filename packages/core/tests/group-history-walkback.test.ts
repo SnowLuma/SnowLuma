@@ -208,6 +208,56 @@ describe('MessageApi history pagination', () => {
         expect(result.map((message) => message.ntMsgSeq)).toEqual([63213, 63214, 63215]);
     });
 
+    it('splits a 200-message private history request into bounded pages', async () => {
+        mockC2cRoamFetch.mockImplementation(
+            async (_sender, _identity, _self, _friend, time, count) => ({
+                messages: Array.from({ length: count }, (_, index) => ({
+                    ...gm(time - index),
+                    kind: 'friend_message',
+                    ntMsgSeq: time - index,
+                })),
+                cursor: { time: time - count, random: 1 },
+                isComplete: false,
+            }),
+        );
+        const result = await runHistory(
+            new MessageApi(ctx).getC2cLatestHistory('u_friend', 200, 10001, 1000),
+        );
+        expect(result).toHaveLength(200);
+        expect(mockC2cRoamFetch.mock.calls.map((call) => call[5])).toEqual([100, 100]);
+        expect(result.map((message) => message.ntMsgSeq)).toEqual(
+            Array.from({ length: 200 }, (_, index) => 801 + index),
+        );
+    });
+
+    it('honors completion even when the last page still includes a cursor', async () => {
+        mockC2cRoamFetch.mockResolvedValue({
+            messages: [{ ...gm(1), kind: 'friend_message', ntMsgSeq: 1 }],
+            cursor: { time: 100, random: 2 },
+            isComplete: true,
+        });
+        const result = await runHistory(
+            new MessageApi(ctx).getC2cLatestHistory('u_friend', 20, 10001, 1000),
+        );
+        expect(result).toHaveLength(1);
+        expect(mockC2cRoamFetch).toHaveBeenCalledOnce();
+    });
+
+    it('does not return partial history after a later request fails', async () => {
+        mockC2cRoamFetch
+            .mockResolvedValueOnce({
+                messages: [{ ...gm(1), kind: 'friend_message', ntMsgSeq: 1 }],
+                cursor: { time: 100, random: 2 },
+                isComplete: false,
+            })
+            .mockRejectedValueOnce(new Error('SsoGetRoamMsg failed: result=123'));
+        const assertion = expect(
+            new MessageApi(ctx).getC2cLatestHistory('u_friend', 20, 10001, 1000),
+        ).rejects.toThrow('result=123');
+        await vi.runAllTimersAsync();
+        await assertion;
+    });
+
     it('rejects a stalled private roam cursor instead of returning a partial page', async () => {
         mockC2cRoamFetch.mockResolvedValue({
             cursor: { time: 1700000100, random: 0 },
