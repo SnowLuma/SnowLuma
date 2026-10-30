@@ -11446,6 +11446,98 @@ export const ACTIONS: CatalogAction[] = [
     "category": "空间"
   },
   {
+    "name": "get_qzone_home_feeds",
+    "aliases": [],
+    "summary": "读取自己或有权访问的空间主页动态，保留完整分享信息",
+    "returns": "完整动态及分页状态；访问受空间权限限制，旧说说接口保持不变。",
+    "returnsSchema": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "feeds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "完整动态，可原样传给 get_qzone_share_ark"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "feeds",
+        "has_more",
+        "next_cursor"
+      ]
+    },
+    "examples": [
+      {
+        "summary": "读取自己的主页动态",
+        "params": {}
+      },
+      {
+        "summary": "继续读取同一主页",
+        "params": {
+          "target_uin": 10001,
+          "cursor": "<next_cursor-from-get_qzone_home_feeds>"
+        }
+      }
+    ],
+    "readOnly": true,
+    "params": [
+      {
+        "name": "target_uin",
+        "type": "uint",
+        "required": false,
+        "role": "user_id",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "desc": "主页所属 QQ 号，省略则为当前账号"
+      },
+      {
+        "name": "cursor",
+        "type": "string",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "desc": "上次返回的 next_cursor，仅限同一账号及主页"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_uin": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "主页所属 QQ 号，省略则为当前账号",
+          "x-role": "user_id"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "description": "上次返回的 next_cursor，仅限同一账号及主页"
+        }
+      },
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
     "name": "get_qzone_msg_detail",
     "aliases": [],
     "summary": "获取 QQ 空间说说详情与一页评论（含服务端内联回复，需有访问权限）",
@@ -12228,6 +12320,102 @@ export const ACTIONS: CatalogAction[] = [
       "required": [
         "feed",
         "comment"
+      ],
+      "additionalProperties": true
+    },
+    "category": "空间"
+  },
+  {
+    "name": "get_qzone_share_ark",
+    "aliases": [],
+    "summary": "生成空间动态分享卡片，返回原文及分享提示",
+    "returns": "生成卡片但不发送消息；后续发送仍返回普通消息编号。",
+    "returnsSchema": {
+      "type": "object",
+      "properties": {
+        "ark": {
+          "type": "string",
+          "description": "卡片原文，直接作为 JSON 消息的 data"
+        },
+        "requires_confirmation": {
+          "type": "boolean",
+          "description": "上游要求发送前确认分享提示"
+        },
+        "notice": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "上游分享提示；无提示时为 null"
+        }
+      },
+      "required": [
+        "ark",
+        "requires_confirmation",
+        "notice"
+      ]
+    },
+    "examples": [
+      {
+        "summary": "生成卡片后通过 JSON 消息发送",
+        "params": {
+          "feed": {
+            "cell_common": {
+              "union_id": {
+                "uf_key": "<uf_key-from-get_qzone_public_feeds>",
+                "ugc_id": "<ugc_id>",
+                "feed_id": "<feed_id>",
+                "ext_ids": []
+              },
+              "cur_like_key": "<like-key>",
+              "domain_type": 3
+            },
+            "cell_feed_transfer": "<original-cell_feed_transfer>",
+            "cell_user_info": {
+              "user": {
+                "uin": "10001",
+                "uid": "<uid>",
+                "nick": "<nick>"
+              }
+            },
+            "cell_operation": {
+              "share_outside": {
+                "share_access_resource": {
+                  "busi_id": "<original-busi_id>",
+                  "resource_id": "<original-resource_id>"
+                }
+              }
+            }
+          }
+        },
+        "notes": "feed 原样取自 get_qzone_home_feeds 或 get_qzone_public_feeds。分享链接可能允许未登录者访问并包含作者 QQ 号；如 requires_confirmation=true，发送前展示 notice 并取得确认。将 ark 原文作为 JSON 消息发送，不要修改卡片内容。"
+      }
+    ],
+    "readOnly": false,
+    "params": [
+      {
+        "name": "feed",
+        "type": "object",
+        "required": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "desc": "主页或推荐列表返回的完整动态，保留所有原始字段"
+      }
+    ],
+    "invariants": [],
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "主页或推荐列表返回的完整动态，保留所有原始字段"
+        }
+      },
+      "required": [
+        "feed"
       ],
       "additionalProperties": true
     },
@@ -20769,7 +20957,7 @@ export const CATEGORIES: CatalogCategory[] = [
   },
   {
     "category": "空间",
-    "count": 26
+    "count": 28
   },
   {
     "category": "系统表情",

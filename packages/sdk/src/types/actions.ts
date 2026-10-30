@@ -103,6 +103,8 @@ import type {
     GetQzoneMsgListParams,
     GetQzoneProfileParams,
     GetQzonePublicFeedsParams,
+    GetQzoneHomeFeedsParams,
+    GetQzoneShareArkParams,
     GetQzonePublicCommentsParams,
     GetQzonePublicRepliesParams,
     GroupAlbumCommentParams,
@@ -203,6 +205,7 @@ import type {
     QzonePublishResult,
     QzoneProfileResult,
     QzonePublicFeedsPage,
+    QzoneShareArkResult,
     QzoneUpdateRightResult,
     RkeyServerResult,
     SendFlashMsgResult,
@@ -424,6 +427,8 @@ export interface SnowLumaActionMap {
     get_qzone_profile: { params: GetQzoneProfileParams; data: QzoneProfileResult };
     get_qzone_public_capabilities: { params: JsonObject; data: JsonObject };
     get_qzone_public_feeds: { params: GetQzonePublicFeedsParams; data: QzonePublicFeedsPage };
+    get_qzone_home_feeds: { params: GetQzoneHomeFeedsParams; data: QzonePublicFeedsPage };
+    get_qzone_share_ark: { params: GetQzoneShareArkParams; data: QzoneShareArkResult };
     get_qzone_public_feed_detail: { params: QzonePublicFeedParams; data: JsonObject };
     get_qzone_public_comments: { params: GetQzonePublicCommentsParams; data: JsonObject };
     get_qzone_public_replies: { params: GetQzonePublicRepliesParams; data: JsonObject };

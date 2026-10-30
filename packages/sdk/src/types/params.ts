@@ -627,6 +627,17 @@ export interface GetQzonePublicFeedsParams extends JsonObject {
     cursor?: string;
 }
 
+export interface GetQzoneHomeFeedsParams extends JsonObject {
+    target_uin?: ActionNumberInput;
+    /** Continuation for the same account and target homepage. */
+    cursor?: string;
+}
+
+export interface GetQzoneShareArkParams extends JsonObject {
+    /** Original feed from get_qzone_home_feeds or get_qzone_public_feeds. */
+    feed: JsonObject;
+}
+
 export interface QzonePublicFeedParams extends JsonObject {
     /** The original feed cells returned in get_qzone_public_feeds.feeds. */
     feed: JsonObject;

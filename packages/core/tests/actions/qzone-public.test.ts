@@ -22,6 +22,11 @@ function makeApi() {
 
 const cases = [
     {
+        method: 'getQzoneHomeFeeds',
+        invoke: (api: QzoneApi) => api.getHomeFeeds(20002, 'cursor'),
+        args: [cookies, '10001', '20002', 'cursor'],
+    },
+    {
         method: 'getQzonePublicCapabilities',
         invoke: (api: QzoneApi) => api.getPublicCapabilities(),
         args: [cookies, '10001'],
@@ -95,6 +100,17 @@ const cases = [
 
 describe('apis/qzone public', () => {
     afterEach(() => vi.restoreAllMocks());
+
+    it('generates a share card with the account cookies and preserves its notice', async () => {
+        const { api, getCookies } = makeApi();
+        const card = { ark: '{}', requires_confirmation: true, notice: '所有人可见' };
+        const request = vi.spyOn(qzonePublic, 'getQzoneShareArk').mockResolvedValue(card);
+        expect(await api.getShareArk(feed)).toBe(card);
+        expect(getCookies).toHaveBeenCalledWith('qzone.qq.com');
+        expect(request).toHaveBeenCalledExactlyOnceWith(cookies, feed);
+        request.mockRejectedValueOnce(new Error('share denied'));
+        await expect(api.getShareArk(feed)).rejects.toThrow('share denied');
+    });
 
     it.each(cases)(
         '$method uses current-account cookies and preserves upstream objects',

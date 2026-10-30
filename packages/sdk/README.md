@@ -183,6 +183,21 @@ for (const comment of detail.comments) {
 
 ### 空友爱看与公共空间
 
+`get_qzone_home_feeds` 读取自己的空间主页，可传 `target_uin` 访问有权限的其他主页；`cursor` 使用同一账号、同一主页上次返回的 `next_cursor`。它返回完整动态，旧版 `get_qzone_feeds` 和 `get_qzone_msg_list` 保持原有格式。
+
+把主页或推荐列表的完整动态传给 `get_qzone_share_ark`，可获得 `{ ark, requires_confirmation, notice }`。此动作会生成分享卡片但不发送消息；将 `ark` 原文交给普通 JSON 消息发送接口即可获得消息编号，继续使用已有撤回及发送事件能力。
+
+分享链接可能让未登录者也能访问动态，并包含作者 QQ 号。若 `requires_confirmation` 为 `true`，发送前应展示 `notice` 并取得确认；上游禁止分享或生成失败会返回错误。
+
+```ts
+const page = await bot.raw('get_qzone_home_feeds', {});
+if (page.feeds[0]) {
+  const card = await bot.raw('get_qzone_share_ark', { feed: page.feeds[0] });
+  // 先按 requires_confirmation / notice 确认分享范围，再由调用方决定是否发送。
+  // 发送时使用 [{ type: 'json', data: { data: card.ark } }]，保持卡片原文。
+}
+```
+
 公共空间动作使用推荐域 `3` 的 JSON 接口，与上面的旧空间 CGI 动作分开。先读取 `get_qzone_public_feeds`，再把返回的完整 `feed` 对象传给详情和互动动作，保留其中的身份、传递数据及未知字段；不要用旧说说 `tid` 拼造。
 
 | 动作 | 主要参数 |

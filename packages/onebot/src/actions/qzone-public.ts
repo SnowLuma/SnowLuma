@@ -44,6 +44,82 @@ const replyExample: JsonObject = {
 
 export const actions = [
     defineAction({
+        name: 'get_qzone_home_feeds',
+        summary: '读取自己或有权访问的空间主页动态，保留完整分享信息',
+        readOnly: true,
+        examples: [
+            { summary: '读取自己的主页动态', params: {} },
+            {
+                summary: '继续读取同一主页',
+                params: { target_uin: 10001, cursor: '<next_cursor-from-get_qzone_home_feeds>' },
+            },
+        ],
+        returns: '完整动态及分页状态；访问受空间权限限制，旧说说接口保持不变。',
+        returnsSchema: {
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+                feeds: {
+                    type: 'array',
+                    items: objectResult,
+                    description: '完整动态，可原样传给 get_qzone_share_ark',
+                },
+                has_more: { type: 'boolean' },
+                next_cursor: { type: ['string', 'null'] },
+            },
+            required: ['feeds', 'has_more', 'next_cursor'],
+        },
+        params: {
+            target_uin: f.userId().describe('主页所属 QQ 号，省略则为当前账号').optional(),
+            cursor: f
+                .string({ allowEmpty: false, maxLen: 65536 })
+                .describe('上次返回的 next_cursor，仅限同一账号及主页')
+                .optional(),
+        },
+        run: async (p, ctx) =>
+            okResponse(await ctx.bridge.apis.qzone.getHomeFeeds(p.target_uin, p.cursor)),
+    }),
+    defineAction({
+        name: 'get_qzone_share_ark',
+        summary: '生成空间动态分享卡片，返回原文及分享提示',
+        readOnly: false,
+        examples: [
+            {
+                summary: '生成卡片后通过 JSON 消息发送',
+                params: {
+                    feed: {
+                        ...feedExample,
+                        cell_feed_transfer: '<original-cell_feed_transfer>',
+                        cell_operation: {
+                            share_outside: {
+                                share_access_resource: {
+                                    busi_id: '<original-busi_id>',
+                                    resource_id: '<original-resource_id>',
+                                },
+                            },
+                        },
+                    },
+                },
+                notes: 'feed 原样取自 get_qzone_home_feeds 或 get_qzone_public_feeds。分享链接可能允许未登录者访问并包含作者 QQ 号；如 requires_confirmation=true，发送前展示 notice 并取得确认。将 ark 原文作为 JSON 消息发送，不要修改卡片内容。',
+            },
+        ],
+        returns: '生成卡片但不发送消息；后续发送仍返回普通消息编号。',
+        returnsSchema: {
+            type: 'object',
+            properties: {
+                ark: { type: 'string', description: '卡片原文，直接作为 JSON 消息的 data' },
+                requires_confirmation: {
+                    type: 'boolean',
+                    description: '上游要求发送前确认分享提示',
+                },
+                notice: { type: ['string', 'null'], description: '上游分享提示；无提示时为 null' },
+            },
+            required: ['ark', 'requires_confirmation', 'notice'],
+        },
+        params: { feed: f.object().describe('主页或推荐列表返回的完整动态，保留所有原始字段') },
+        run: async (p, ctx) => okResponse(await ctx.bridge.apis.qzone.getShareArk(p.feed)),
+    }),
+    defineAction({
         name: 'get_qzone_public_capabilities',
         summary: '读取当前账号的空友爱看入口与推权限',
         readOnly: true,

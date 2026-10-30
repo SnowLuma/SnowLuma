@@ -9,6 +9,20 @@ export interface QzonePublicFeedsPage extends JsonObject {
     next_cursor: string | null;
 }
 
+export interface QzoneShareArk extends JsonObject {
+    ark: string;
+    requires_confirmation: boolean;
+    notice: string | null;
+}
+
+interface HomeFeedCursor {
+    version: 1;
+    kind: 'home';
+    uin: string;
+    host_uin: string;
+    attach_info: string;
+}
+
 interface PublicFeedCursor {
     version: 1;
     uin: string;
@@ -75,7 +89,7 @@ function feedParams(feed: JsonObject): JsonObject {
     };
 }
 
-function encodeCursor(state: PublicFeedCursor): string {
+function encodeCursor(state: PublicFeedCursor | HomeFeedCursor): string {
     const cursor = Buffer.from(JSON.stringify(state)).toString('base64url');
 
     if (cursor.length > 65_536) {
@@ -148,6 +162,206 @@ export async function getQzonePublicCapabilities(
     }
 
     return result.entrances;
+}
+
+export async function getQzoneHomeFeeds(
+    cookies: Record<string, string>,
+    selfUin: string,
+    targetUin = selfUin,
+    cursor?: string,
+): Promise<QzonePublicFeedsPage> {
+    let attachInfo = '';
+
+    if (cursor !== undefined) {
+        if (!cursor || cursor.length > 65_536 || !/^[A-Za-z0-9_-]+$/.test(cursor)) {
+            throw new Error('无效的空间主页 cursor');
+        }
+
+        const bytes = Buffer.from(cursor, 'base64url');
+        const value: unknown = JSON.parse(bytes.toString('utf8'));
+
+        if (
+            bytes.toString('base64url') !== cursor ||
+            !isObject(value) ||
+            value.version !== 1 ||
+            value.kind !== 'home' ||
+            value.uin !== selfUin ||
+            value.host_uin !== targetUin ||
+            typeof value.attach_info !== 'string' ||
+            !value.attach_info
+        ) {
+            throw new Error('空间主页 cursor 无效或不属于当前账号及主页');
+        }
+
+        attachInfo = value.attach_info;
+    }
+
+    const data = await request(cookies, reader, 'GetMainPageFeeds', '0x9794_2', {
+        host_uid: '',
+        host_uin: targetUin,
+        attach_info: attachInfo,
+        refresh_attach_info: '',
+        feed_action_domain_type: 1,
+    });
+
+    if (!Array.isArray(data.feeds) || typeof data.has_more !== 'boolean') {
+        throw new Error('空间主页动态分页响应异常');
+    }
+
+    const feeds = data.feeds.map((entry) => {
+        if (!isObject(entry) || !isObject(entry.feed)) {
+            throw new Error('空间主页动态响应异常');
+        }
+
+        return entry.feed;
+    });
+    let nextCursor: string | null = null;
+
+    if (data.has_more) {
+        if (
+            typeof data.attach_info !== 'string' ||
+            !data.attach_info ||
+            data.attach_info === attachInfo
+        ) {
+            throw new Error('空间主页动态分页未推进');
+        }
+
+        nextCursor = encodeCursor({
+            version: 1,
+            kind: 'home',
+            uin: selfUin,
+            host_uin: targetUin,
+            attach_info: data.attach_info,
+        });
+    }
+
+    return { ...data, feeds, has_more: data.has_more, next_cursor: nextCursor };
+}
+
+export async function getQzoneShareArk(
+    cookies: Record<string, string>,
+    feed: JsonObject,
+): Promise<QzoneShareArk> {
+    const operation = feed.cell_operation;
+    const share = isObject(operation) ? operation.share_outside : undefined;
+    const resource = isObject(share) ? share.share_access_resource : undefined;
+    const common = feed.cell_common;
+    const mask = isObject(common) ? common.operate_mask : undefined;
+
+    if (
+        mask !== undefined &&
+        (typeof mask !== 'number' || !Number.isSafeInteger(mask) || mask < 0)
+    ) {
+        throw new Error('空间动态分享权限数据异常');
+    }
+
+    if (typeof mask === 'number' && (mask & (1 << 17)) !== 0) {
+        const reason =
+            isObject(share) && typeof share.share_out_button_toast === 'string'
+                ? share.share_out_button_toast
+                : '该空间动态暂不支持分享';
+        throw new Error(reason);
+    }
+
+    if (
+        !isObject(resource) ||
+        typeof resource.busi_id !== 'string' ||
+        !resource.busi_id ||
+        typeof resource.resource_id !== 'string' ||
+        !resource.resource_id ||
+        typeof feed.cell_feed_transfer !== 'string' ||
+        !feed.cell_feed_transfer
+    ) {
+        throw new Error('空间动态缺少分享信息，请传入主页或推荐列表返回的完整动态');
+    }
+
+    const data = await request(cookies, 'trpc.qq.share.Service', 'CreateShare', '0x9409_1', {
+        info: {
+            busi_id: resource.busi_id,
+            resource_id: resource.resource_id,
+            template: 'ark_busi_select',
+            busi_data: feed.cell_feed_transfer,
+            plat: 1,
+            target: 3,
+        },
+    });
+
+    if (data.err !== undefined) {
+        if (
+            !isObject(data.err) ||
+            (data.err.code !== undefined && typeof data.err.code !== 'number')
+        ) {
+            throw new Error('空间分享业务响应异常');
+        }
+
+        if (data.err.code !== undefined && data.err.code !== 0) {
+            const message = typeof data.err.msg === 'string' ? data.err.msg : '';
+            throw new Error(`空间分享失败: ${data.err.code} ${message}`.trim());
+        }
+    }
+
+    if (typeof data.template_data !== 'string' || !data.template_data.trim()) {
+        throw new Error('空间分享未返回卡片');
+    }
+
+    const ark: unknown = JSON.parse(data.template_data);
+
+    if (!isObject(ark)) {
+        throw new Error('空间分享返回的卡片格式异常');
+    }
+
+    let requiresConfirmation = false;
+    let notice: string | null = null;
+
+    if (data.info !== undefined) {
+        if (!isObject(data.info)) {
+            throw new Error('空间分享提示格式异常');
+        }
+
+        const encoded = data.info.busi_data;
+
+        if (encoded !== undefined && encoded !== '') {
+            if (typeof encoded !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+                throw new Error('空间分享提示编码异常');
+            }
+
+            const decoded = Buffer.from(encoded, 'base64');
+
+            if (decoded.toString('base64').replace(/=+$/, '') !== encoded.replace(/=+$/, '')) {
+                throw new Error('空间分享提示编码异常');
+            }
+
+            const permission: unknown = JSON.parse(
+                new TextDecoder('utf-8', { fatal: true }).decode(decoded),
+            );
+
+            if (permission !== null) {
+                if (
+                    !isObject(permission) ||
+                    (permission.need_break !== undefined &&
+                        typeof permission.need_break !== 'boolean')
+                ) {
+                    throw new Error('空间分享提示格式异常');
+                }
+
+                requiresConfirmation = permission.need_break === true;
+
+                if (
+                    isObject(permission.tips) &&
+                    typeof permission.tips.content === 'string' &&
+                    permission.tips.content
+                ) {
+                    notice = permission.tips.content;
+                }
+
+                if (requiresConfirmation && !notice) {
+                    notice = '你的空间有权限，分享出去的页面所有人都可以看。';
+                }
+            }
+        }
+    }
+
+    return { ark: data.template_data, requires_confirmation: requiresConfirmation, notice };
 }
 
 export async function getQzonePublicFeeds(

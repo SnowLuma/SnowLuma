@@ -26,6 +26,9 @@ import {
 } from '@snowluma/protocol/web/qzone';
 import {
     getQzonePublicCapabilities,
+    getQzoneHomeFeeds,
+    getQzoneShareArk,
+    type QzoneShareArk,
     getQzonePublicFeeds,
     getQzonePublicFeedDetail,
     getQzonePublicComments,
@@ -71,6 +74,16 @@ export class QzoneApi {
     async getPublicFeeds(cursor?: string): Promise<QzonePublicFeedsPage> {
         const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
         return getQzonePublicFeeds(cookies, this.ctx.identity.uin, cursor);
+    }
+
+    async getHomeFeeds(targetUin?: number, cursor?: string): Promise<QzonePublicFeedsPage> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzoneHomeFeeds(cookies, this.ctx.identity.uin, targetUin?.toString(), cursor);
+    }
+
+    async getShareArk(feed: JsonObject): Promise<QzoneShareArk> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzoneShareArk(cookies, feed);
     }
 
     async getPublicFeedDetail(feed: JsonObject): Promise<JsonObject> {

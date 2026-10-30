@@ -1,5 +1,10 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { SnowLumaHttpClient, type JsonObject, type QzonePublicFeedsPage } from '../src';
+import {
+    SnowLumaHttpClient,
+    type JsonObject,
+    type QzonePublicFeedsPage,
+    type QzoneShareArkResult,
+} from '../src';
 
 const feed: JsonObject = {
     cell_common: {
@@ -11,6 +16,33 @@ const feed: JsonObject = {
 };
 
 describe('public Qzone raw actions', () => {
+    it('exposes homepage and card types without automatically sending the card', async () => {
+        const page: QzonePublicFeedsPage = { feeds: [feed], has_more: false, next_cursor: null };
+        const card: QzoneShareArkResult = {
+            ark: '{ "app": "com.tencent.tuwen.lua" }',
+            requires_confirmation: true,
+            notice: '所有人可见',
+        };
+        const fetchImpl = vi
+            .fn()
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ status: 'ok', retcode: 0, data: page })),
+            )
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ status: 'ok', retcode: 0, data: card })),
+            );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const homepage = await client.raw('get_qzone_home_feeds', {});
+        expectTypeOf(homepage).toEqualTypeOf<QzonePublicFeedsPage>();
+        const result = await client.raw('get_qzone_share_ark', { feed: homepage.feeds[0]! });
+        expectTypeOf(result).toEqualTypeOf<QzoneShareArkResult>();
+        expect(result).toEqual(card);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(fetchImpl.mock.calls[1]![1].body)).toEqual({
+            action: 'get_qzone_share_ark',
+            params: { feed },
+        });
+    });
     it('preserves original feed cells and follows an explicit cursor after a short page', async () => {
         const first: QzonePublicFeedsPage = {
             feeds: [feed],

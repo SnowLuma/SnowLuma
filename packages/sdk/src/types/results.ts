@@ -422,6 +422,14 @@ export interface QzonePublicFeedsPage extends JsonObject {
     next_cursor: string | null;
 }
 
+export interface QzoneShareArkResult extends JsonObject {
+    /** Preserve this string when sending a JSON message. */
+    ark: string;
+    /** Display notice and obtain confirmation before sending when true. */
+    requires_confirmation: boolean;
+    notice: string | null;
+}
+
 export interface QzoneFeed extends JsonObject {
     uin: number;
     nickname: string;

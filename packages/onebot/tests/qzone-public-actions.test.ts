@@ -34,6 +34,20 @@ const cases: {
     readOnly: boolean;
 }[] = [
     {
+        action: 'get_qzone_home_feeds',
+        method: 'getHomeFeeds',
+        params: { target_uin: '10001', cursor: 'cursor' },
+        args: [10001, 'cursor'],
+        readOnly: true,
+    },
+    {
+        action: 'get_qzone_share_ark',
+        method: 'getShareArk',
+        params: { feed },
+        args: [feed],
+        readOnly: false,
+    },
+    {
         action: 'get_qzone_public_capabilities',
         method: 'getPublicCapabilities',
         params: {},
