@@ -10,7 +10,7 @@ import type {
     Oidb0xdc2_34Req,
     Oidb0xdc2_34Resp,
 } from '@snowluma/proto-defs/oidb-actions/contact-ark';
-import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { invokeOidb, OidbError, type OidbSender } from '../../oidb-service';
 
 const TUWEN_ARK_APPID = 100446242;
 
@@ -54,7 +54,22 @@ export namespace SendTuwenArk {
         },
     });
 
-    export const deserialize = (_ctx: Deps, _body: Oidb0xdc2_34Resp): void => undefined;
+    export const deserialize = (_ctx: Deps, body: Oidb0xdc2_34Resp): void => {
+        if (!body.results?.length) {
+            throw new Error('send_tuwen_ark response has no delivery result');
+        }
+
+        for (const result of body.results) {
+            if (result.errorCode) {
+                throw new OidbError(
+                    result.errorCode,
+                    result.errorMessage ?? '',
+                    command,
+                    subCommand,
+                );
+            }
+        }
+    };
 
     export const encode = (env: OidbBase<Oidb0xdc2_34Req>): Uint8Array =>
         protobuf_encode<OidbBase<Oidb0xdc2_34Req>>(env);

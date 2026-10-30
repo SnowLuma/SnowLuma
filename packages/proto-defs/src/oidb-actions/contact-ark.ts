@@ -8,7 +8,7 @@
 //   reads {1:bussness_error_code, 5:ark_json}.
 // Both return a server-built ark JSON string (the share card payload).
 
-import type { pb, pb_optional, uint_32 } from '@snowluma/proton';
+import type { pb, pb_optional, pb_repeated, uint_32 } from '@snowluma/proton';
 
 export interface OidbBuddyRecommendArkReq {
     uin?: pb<1, uint_32>;
@@ -67,4 +67,11 @@ export interface Oidb0xdc2_34Req {
     meta?: pb<2, Oidb0xdc2Meta>;
 }
 
-export interface Oidb0xdc2_34Resp {}
+export interface Oidb0xdc2CardResult {
+    errorCode?: pb<4, uint_32>;
+    errorMessage?: pb<5, string>;
+}
+
+export interface Oidb0xdc2_34Resp {
+    results?: pb_repeated<1, Oidb0xdc2CardResult>;
+}

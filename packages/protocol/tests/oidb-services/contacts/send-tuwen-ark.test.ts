@@ -1,19 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { protobuf_encode } from '@snowluma/proton';
-import type { OidbBase } from '@snowluma/proto-defs/oidb';
-import type { Oidb0xdc2_34Resp } from '@snowluma/proto-defs/oidb-actions/contact-ark';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import { SendTuwenArk } from '../../../src/oidb-services/contacts/send-tuwen-ark';
 import { env, v, s, m } from '../_pb-oracle';
 
-function makeSender() {
-    const respEnv: OidbBase<Oidb0xdc2_34Resp> = { command: 0xdc2, subCommand: 34, body: {} };
+function makeSender(body = m(1, [...v(2, 10001), ...v(4, 0)])) {
     const r: SendPacketResult = {
         success: true,
         gotResponse: true,
         errorCode: 0,
         errorMessage: '',
-        responseData: Buffer.from(protobuf_encode<OidbBase<Oidb0xdc2_34Resp>>(respEnv)),
+        responseData: Buffer.from(env(0xdc2, 34, body, false), 'hex'),
     };
     return { sendRawPacket: vi.fn(async () => r) };
 }
@@ -128,7 +124,40 @@ describe('SendTuwenArk namespace', () => {
         expect(Buffer.from(bytes).toString('hex')).toBe(env(0xdc2, 34, body, false));
     });
 
-    it('deserialize returns undefined (void response)', () => {
-        expect(SendTuwenArk.deserialize({} as any, {})).toBeUndefined();
+    it('rejects a delivery refusal even when the outer envelope succeeds', async () => {
+        const sender = makeSender(
+            m(1, [
+                ...v(1, 0),
+                ...v(2, 10001),
+                ...s(3, ''),
+                ...v(4, 901501),
+                ...s(5, 'imagent service_error:319_[oidb] rule type not match appid'),
+            ]),
+        );
+        await expect(
+            SendTuwenArk.invoke(sender, {
+                targetId: 10001,
+                peerType: 0,
+                title: 'title',
+                desc: '',
+                summary: '',
+                jumpUrl: 'https://example.com',
+                previewUrl: '',
+            }),
+        ).rejects.toThrow(/901501.*rule type not match appid/);
+    });
+
+    it('checks every delivery result and requires an acknowledgement', () => {
+        const sender = makeSender();
+        expect(() => SendTuwenArk.deserialize(sender, {})).toThrow('no delivery result');
+        expect(() => SendTuwenArk.deserialize(sender, { results: [] })).toThrow(
+            'no delivery result',
+        );
+        expect(() =>
+            SendTuwenArk.deserialize(sender, {
+                results: [{ errorCode: 0 }, { errorCode: 901501, errorMessage: 'refused' }],
+            }),
+        ).toThrow('refused');
+        expect(SendTuwenArk.deserialize(sender, { results: [{}] })).toBeUndefined();
     });
 });
