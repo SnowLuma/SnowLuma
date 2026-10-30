@@ -835,20 +835,143 @@ describe('extended-actions / get_friends_with_category', () => {
                 categoryName: 'Work',
                 memberCount: 1,
                 sortId: 3,
-                friends: [{ uin: 10001, uid: 'u1', nickname: 'Alice', remark: 'A' }],
+                friends: [
+                    {
+                        uin: 10001,
+                        uid: 'u1',
+                        nickname: 'Alice',
+                        remark: 'A',
+                        sign: 'Stay curious',
+                        categoryId: 7,
+                        birthdayYear: 1990,
+                        birthdayMonth: 2,
+                        birthdayDay: 3,
+                        age: 35,
+                        sex: 'female',
+                        phoneNum: '138****0000',
+                        email: 'alice@example.com',
+                        level: 64,
+                        country: '中国',
+                        province: '广东',
+                        city: '深圳',
+                        college: '深圳大学',
+                        profileBusiness: [
+                            {
+                                type: 9999,
+                                level: 0,
+                                isYear: false,
+                                isPro: true,
+                                icon: 'https://example.com/business.png',
+                            },
+                            { type: 1, level: 7, isYear: true, isPro: false },
+                        ],
+                        vipFlag: true,
+                        yearVipFlag: false,
+                        svipFlag: true,
+                        vipLevel: 7,
+                    },
+                ],
             },
         ]);
         const bridge = fakeBridge({ fetchFriendCategories });
         const response = await makeHandler(fakeCtx(bridge)).handle('get_friends_with_category', {});
 
         expect(fetchFriendCategories).toHaveBeenCalledOnce();
+        expect(fetchFriendCategories).toHaveBeenCalledWith({ enrichProfiles: true });
         expect(response).toMatchObject({ status: 'ok', retcode: 0 });
         expect(response.data).toEqual([
             {
                 categoryId: 7,
                 categoryName: 'Work',
                 categoryMbCount: 1,
-                buddyList: [{ user_id: 10001, nickname: 'Alice', remark: 'A' }],
+                buddyList: [
+                    {
+                        user_id: 10001,
+                        nickname: 'Alice',
+                        remark: 'A',
+                        long_nick: 'Stay curious',
+                        birthday_year: 1990,
+                        birthday_month: 2,
+                        birthday_day: 3,
+                        age: 35,
+                        sex: 'female',
+                        phone_num: '138****0000',
+                        email: 'alice@example.com',
+                        category_id: 7,
+                        level: 64,
+                        country: '中国',
+                        province: '广东',
+                        city: '深圳',
+                        college: '深圳大学',
+                        profile_business: [
+                            {
+                                type: 9999,
+                                level: 0,
+                                is_year: false,
+                                is_pro: true,
+                                icon: 'https://example.com/business.png',
+                            },
+                            { type: 1, level: 7, is_year: true, is_pro: false },
+                        ],
+                        is_qq_vip: true,
+                        is_vip: true,
+                        is_years_vip: false,
+                        vip_level: 7,
+                    },
+                ],
+            },
+        ]);
+    });
+
+    it('omits unavailable details and preserves known false membership flags and zero level', async () => {
+        const bridge = fakeBridge({
+            fetchFriendCategories: vi.fn(async () => [
+                {
+                    categoryId: 0,
+                    categoryName: 'Friends',
+                    memberCount: 2,
+                    sortId: 0,
+                    friends: [
+                        { uin: 10001, uid: 'u1', nickname: 'Missing', remark: '' },
+                        {
+                            uin: 10002,
+                            uid: 'u2',
+                            nickname: 'Zero',
+                            remark: '',
+                            sign: '',
+                            profileBusiness: [],
+                            vipFlag: false,
+                            yearVipFlag: false,
+                            svipFlag: false,
+                            vipLevel: 0,
+                        },
+                    ],
+                },
+            ]),
+        });
+
+        const response = await makeHandler(fakeCtx(bridge)).handle('get_friends_with_category', {});
+
+        expect(response).toMatchObject({ status: 'ok', retcode: 0 });
+        expect(response.data).toEqual([
+            {
+                categoryId: 0,
+                categoryName: 'Friends',
+                categoryMbCount: 2,
+                buddyList: [
+                    { user_id: 10001, nickname: 'Missing', remark: '' },
+                    {
+                        user_id: 10002,
+                        nickname: 'Zero',
+                        remark: '',
+                        long_nick: '',
+                        profile_business: [],
+                        is_qq_vip: false,
+                        is_vip: false,
+                        is_years_vip: false,
+                        vip_level: 0,
+                    },
+                ],
             },
         ]);
     });

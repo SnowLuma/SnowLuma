@@ -433,7 +433,7 @@ export class Bridge implements BridgeInterface {
         let friendsLoaded = false;
 
         try {
-            const friends = await this.apis.contacts.fetchFriendList();
+            const friends = await this.apis.contacts.fetchFriendList({ enrichProfiles: false });
 
             if (!this.stillOpen()) {
                 return { friendsLoaded: false, groupsLoaded: false };

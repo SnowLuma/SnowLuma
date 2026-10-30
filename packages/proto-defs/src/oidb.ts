@@ -32,10 +32,16 @@ export interface OidbEmpty {}
 // Oidb.0xFD4_1 Friend list
 export interface OidbFriendProperty {
     code?: pb<1, uint_32>;
-    value?: pb<2, string>;
+    value?: pb<2, bytes>;
+}
+
+export interface OidbFriendNumberProperty {
+    key?: pb<1, int_32>;
+    value?: pb<2, int_32>;
 }
 
 export interface OidbFriendLayer1 {
+    numberProperties?: pb_repeated<1, OidbFriendNumberProperty>;
     properties?: pb_repeated<2, OidbFriendProperty>;
 }
 

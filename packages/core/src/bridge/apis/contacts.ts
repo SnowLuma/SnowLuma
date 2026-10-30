@@ -1,4 +1,5 @@
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
+import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import {
     FetchFriendListPage,
     type FriendListPageCategory,
@@ -92,6 +93,74 @@ function normalizeGroupRequestSequence(
 }
 
 const MEMBER_LIST_TTL_MS = 60_000;
+const FRIEND_PROFILE_TTL_MS = 6 * 60 * 60_000;
+const FRIEND_PROFILE_CONCURRENCY = 4;
+const FRIEND_PROFILE_FAILURE_BACKOFF_MS = 60_000;
+
+export interface FetchFriendListOptions {
+    /** Fetch per-friend profile details for fields omitted by 0xFD4. */
+    enrichProfiles?: boolean;
+}
+
+function fillFriendProfileFields(friend: FriendInfo, profile?: UserProfileInfo): FriendInfo {
+    if (!profile) {
+        return friend;
+    }
+
+    return {
+        ...friend,
+        ...(friend.sign === undefined && profile.availableFields?.includes('sign')
+            ? { sign: profile.sign }
+            : {}),
+        ...(friend.birthdayYear === undefined && profile.birthdayYear !== undefined
+            ? { birthdayYear: profile.birthdayYear }
+            : {}),
+        ...(friend.birthdayMonth === undefined && profile.birthdayMonth !== undefined
+            ? { birthdayMonth: profile.birthdayMonth }
+            : {}),
+        ...(friend.birthdayDay === undefined && profile.birthdayDay !== undefined
+            ? { birthdayDay: profile.birthdayDay }
+            : {}),
+        ...(friend.age === undefined && profile.availableFields?.includes('age')
+            ? { age: profile.age }
+            : {}),
+        ...(friend.sex === undefined && profile.availableFields?.includes('sex')
+            ? { sex: profile.sex }
+            : {}),
+        ...(friend.phoneNum === undefined && profile.phoneNum
+            ? { phoneNum: profile.phoneNum }
+            : {}),
+        ...(friend.email === undefined && profile.email ? { email: profile.email } : {}),
+        ...(friend.level === undefined && profile.availableFields?.includes('level')
+            ? { level: profile.level }
+            : {}),
+        ...(friend.country === undefined && profile.country !== undefined
+            ? { country: profile.country }
+            : {}),
+        ...(friend.province === undefined && profile.province !== undefined
+            ? { province: profile.province }
+            : {}),
+        ...(friend.city === undefined && profile.city !== undefined ? { city: profile.city } : {}),
+        ...(friend.college === undefined && profile.college !== undefined
+            ? { college: profile.college }
+            : {}),
+        ...(friend.profileBusiness === undefined && profile.profileBusiness !== undefined
+            ? { profileBusiness: profile.profileBusiness }
+            : {}),
+        ...(friend.vipFlag === undefined && profile.vipFlag !== undefined
+            ? { vipFlag: profile.vipFlag }
+            : {}),
+        ...(friend.yearVipFlag === undefined && profile.yearVipFlag !== undefined
+            ? { yearVipFlag: profile.yearVipFlag }
+            : {}),
+        ...(friend.svipFlag === undefined && profile.svipFlag !== undefined
+            ? { svipFlag: profile.svipFlag }
+            : {}),
+        ...(friend.vipLevel === undefined && profile.vipLevel !== undefined
+            ? { vipLevel: profile.vipLevel }
+            : {}),
+    };
+}
 
 export class ContactsApi {
     /**
@@ -108,12 +177,22 @@ export class ContactsApi {
             ttlMs: MEMBER_LIST_TTL_MS,
             load: (groupId) => this.fetchGroupMemberListUncached(groupId),
         });
+    private readonly friendProfileCache: SingleFlightCache<number, UserProfileInfo>;
+    private readonly friendProfileFailures = new Map<number, number>();
+    private friendEnrichmentQueue: Promise<void> = Promise.resolve();
+    private friendRosterGeneration = 0;
+    private rememberedFriendRosterGeneration = 0;
     private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
     /** groupUin → approval msgseq from a private qun.invite card. Written
      *  only by IncomingPacketPipeline (and tests). OneBot reads get/find. */
     private readonly groupInviteCardSeqs_ = new Map<number, number>();
 
-    constructor(private readonly ctx: BridgeContext) {}
+    constructor(private readonly ctx: BridgeContext) {
+        this.friendProfileCache = createSingleFlightCache({
+            ttlMs: FRIEND_PROFILE_TTL_MS,
+            load: (uin) => this.fetchUserProfile(uin),
+        });
+    }
 
     private fetchRobotUinRanges(groupId: number): Promise<RobotUinRangeSnapshot> {
         if (this.robotUinRangesPromise_) {
@@ -177,7 +256,81 @@ export class ContactsApi {
         return SendTuwenArk.invoke(this.ctx, params);
     }
 
-    private async fetchFriendRoster(): Promise<FriendRoster> {
+    private enrichFriendRoster(entries: FriendListPageEntry[]): Promise<void> {
+        // Share the concurrency limit across overlapping flat/categorized requests.
+        const task = this.friendEnrichmentQueue.then(() =>
+            this.enrichFriendRosterUnqueued(entries),
+        );
+        this.friendEnrichmentQueue = task.catch(() => undefined);
+        return task;
+    }
+
+    private async enrichFriendRosterUnqueued(entries: FriendListPageEntry[]): Promise<void> {
+        const now = Date.now();
+
+        for (const [uin, retryAt] of this.friendProfileFailures) {
+            if (retryAt <= now) {
+                this.friendProfileFailures.delete(uin);
+            }
+        }
+
+        const targets = entries.filter(({ friend }) => {
+            return (
+                friend.uin > 0 &&
+                (friend.sign === undefined ||
+                    friend.birthdayYear === undefined ||
+                    friend.birthdayMonth === undefined ||
+                    friend.birthdayDay === undefined ||
+                    friend.age === undefined ||
+                    friend.sex === undefined ||
+                    friend.phoneNum === undefined ||
+                    friend.email === undefined ||
+                    friend.level === undefined ||
+                    friend.country === undefined ||
+                    friend.province === undefined ||
+                    friend.city === undefined ||
+                    friend.college === undefined ||
+                    friend.profileBusiness === undefined ||
+                    friend.vipFlag === undefined ||
+                    friend.yearVipFlag === undefined ||
+                    friend.svipFlag === undefined ||
+                    friend.vipLevel === undefined)
+            );
+        });
+
+        await mapWithConcurrency(targets, FRIEND_PROFILE_CONCURRENCY, async (entry) => {
+            if (this.friendProfileFailures.has(entry.friend.uin)) {
+                entry.friend = fillFriendProfileFields(
+                    entry.friend,
+                    this.friendProfileCache.peek(entry.friend.uin, { allowStale: true }),
+                );
+                return;
+            }
+
+            try {
+                const profile = await this.friendProfileCache.get(entry.friend.uin);
+                entry.friend = fillFriendProfileFields(entry.friend, profile);
+            } catch (err: unknown) {
+                entry.friend = fillFriendProfileFields(
+                    entry.friend,
+                    this.friendProfileCache.peek(entry.friend.uin, { allowStale: true }),
+                );
+                this.friendProfileFailures.set(
+                    entry.friend.uin,
+                    Date.now() + FRIEND_PROFILE_FAILURE_BACKOFF_MS,
+                );
+                log.warn(
+                    'friend profile enrichment failed: uin=%s friend=%d err=%s',
+                    this.ctx.identity.uin,
+                    entry.friend.uin,
+                    err instanceof Error ? err.message : String(err),
+                );
+            }
+        });
+    }
+
+    private async fetchFriendRoster(options: FetchFriendListOptions = {}): Promise<FriendRoster> {
+        const generation = ++this.friendRosterGeneration;
         const entries: FriendListPageEntry[] = [];
         const categories = new Map<number, FriendListPageCategory>();
         const seenCookies = new Set<string>();
@@ -207,18 +360,42 @@ export class ContactsApi {
             cookie = next;
         }
 
-        const friends = entries.map((entry) => entry.friend);
-        this.ctx.identity.rememberFriends(friends);
+        if (options.enrichProfiles) {
+            await this.enrichFriendRoster(entries);
+        } else {
+            for (const entry of entries) {
+                entry.friend = fillFriendProfileFields(
+                    entry.friend,
+                    this.friendProfileCache.peek(entry.friend.uin, { allowStale: true }),
+                );
+            }
+        }
+
+        // Profile requests may finish after a newer non-enriched roster refresh.
+        if (generation > this.rememberedFriendRosterGeneration) {
+            const friends = entries.map((entry) => ({
+                ...entry.friend,
+                categoryId: entry.categoryId,
+            }));
+            this.ctx.identity.rememberFriends(friends);
+            this.rememberedFriendRosterGeneration = generation;
+        }
+
         return { entries, categories: [...categories.values()] };
     }
 
-    async fetchFriendList(): Promise<FriendInfo[]> {
-        const roster = await this.fetchFriendRoster();
-        return roster.entries.map((entry) => entry.friend);
+    async fetchFriendList(options: FetchFriendListOptions = {}): Promise<FriendInfo[]> {
+        const roster = await this.fetchFriendRoster(options);
+        return roster.entries.map((entry) => ({
+            ...entry.friend,
+            categoryId: entry.categoryId,
+        }));
     }
 
-    async fetchFriendCategories(): Promise<FriendCategoryInfo[]> {
-        const roster = await this.fetchFriendRoster();
+    async fetchFriendCategories(
+        options: FetchFriendListOptions = {},
+    ): Promise<FriendCategoryInfo[]> {
+        const roster = await this.fetchFriendRoster(options);
         const buckets = new Map(
             roster.categories.map((category) => [category.categoryId, [] as FriendInfo[]]),
         );
@@ -233,7 +410,10 @@ export class ContactsApi {
                 );
             }
 
-            bucket.push(entry.friend);
+            bucket.push({
+                ...entry.friend,
+                categoryId: entry.categoryId,
+            });
         }
 
         return roster.categories.map((category) => {

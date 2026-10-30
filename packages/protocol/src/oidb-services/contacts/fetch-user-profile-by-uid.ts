@@ -22,12 +22,16 @@ import type {
     OidbUserInfoResponse,
 } from '@snowluma/proto-defs/oidb-actions/base';
 import type { UserProfileInfo } from '../../qq-info';
-import { applyOnlineStatus, applyProfileDetails } from './fetch-user-profile';
+import {
+    applyOnlineStatus,
+    applyProfileDetails,
+    applyPublicProfileFields,
+} from './fetch-user-profile';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
 const REQUESTED_KEYS = [
-    20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026, 105, 27372, 27406, 20037, 41756,
-    41757, 42241,
+    20002, 27394, 20009, 20031, 20011, 20016, 101, 103, 102, 107, 20020, 20021, 20003, 20004, 20026,
+    105, 27372, 27406, 20037, 41756, 41757, 42241,
     // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
     40410, 42031,
 ];
@@ -103,10 +107,7 @@ export namespace FetchUserProfileByUid {
                 }
             }
 
-            const sexNum = numMap.get(20009) ?? 0;
-            info.sex = sexNum === 1 ? 'male' : sexNum === 2 ? 'female' : 'unknown';
-            info.age = numMap.get(20037) ?? 0;
-            info.level = numMap.get(105) ?? 0;
+            applyPublicProfileFields(info, bytesMap, numMap);
             applyOnlineStatus(info, bytesMap, numMap);
             applyProfileDetails(info, numMap);
             // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）

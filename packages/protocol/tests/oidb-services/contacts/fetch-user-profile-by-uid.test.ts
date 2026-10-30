@@ -25,6 +25,96 @@ function makeSender(body?: OidbUserInfoResponse) {
 }
 
 describe('FetchUserProfileByUid namespace (UID form)', () => {
+    it('decodes returned business icons with proto3 defaults from wire', async () => {
+        const profile = await FetchUserProfileByUid.invoke(
+            makeSender({
+                body: {
+                    uid: 'u_test',
+                    properties: {
+                        bytesProperties: [
+                            {
+                                code: 107,
+                                // body=3, lists=3; entry type=1, icon2=7.
+                                value: Buffer.from('1a0a1a08082a3a0469636f6e', 'hex'),
+                            },
+                        ],
+                    },
+                },
+            }),
+            { uid: 'u_test' },
+        );
+        expect(profile.profileBusiness).toEqual([
+            { type: 42, level: 0, isYear: false, isPro: false, icon: 'icon' },
+        ]);
+    });
+
+    it.each([
+        ['absent property', undefined],
+        ['empty bytes', ''],
+        ['no body', '0a00'],
+        ['malformed bytes', '1a80'],
+        ['bad scalar wire type', '1a041a022200'],
+        ['invalid UTF-8 icon', '1a051a033a01ff'],
+    ])('omits business data for %s and preserves other fields', async (_label, hex) => {
+        const profile = await FetchUserProfileByUid.invoke(
+            makeSender({
+                body: {
+                    uid: 'u_test',
+                    properties: {
+                        bytesProperties: [
+                            { code: 20002, value: new TextEncoder().encode('Alice') },
+                            ...(hex === undefined
+                                ? []
+                                : [{ code: 107, value: Buffer.from(hex, 'hex') }]),
+                        ],
+                    },
+                },
+            }),
+            { uid: 'u_test' },
+        );
+        expect(profile).not.toHaveProperty('profileBusiness');
+        expect(profile.nickname).toBe('Alice');
+    });
+
+    it('retains an explicitly returned empty business body', async () => {
+        const profile = await FetchUserProfileByUid.invoke(
+            makeSender({
+                body: {
+                    uid: 'u_test',
+                    properties: {
+                        bytesProperties: [{ code: 107, value: Buffer.from('1a00', 'hex') }],
+                    },
+                },
+            }),
+            { uid: 'u_test' },
+        );
+        expect(profile.profileBusiness).toEqual([]);
+    });
+
+    it.each([undefined, '', 'Hello from QQ'])(
+        'tracks whether signature property 102 was actually returned (value=%s)',
+        async (sign) => {
+            const profile = await FetchUserProfileByUid.invoke(
+                makeSender({
+                    body: {
+                        uin: 10001,
+                        uid: 'u_test',
+                        properties: {
+                            bytesProperties:
+                                sign === undefined
+                                    ? []
+                                    : [{ code: 102, value: new TextEncoder().encode(sign) }],
+                        },
+                    },
+                }),
+                { uid: 'u_test' },
+            );
+
+            expect(profile.sign).toBe(sign ?? '');
+            expect(profile.availableFields?.includes('sign')).toBe(sign !== undefined);
+        },
+    );
+
     it('declares 0xFE1_2 WITHOUT uinForm (reserved stays 0)', () => {
         expect(FetchUserProfileByUid.command).toBe(0xfe1);
         expect(FetchUserProfileByUid.subCommand).toBe(2);
@@ -54,6 +144,12 @@ describe('FetchUserProfileByUid namespace (UID form)', () => {
         const keys = env.body?.keys?.map((k) => k.key);
         expect(keys).toContain(20002); // nickname — the whole point
         expect(keys).toContain(105); // QQ level
+        expect(keys).toContain(102); // signature
+        expect(keys).toContain(107); // profile business icons
+        expect(keys).toContain(20003); // country
+        expect(keys).toContain(20004); // province
+        expect(keys).toContain(20020); // city
+        expect(keys).toContain(20021); // college
         expect(keys).toContain(40410);
         expect(keys).toContain(42031);
     });

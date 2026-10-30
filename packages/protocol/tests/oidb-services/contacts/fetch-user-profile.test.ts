@@ -28,6 +28,286 @@ function makeSender(body?: OidbUserInfoResponse) {
 }
 
 describe('FetchUserProfile namespace', () => {
+    it.each([undefined, '', 'Hello from QQ'])(
+        'tracks whether signature property 102 was actually returned (value=%s)',
+        async (sign) => {
+            const profile = await FetchUserProfile.invoke(
+                makeSender({
+                    body: {
+                        uin: 10001,
+                        properties: {
+                            bytesProperties:
+                                sign === undefined
+                                    ? []
+                                    : [{ code: 102, value: new TextEncoder().encode(sign) }],
+                        },
+                    },
+                }),
+                { uin: 10001 },
+            );
+
+            expect(profile.sign).toBe(sign ?? '');
+            expect(profile.availableFields?.includes('sign')).toBe(sign !== undefined);
+        },
+    );
+
+    it.each(['uin', 'uid'])(
+        'decodes returned UTF-8 profile regions and college via %s',
+        async (form) => {
+            const sender = makeSender({
+                body: {
+                    uin: 10001,
+                    uid: 'u_test',
+                    properties: {
+                        bytesProperties: [
+                            { code: 20003, value: new TextEncoder().encode('  中国  ') },
+                            { code: 20004, value: new TextEncoder().encode('  浙江  ') },
+                            { code: 20020, value: new TextEncoder().encode('  杭州  ') },
+                            { code: 20021, value: new TextEncoder().encode('  示例大学  ') },
+                        ],
+                    },
+                },
+            });
+            const profile =
+                form === 'uin'
+                    ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+                    : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+
+            expect(profile).toMatchObject({
+                country: '中国',
+                province: '浙江',
+                city: '杭州',
+                college: '示例大学',
+            });
+            const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+            const request =
+                form === 'uin'
+                    ? protobuf_decode<OidbBase<OidbUserInfoRequest>>(bytes)
+                    : protobuf_decode<OidbBase<OidbUserInfoByUidRequest>>(bytes);
+            expect(request.body?.keys?.map((key) => key.key)).toEqual(
+                expect.arrayContaining([20003, 20004, 20020, 20021]),
+            );
+        },
+    );
+
+    it('decodes both business icon tags from independent protobuf wire fixtures', async () => {
+        // Business.body=3, body.lists=3. Entry tags are type=1, isYear=3,
+        // level=4, isPro=5, icon1=6 / icon2=7; these bytes do not use our encoder.
+        const sender = makeSender({
+            body: {
+                uin: 10001,
+                properties: {
+                    bytesProperties: [
+                        {
+                            code: 107,
+                            value: Buffer.from(
+                                '1a181a0d080118012006280132036f6e651a0708023a0374776f',
+                                'hex',
+                            ),
+                        },
+                    ],
+                },
+            },
+        });
+        const profile = await FetchUserProfile.invoke(sender, { uin: 10001 });
+        expect(profile.profileBusiness).toEqual([
+            { type: 1, level: 6, isYear: true, isPro: true, icon: 'one' },
+            { type: 2, level: 0, isYear: false, isPro: false, icon: 'two' },
+        ]);
+        const [, bytes] = sender.sendRawPacket.mock.calls[0]!;
+        const keys = protobuf_decode<OidbBase<OidbUserInfoRequest>>(bytes).body?.keys?.map(
+            (key) => key.key,
+        );
+        expect(keys).toContain(107);
+    });
+
+    it.each([
+        ['absent property', undefined],
+        ['empty property', ''],
+        ['no business body', '0a00'],
+        ['truncated body', '1a04'],
+        ['truncated entry', '1a031a02'],
+        ['invalid wire type', '1a041a020a00'],
+        ['invalid UTF-8 icon', '1a061a043202c328'],
+        ['conflicting oneof icons', '1a0a1a08320261613a026262'],
+    ])('omits %s without dropping other profile properties', async (_label, hex) => {
+        const profile = await FetchUserProfile.invoke(
+            makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [
+                            { code: 20002, value: new TextEncoder().encode('Alice') },
+                            ...(hex === undefined
+                                ? []
+                                : [{ code: 107, value: Buffer.from(hex, 'hex') }]),
+                        ],
+                        numberProperties: [{ number1: 20037, number2: 23 }],
+                    },
+                },
+            }),
+            { uin: 10001 },
+        );
+        expect(profile).not.toHaveProperty('profileBusiness');
+        expect(profile).toMatchObject({ nickname: 'Alice', age: 23 });
+    });
+
+    it.each([
+        ['1a00', []],
+        ['1a021a00', [{ type: 0, level: 0, isYear: false, isPro: false }]],
+        ['1a041a023a00', [{ type: 0, level: 0, isYear: false, isPro: false }]],
+    ])('retains explicit empty business body and proto3 defaults (%s)', async (hex, expected) => {
+        const profile = await FetchUserProfile.invoke(
+            makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [{ code: 107, value: Buffer.from(hex, 'hex') }],
+                    },
+                },
+            }),
+            { uin: 10001 },
+        );
+        expect(profile.profileBusiness).toEqual(expected);
+    });
+
+    it.each(['uin', 'uid'])(
+        'omits absent, blank and malformed region and college text via %s',
+        async (form) => {
+            for (const value of [
+                undefined,
+                new Uint8Array(),
+                new TextEncoder().encode(' \t '),
+                Uint8Array.from([0xc3, 0x28]),
+            ]) {
+                const sender = makeSender({
+                    body: {
+                        uin: 10001,
+                        uid: 'u_test',
+                        properties: {
+                            bytesProperties: value
+                                ? [
+                                      { code: 20003, value },
+                                      { code: 20004, value },
+                                      { code: 20020, value },
+                                      { code: 20021, value },
+                                  ]
+                                : [],
+                        },
+                    },
+                });
+                const profile =
+                    form === 'uin'
+                        ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+                        : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+
+                expect(profile).not.toHaveProperty('country');
+                expect(profile).not.toHaveProperty('province');
+                expect(profile).not.toHaveProperty('city');
+                expect(profile).not.toHaveProperty('college');
+            }
+        },
+    );
+
+    it('retains valid city when the returned country is malformed', async () => {
+        const profile = await FetchUserProfile.invoke(
+            makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [
+                            { code: 20003, value: Uint8Array.from([0xff]) },
+                            { code: 20020, value: new TextEncoder().encode('北京') },
+                        ],
+                    },
+                },
+            }),
+            { uin: 10001 },
+        );
+
+        expect(profile).not.toHaveProperty('country');
+        expect(profile.city).toBe('北京');
+    });
+
+    it.each(['uin', 'uid'])('does not treat province key 20004 as city via %s', async (form) => {
+        const sender = makeSender({
+            body: {
+                uin: 10001,
+                uid: 'u_test',
+                properties: {
+                    bytesProperties: [{ code: 20004, value: new TextEncoder().encode('浙江') }],
+                },
+            },
+        });
+        const profile =
+            form === 'uin'
+                ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+                : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+
+        expect(profile.province).toBe('浙江');
+        expect(profile).not.toHaveProperty('city');
+        expect(profile).not.toHaveProperty('college');
+    });
+
+    it.each(['uin', 'uid'])(
+        'preserves binary birthday and returned zero values via %s',
+        async (form) => {
+            const sender = makeSender({
+                body: {
+                    uin: 10001,
+                    uid: 'u_test',
+                    properties: {
+                        bytesProperties: [{ code: 20031, value: Uint8Array.from([0, 0, 2, 29]) }],
+                        numberProperties: [
+                            { number1: 20009, number2: 255 },
+                            { number1: 20037, number2: 0 },
+                            { number1: 105, number2: 0 },
+                        ],
+                    },
+                },
+            });
+            const profile =
+                form === 'uin'
+                    ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+                    : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+            expect(profile).toMatchObject({
+                birthdayYear: 0,
+                birthdayMonth: 2,
+                birthdayDay: 29,
+                sex: 'unknown',
+                age: 0,
+                level: 0,
+                availableFields: ['sex', 'age', 'level'],
+            });
+        },
+    );
+
+    it.each([
+        [0x07, 0xe7, 2, 29],
+        [0x07, 0xe8, 13, 1],
+        [0x07, 0xe8, 4, 31],
+        [0, 0, 0, 0],
+        [0x07, 0xe8, 2],
+    ])('omits malformed birthday %j', async (...bytes) => {
+        const profile = await FetchUserProfile.invoke(
+            makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [{ code: 20031, value: Uint8Array.from(bytes) }],
+                    },
+                },
+            }),
+            { uin: 10001 },
+        );
+        expect(profile).not.toHaveProperty('birthdayYear');
+        expect(profile).not.toHaveProperty('birthdayMonth');
+        expect(profile).not.toHaveProperty('birthdayDay');
+        expect(profile.availableFields).toEqual([]);
+        expect(profile).not.toHaveProperty('email');
+        expect(profile).not.toHaveProperty('phoneNum');
+    });
+
     it('declares 0xFE1_2 with uinForm=true', () => {
         expect(FetchUserProfile.command).toBe(0xfe1);
         expect(FetchUserProfile.subCommand).toBe(2);
@@ -133,6 +413,9 @@ describe('FetchUserProfile namespace', () => {
             expect(keys).toContain(101); // avatar
             expect(keys).toContain(102); // sign
             expect(keys).toContain(103); // remark
+            expect(keys).toContain(20031); // birthday
+            expect(keys).toContain(20011); // email
+            expect(keys).toContain(20016); // masked phone
             expect(keys).toContain(40410); // qidian crew flag (企点员工标志)
             expect(keys).toContain(42031); // qidian master flag (企点主号标志)
         });
@@ -226,6 +509,33 @@ describe('FetchUserProfile namespace', () => {
                 expect(out.age).toBe(25);
                 expect(out.level).toBe(7);
             }
+        });
+
+        it('decodes birthday, email, and masked phone from byte-properties', async () => {
+            const enc = (s: string) => new TextEncoder().encode(s);
+            const sender = makeSender({
+                body: {
+                    uin: 10001,
+                    uid: 'u',
+                    properties: {
+                        bytesProperties: [
+                            { code: 20031, value: Uint8Array.from([0x07, 0xc6, 2, 3]) },
+                            { code: 20011, value: enc('alice@example.com') },
+                            { code: 20016, value: enc('138****0000') },
+                        ],
+                        numberProperties: [],
+                    },
+                } as any,
+            });
+            const out = await FetchUserProfile.invoke(sender, { uin: 10001 });
+
+            expect(out).toMatchObject({
+                birthdayYear: 1990,
+                birthdayMonth: 2,
+                birthdayDay: 3,
+                email: 'alice@example.com',
+                phoneNum: '138****0000',
+            });
         });
 
         it('decodes the avatar URL with the "640" size suffix appended', async () => {
