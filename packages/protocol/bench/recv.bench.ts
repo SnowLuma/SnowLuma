@@ -24,6 +24,7 @@ import type { GroupChange } from '@snowluma/proto-defs/notify';
 import { parseMsgPush, MSG_PUSH_CMD } from '../src/msg-push/index';
 import { IdentityService } from '../src/identity-service';
 import { BridgeEventBus } from '../src/event-bus';
+import { GroupInviteTracker } from '../src/group-invite-tracker';
 import { IncomingPacketPipeline } from '../src/packet-pipeline';
 
 const SELF_UIN = '10001';
@@ -156,7 +157,7 @@ function makePipeline(identity: IdentityService): IncomingPacketPipeline {
         fetchGroupList: async () => {},
         fetchGroupMemberList: async () => {},
         resolveGroupJoinRequest: async () => null,
-        rememberGroupInviteCardSequence: () => true,
+        groupInvites: new GroupInviteTracker(),
     });
     pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
     return pipeline;

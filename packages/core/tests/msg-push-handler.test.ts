@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { protobuf_encode } from '@snowluma/proton';
 import { parseMsgPush, MSG_PUSH_CMD } from '@snowluma/protocol/msg-push';
 import { IdentityService } from '@snowluma/protocol/identity-service';
+import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
 import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import type { GroupMemberInfo, QQGroupInfo } from '@snowluma/protocol/qq-info';
@@ -529,7 +530,7 @@ describe('parseMsgPush Event0x210 subType=364 (friend remark synchronization)', 
             fetchGroupList: vi.fn(async () => {}),
             fetchGroupMemberList: vi.fn(async () => {}),
             resolveGroupJoinRequest: vi.fn(async () => null),
-            rememberGroupInviteCardSequence: vi.fn(() => true),
+            groupInvites: new GroupInviteTracker(),
         });
         pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
 
@@ -1028,7 +1029,7 @@ describe('parseMsgPush PkgType 44 (group admin set/unset) keeps the member cache
             fetchGroupList: vi.fn(async () => {}),
             fetchGroupMemberList: vi.fn(async () => {}),
             resolveGroupJoinRequest: vi.fn(async () => null),
-            rememberGroupInviteCardSequence: vi.fn(() => true),
+            groupInvites: new GroupInviteTracker(),
         });
         pipeline.registerCmd(MSG_PUSH_CMD, parseMsgPush);
         await pipeline.process(packet);

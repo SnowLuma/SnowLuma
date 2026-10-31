@@ -12,7 +12,7 @@ const APIS_ROUTING: Record<string, string> = {
     fetchGroupRequests: 'contacts',
     fetchGroupRequestsByUid: 'contacts',
     fetchDownloadRKeys: 'contacts',
-    getGroupInviteCardSequence: 'contacts',
+    groupInvites: 'contacts',
     findGroupInviteCardGroupBySequence: 'contacts',
 };
 
@@ -205,7 +205,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
                     filtered: false,
                 }),
             ]),
-            getGroupInviteCardSequence: vi.fn(() => null),
+            groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
             apis: { groupAdmin: { setAddRequest } } as any,
         });
 
@@ -232,7 +232,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
                       ]
                     : [],
             ),
-            getGroupInviteCardSequence: vi.fn(() => null),
+            groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
             apis: { groupAdmin: { setAddRequest } } as any,
         });
 
@@ -246,11 +246,49 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     it('surfaces "not found" only when neither inbox has the request', async () => {
         const bridge = fakeBridge({
             fetchGroupRequestsByUid: vi.fn(async () => []),
-            getGroupInviteCardSequence: vi.fn(() => null),
+            groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
             apis: { groupAdmin: { setAddRequest: vi.fn(async () => {}) } } as any,
         });
         await expect(handleGroupAddRequest(bridge, 'invite:999:u_i', true, 'ok')).rejects.toThrow(
             /matching group request not found/,
+        );
+    });
+
+    it('never picks one of two different pending invitations with the same legacy flag', async () => {
+        const setAddRequest = vi.fn();
+        const bridge = fakeBridge({
+            groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
+            fetchGroupRequestsByUid: vi.fn(async (filtered: boolean) =>
+                filtered ? [] : [fakeRequest({ sequence: 123 }), fakeRequest({ sequence: 124 })],
+            ),
+            apis: { groupAdmin: { setAddRequest } },
+        });
+        await expect(handleGroupAddRequest(bridge, 'invite:999:u_i', true, '')).rejects.toThrow(
+            'multiple pending group requests',
+        );
+        expect(setAddRequest).not.toHaveBeenCalled();
+    });
+
+    it('skips processed requests when approving a legacy notice', async () => {
+        const setAddRequest = vi.fn();
+        const bridge = fakeBridge({
+            groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
+            fetchGroupRequestsByUid: vi.fn(async (filtered: boolean) =>
+                filtered
+                    ? []
+                    : [fakeRequest({ sequence: 123, state: 2 }), fakeRequest({ sequence: 124 })],
+            ),
+            apis: { groupAdmin: { setAddRequest } },
+        });
+        await handleGroupAddRequest(bridge, 'invite:999:u_i', true, '');
+        expect(setAddRequest).toHaveBeenCalledExactlyOnceWith(
+            999,
+            124,
+            7,
+            true,
+            '',
+            false,
+            undefined,
         );
     });
 

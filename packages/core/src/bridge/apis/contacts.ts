@@ -1,3 +1,4 @@
+import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
 import {
     FetchFriendListPage,
@@ -109,9 +110,7 @@ export class ContactsApi {
             load: (groupId) => this.fetchGroupMemberListUncached(groupId),
         });
     private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
-    /** groupUin → approval msgseq from a private qun.invite card. Written
-     *  only by IncomingPacketPipeline (and tests). OneBot reads get/find. */
-    private readonly groupInviteCardSeqs_ = new Map<number, number>();
+    readonly groupInvites = new GroupInviteTracker();
 
     constructor(private readonly ctx: BridgeContext) {}
 
@@ -616,32 +615,16 @@ export class ContactsApi {
     }
 
     /** Returns whether this live card introduces a new approval sequence. */
-    rememberGroupInviteCardSequence(groupUin: number, sequence: number): boolean {
-        if (this.groupInviteCardSeqs_.get(groupUin) === sequence) {
-            return false;
-        }
-
-        this.groupInviteCardSeqs_.set(groupUin, sequence);
-        return true;
+    rememberGroupInviteCardSequence(groupId: number, sequence: number): boolean {
+        return this.groupInvites.receiveCard(groupId, sequence);
     }
 
-    /** The approval msgseq captured from a private "qun.invite" card for this
-     *  group, or undefined if none was seen. `set_group_add_request` uses it to
-     *  approve a bot self-invite via 0x10c8 (eventType=2). See issue #125. */
     getGroupInviteCardSequence(groupId: number): number | undefined {
-        return this.groupInviteCardSeqs_.get(groupId);
+        return this.groupInvites.getCardSequence(groupId);
     }
 
-    /** Resolve the group for a private invite-card msgseq. Numeric OneBot flags
-     *  use this path because the card sequence is absent from 0x10C0. */
-    findGroupInviteCardGroupBySequence(sequence: number): number | undefined {
-        for (const [groupUin, rememberedSequence] of this.groupInviteCardSeqs_) {
-            if (rememberedSequence === sequence) {
-                return groupUin;
-            }
-        }
-
-        return undefined;
+    findGroupInviteCardGroupBySequence(sequence: number, groupId?: number): number | undefined {
+        return this.groupInvites.findCardGroup(sequence, groupId);
     }
 
     async fetchDownloadRKeys(): Promise<DownloadRKeyInfo[]> {

@@ -3,16 +3,9 @@ import { formatEvent } from './format';
 import { createLogger, type Logger } from '@snowluma/common/logger';
 import type { BridgeEventBus } from './event-bus';
 import type { QQEventVariant } from './events';
+import type { GroupInviteTracker } from './group-invite-tracker';
 import type { IdentityService } from './identity-service';
 import { formatGroupRequestFlag, type GroupRequestInfo } from './qq-info';
-
-/**
- * How long a dispatched invitation stays remembered so the MSF notice and the
- * private `qun.invite` card of the SAME invitation do not both dispatch.
- * Both packets come from one server-side action, so the window only bounds how
- * long the marker lives -- matching itself is exact (group + inviter UID).
- */
-const INVITE_PAIR_WINDOW_MS = 3_000;
 
 const moduleLog = createLogger('Bridge');
 const moduleEventLog = createLogger('Event');
@@ -60,8 +53,7 @@ export interface PacketPipelineDeps {
         subType: 'add' | 'invite',
         invitedUid?: string,
     ): Promise<GroupRequestInfo | null>;
-    /** Remember a live card; false means its approval sequence was already seen. */
-    rememberGroupInviteCardSequence(groupUin: number, sequence: number): boolean;
+    groupInvites: GroupInviteTracker;
 }
 
 export class IncomingPacketPipeline {
@@ -70,15 +62,6 @@ export class IncomingPacketPipeline {
     private readonly log: Logger;
     private readonly eventLog: Logger;
     private readonly packetLog: Logger;
-    /**
-     * One invitation can arrive as an MSF notice AND as a private card. The card
-     * is the richer source (it carries the approval msgseq), so either one may
-     * dispatch -- but never both. Two independent markers keep that mutual: a
-     * notice suppresses the card that follows it, a card suppresses the notice.
-     * Cards never suppress each other (a new msgseq is a new invitation).
-     */
-    private readonly noticeDispatched_ = new Map<string, number>();
-    private readonly cardDispatched_ = new Map<string, number>();
 
     constructor(private readonly deps: PacketPipelineDeps) {
         // Tag every line we emit with this Bridge's UIN so per-account file
@@ -402,20 +385,10 @@ export class IncomingPacketPipeline {
         if (
             !groupId ||
             !sequence ||
-            !this.deps.rememberGroupInviteCardSequence(groupId, sequence)
+            !this.deps.groupInvites.receiveCard(groupId, sequence, event.senderUid)
         ) {
             return false;
         }
-
-        // The msgseq is cached above either way. Skip the duplicate event only when
-        // the notice already delivered this same invitation -- a card with a new
-        // sequence is a genuinely new invitation and must always dispatch.
-        if (this.dispatchedRecently_(this.noticeDispatched_, groupId, event.senderUid ?? '')) {
-            this.log.debug('invitation already dispatched from the notice: group=%d', groupId);
-            return false;
-        }
-
-        this.rememberDispatched_(this.cardDispatched_, groupId, event.senderUid ?? '');
 
         this.finishDispatch({
             kind: 'group_invite',
@@ -430,27 +403,6 @@ export class IncomingPacketPipeline {
             flag: formatGroupRequestFlag({ groupId, sequence, eventType: 2, filtered: false }),
         });
         return true;
-    }
-
-    private dispatchedRecently_(
-        marker: Map<string, number>,
-        groupId: number,
-        inviterUid: string,
-    ): boolean {
-        const key = `${groupId}:${inviterUid}`;
-        const at = marker.get(key);
-        if (at === undefined) return false;
-        if (Date.now() - at < INVITE_PAIR_WINDOW_MS) return true;
-        marker.delete(key);
-        return false;
-    }
-
-    private rememberDispatched_(
-        marker: Map<string, number>,
-        groupId: number,
-        inviterUid: string,
-    ): void {
-        marker.set(`${groupId}:${inviterUid}`, Date.now());
     }
 
     private emit(event: QQEventVariant): void {
@@ -550,22 +502,17 @@ export class IncomingPacketPipeline {
         pkt: PacketInfo,
         event: Extract<QQEventVariant, { kind: 'group_invite' }>,
     ): Promise<number> {
-        // A self-invite never appears in the UIN-based request inbox, so there is
-        // nothing to enrich from and querying it only wastes a round trip. The
-        // private card carries the approval msgseq, but it only arrives for some
-        // inviters -- when it does not, the notice is the only chance to surface
-        // the invitation at all. Dispatch it with the decoder-provided legacy flag,
-        // and let the card win when both arrive (see `dispatchedInvites_`).
+        // A self-invite notice carries an inviter UID but no approval sequence.
         if (
             event.subType === 'invite' &&
             this.isSelfMemberIdentity(event.invitedUin ?? 0, event.invitedUid)
         ) {
-            if (!event.flag) {
-                this.log.warn('self invitation without a flag: group=%d', event.groupId);
+            if (!(event.groupId > 0) || !event.fromUid?.trim() || !event.flag) {
+                this.log.warn('self invitation missing group or inviter: group=%d', event.groupId);
                 return 0;
             }
 
-            if (this.dispatchedRecently_(this.cardDispatched_, event.groupId, event.fromUid ?? '')) {
+            if (!this.deps.groupInvites.receiveNotice(event.groupId, event.fromUid)) {
                 this.log.debug(
                     'self invitation already dispatched from the card: group=%d',
                     event.groupId,
@@ -573,7 +520,18 @@ export class IncomingPacketPipeline {
                 return 0;
             }
 
-            this.rememberDispatched_(this.noticeDispatched_, event.groupId, event.fromUid ?? '');
+            if (!event.fromUin) {
+                event.fromUin =
+                    (await this.deps.identity.resolveUin(event.fromUid, event.groupId)) ?? 0;
+
+                if (!event.fromUin) {
+                    this.log.warn(
+                        'self invitation sender unavailable: group=%d uid=%s',
+                        event.groupId,
+                        event.fromUid,
+                    );
+                }
+            }
 
             try {
                 return this.dispatchEvent(pkt, event, 'sync');

@@ -200,7 +200,7 @@ function makeRef(
                 fetchGroupRequests: vi.fn(async () => []),
                 fetchDownloadRKeys: vi.fn(async () => []),
                 findGroupInviteCardGroupBySequence: vi.fn(() => undefined),
-                getGroupInviteCardSequence: vi.fn(() => undefined),
+                groupInvites: { getSelfInviteNotice: vi.fn(() => undefined) },
                 ...overrides.apis?.contacts,
             },
             groupFile: {

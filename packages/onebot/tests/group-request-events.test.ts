@@ -70,11 +70,11 @@ function jsonCard(content: unknown, senderUin = 456): PacketInfo {
     });
 }
 
-function selfInviteNotice(): PacketInfo {
+function selfInviteNotice(invitorUid = 'u_inviter', groupUin = 999): PacketInfo {
     return packet({
         contentHead: { msgType: 87, timestamp: 1 },
         body: {
-            msgContent: protobuf_encode<GroupInvite>({ groupUin: 999, invitorUid: 'u_inviter' }),
+            msgContent: protobuf_encode<GroupInvite>({ groupUin, invitorUid }),
         },
     });
 }
@@ -131,7 +131,7 @@ describe('group request events', () => {
     );
 
     it.each(['notice first', 'card first'])(
-        'emits only the card when paired with a self-invite notice: %s',
+        'emits one request when a self-invite notice and its card both arrive: %s',
         async (order) => {
             const { bridge, received, fetchRequests } = setup();
             const packets =
@@ -157,6 +157,116 @@ describe('group request events', () => {
         await second.bridge.onPacket(card());
         expect(first.received).toHaveLength(2);
         expect(second.received).toHaveLength(1);
+    });
+
+    it('pairs a notice exactly once and keeps its own card sequence for approval', async () => {
+        const { bridge, received, fetchRequests } = setup();
+        bridge.identity.rememberRequestIdentity({ groupId: 999, uid: 'u_inviter', uin: 456 });
+        const setAddRequest = vi.spyOn(bridge.apis.groupAdmin, 'setAddRequest').mockResolvedValue();
+        await bridge.onPacket(selfInviteNotice());
+        await bridge.onPacket(card(700));
+        await bridge.onPacket(card(701));
+        await bridge.onPacket(card(700));
+
+        expect(received.map((event) => event.flag)).toEqual([
+            'invite:999:u_inviter',
+            'slreq:1:701:999:2:0',
+        ]);
+        await handleGroupAddRequest(bridge, received[0]!.flag, true, '');
+        expect(setAddRequest).toHaveBeenCalledWith(999, 700, 2, true, '', false, undefined);
+        expect(fetchRequests).not.toHaveBeenCalled();
+    });
+
+    it.each(['u_other', 'u_inviter'])(
+        'does not approve a stale card for a new notice from %s',
+        async (uid) => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            const { bridge, received, fetchRequests } = setup();
+            bridge.identity.rememberRequestIdentity({ groupId: 999, uid, uin: 789 });
+            const setAddRequest = vi
+                .spyOn(bridge.apis.groupAdmin, 'setAddRequest')
+                .mockResolvedValue();
+            fetchRequests.mockImplementation(async (filtered) =>
+                filtered
+                    ? []
+                    : [request({ invitorUid: uid, sequence: 43, eventType: 2, targetUin: 10001 })],
+            );
+            await bridge.onPacket(selfInviteNotice());
+            await bridge.onPacket(card(700));
+            vi.setSystemTime(Date.now() + 4_000);
+            await bridge.onPacket(selfInviteNotice(uid));
+
+            const latest = received.at(-1)!;
+            expect(latest.flag).toBe(`invite:999:${uid}`);
+            await handleGroupAddRequest(bridge, latest.flag, true, '');
+            expect(setAddRequest).toHaveBeenCalledExactlyOnceWith(
+                999,
+                43,
+                2,
+                true,
+                '',
+                false,
+                undefined,
+            );
+        },
+    );
+
+    it('does not emit a self-invite flag without a group and inviter', async () => {
+        const { bridge, received } = setup();
+        await bridge.onPacket(selfInviteNotice(''));
+        await bridge.onPacket(selfInviteNotice('  '));
+        await bridge.onPacket(selfInviteNotice('u_inviter', 0));
+        expect(received).toEqual([]);
+    });
+
+    it.each([22, 2])(
+        'cannot use a self-invitation flag to approve another account joining the group (type %i)',
+        async (eventType) => {
+            const { bridge, received, fetchRequests } = setup();
+            bridge.identity.rememberRequestIdentity({ groupId: 999, uid: 'u_inviter', uin: 456 });
+            const setAddRequest = vi
+                .spyOn(bridge.apis.groupAdmin, 'setAddRequest')
+                .mockResolvedValue();
+            fetchRequests.mockImplementation(async (filtered) =>
+                filtered ? [] : [request({ invitorUid: 'u_inviter', eventType, targetUin: 456 })],
+            );
+            await bridge.onPacket(selfInviteNotice());
+            await expect(
+                handleGroupAddRequest(bridge, received[0]!.flag, true, ''),
+            ).rejects.toThrow('matching group request not found');
+            expect(setAddRequest).not.toHaveBeenCalled();
+        },
+    );
+
+    it('emits a later card when the pairing window has expired', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { bridge, received } = setup();
+        bridge.identity.rememberRequestIdentity({ groupId: 999, uid: 'u_inviter', uin: 456 });
+        await bridge.onPacket(selfInviteNotice());
+        vi.setSystemTime(Date.now() + 4_000);
+        await bridge.onPacket(card(701));
+        expect(received.map((event) => event.flag)).toEqual([
+            'invite:999:u_inviter',
+            'slreq:1:701:999:2:0',
+        ]);
+    });
+
+    it('refuses an ambiguous legacy flag when two self invitations overlap', async () => {
+        const { bridge, received } = setup();
+        bridge.identity.rememberRequestIdentity({ groupId: 999, uid: 'u_inviter', uin: 456 });
+        const setAddRequest = vi.spyOn(bridge.apis.groupAdmin, 'setAddRequest').mockResolvedValue();
+        await bridge.onPacket(selfInviteNotice());
+        await bridge.onPacket(selfInviteNotice());
+        await bridge.onPacket(card(701));
+        await bridge.onPacket(card(702));
+        expect(received.map((event) => event.flag)).toEqual([
+            'invite:999:u_inviter',
+            'invite:999:u_inviter',
+        ]);
+        await expect(handleGroupAddRequest(bridge, received[0]!.flag, true, '')).rejects.toThrow(
+            'multiple pending self invitations',
+        );
+        expect(setAddRequest).not.toHaveBeenCalled();
     });
 
     it('does not report sent cards or links in unrelated JSON cards as invitations', async () => {

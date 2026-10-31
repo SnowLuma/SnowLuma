@@ -761,4 +761,13 @@ describe('apis/contacts / invite-card pending application', () => {
         expect(api.findGroupInviteCardGroupBySequence(778899)).toBe(12345);
         expect(api.findGroupInviteCardGroupBySequence(1)).toBeUndefined();
     });
+
+    it('requires a group when different groups have the same card sequence', () => {
+        const api = new ContactsApi({ identity: { uin: '10001' } } as any);
+        api.rememberGroupInviteCardSequence(12345, 778899);
+        api.rememberGroupInviteCardSequence(67890, 778899);
+
+        expect(() => api.findGroupInviteCardGroupBySequence(778899)).toThrow('multiple groups');
+        expect(api.findGroupInviteCardGroupBySequence(778899, 67890)).toBe(67890);
+    });
 });

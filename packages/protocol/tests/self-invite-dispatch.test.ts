@@ -2,6 +2,7 @@ import type { PacketInfo } from '@snowluma/common/protocol-types';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import type { GroupInviteEvent, QQEventVariant } from '@snowluma/protocol/events';
 import { IdentityService } from '@snowluma/protocol/identity-service';
+import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
 import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -103,7 +104,7 @@ function makePipeline(options: { request?: 'found' | 'missing' } = {}) {
         fetchGroupList: vi.fn(async () => {}),
         fetchGroupMemberList: vi.fn(async () => {}),
         resolveGroupJoinRequest,
-        rememberGroupInviteCardSequence: vi.fn(() => true),
+        groupInvites: new GroupInviteTracker(),
     });
 
     return { pipeline, received, resolveGroupJoinRequest };

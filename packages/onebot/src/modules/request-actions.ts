@@ -125,7 +125,10 @@ async function resolveLiveGroupRequest(
     bridge: BridgeInterface,
     handle: GroupRequestHandle,
 ): Promise<GroupRequestHandle & { operateTransInfo?: Uint8Array }> {
-    const cardGroup = bridge.apis.contacts.findGroupInviteCardGroupBySequence?.(handle.sequence);
+    const cardGroup = bridge.apis.contacts.findGroupInviteCardGroupBySequence?.(
+        handle.sequence,
+        handle.groupId,
+    );
 
     // Private invite-card seq is absent from 0x10C0; keep the flag tuple (#125).
     if (cardGroup === handle.groupId) {
@@ -231,28 +234,43 @@ export async function handleGroupAddRequest(
 
     // Legacy SnowLuma flags remain accepted for events emitted by older builds.
     // A private invite card needs its msgseq rather than the 0x10C0 tuple (#125).
-    if (parsed.requestType === 'invite') {
-        const cardSequence = bridge.apis.contacts.getGroupInviteCardSequence(parsed.groupId);
+    const notice =
+        parsed.requestType === 'invite'
+            ? bridge.apis.contacts.groupInvites.getSelfInviteNotice(
+                  parsed.groupId,
+                  parsed.targetUid,
+              )
+            : undefined;
 
-        if (cardSequence) {
-            await applyGroupRequest(
-                bridge,
-                {
-                    groupId: parsed.groupId,
-                    sequence: cardSequence,
-                    eventType: 2,
-                    filtered: false,
-                },
-                approve,
-                reason,
-            );
-            return;
-        }
+    if (notice?.cardSequence) {
+        await applyGroupRequest(
+            bridge,
+            {
+                groupId: parsed.groupId,
+                sequence: notice.cardSequence,
+                eventType: 2,
+                filtered: false,
+            },
+            approve,
+            reason,
+        );
+        return;
     }
 
     const lookup = await fetchRequestInboxes(bridge, 'uid');
-    const matching = lookup.requests.find((request) => {
-        if (request.groupId !== parsed.groupId) {
+    const candidates = lookup.requests.filter((request) => {
+        if (request.groupId !== parsed.groupId || request.state !== 1 || request.eventType <= 0) {
+            return false;
+        }
+
+        if (
+            notice &&
+            (request.eventType !== 2 ||
+                (request.targetUin > 0 && request.targetUin !== Number(bridge.identity.uin)) ||
+                (request.targetUid &&
+                    bridge.identity.selfUid &&
+                    request.targetUid !== bridge.identity.selfUid))
+        ) {
             return false;
         }
 
@@ -261,10 +279,21 @@ export async function handleGroupAddRequest(
             : request.invitorUid === parsed.targetUid;
     });
 
-    // Never fall back to an arbitrary request from the same group: when a UID
-    // does not match, approving another pending request is worse than failing.
+    const matching = candidates[0];
+
     if (!matching) {
         throwMissingGroupRequest('matching group request not found', lookup.failures);
+    }
+
+    if (
+        candidates.some(
+            (request) =>
+                request.sequence !== matching.sequence ||
+                request.eventType !== matching.eventType ||
+                request.filtered !== matching.filtered,
+        )
+    ) {
+        throw new Error('multiple pending group requests match this flag');
     }
 
     await applyGroupRequest(bridge, matching, approve, reason, matching);

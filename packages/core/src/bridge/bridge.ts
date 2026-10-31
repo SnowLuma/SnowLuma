@@ -73,8 +73,7 @@ export class Bridge implements BridgeInterface {
             },
             resolveGroupJoinRequest: (groupId, uid, subType, invitedUid) =>
                 this.apis.contacts.resolveGroupJoinRequest(groupId, uid, subType, invitedUid),
-            rememberGroupInviteCardSequence: (groupUin, sequence) =>
-                this.apis.contacts.rememberGroupInviteCardSequence(groupUin, sequence),
+            groupInvites: this.apis.contacts.groupInvites,
         });
         this.pipeline.registerCmd(MSG_PUSH_CMD, (pkt, identity) =>
             parseMsgPushOrThrow(pkt, identity, this.sysMsgDedup_),

@@ -13,6 +13,7 @@ import { IdentityService } from '@snowluma/protocol/identity-service';
 import type { MsgPushContext } from '@snowluma/protocol/msg-push/context';
 import { PkgType } from '@snowluma/protocol/msg-push/enums';
 import { MsgPushRegistry } from '@snowluma/protocol/msg-push/registry';
+import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
 import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -140,7 +141,7 @@ function makePipeline(
             comment: '',
             filtered: false,
         })),
-        rememberGroupInviteCardSequence: vi.fn(() => true),
+        groupInvites: new GroupInviteTracker(),
     });
     const dispatched: Array<{ event: QQEventVariant; req: number | undefined }> = [];
     events.onAny((event) => {
