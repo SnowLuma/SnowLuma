@@ -322,6 +322,7 @@ export interface NTV2UploadRespBody {
     ipv4s?: pb_repeated<3, NTV2IPv4>;
     msgSeq?: pb<5, uint_64>;
     msgInfo?: pb<6, NTV2UploadRespMsgInfo>;
+    compatQMsg?: pb<8, bytes>;
     subFileInfos?: pb_repeated<10, NTV2SubFileInfoResp>;
 }
 

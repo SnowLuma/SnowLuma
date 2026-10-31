@@ -1,4 +1,4 @@
-import type { MarkdownData, MentionExtraSend } from '@snowluma/proto-defs/action';
+import type { MarkdownData, MentionExtraSend, SendRichText } from '@snowluma/proto-defs/action';
 import type {
     Elem,
     GroupFileExtra,
@@ -8,7 +8,7 @@ import type {
     QFaceExtra,
     QSmallFaceExtra,
 } from '@snowluma/proto-defs/element';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { type bytes, type pb, protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { createLogger } from '@snowluma/common/logger';
 import { randomUUID } from 'crypto';
 import { deflateSync } from 'zlib';
@@ -24,7 +24,7 @@ import {
 } from './element-manifest';
 import { uploadImageMsgInfo } from './highway/image-upload';
 import { hexToBytes } from './highway/pipeline';
-import { uploadPttMsgInfo } from './highway/ptt-upload';
+import { uploadPtt } from './highway/ptt-upload';
 import { uploadVideoMsgInfo } from './highway/video-upload';
 
 type ProtoElem = Partial<Elem>;
@@ -562,7 +562,7 @@ async function makeImageElem(ctx: SendContext, element: MessageElement): Promise
     return legacy ? [nt, legacy] : [nt];
 }
 
-async function makePttElem(ctx: SendContext, element: MessageElement): Promise<ProtoElem> {
+async function makePttElem(ctx: SendContext, element: MessageElement) {
     const isGroup = ctx.groupId !== undefined;
     const targetIdOrUid = isGroup ? ctx.groupId! : (ctx.userUid ?? '');
 
@@ -570,17 +570,14 @@ async function makePttElem(ctx: SendContext, element: MessageElement): Promise<P
         throw new Error('private record target uid is missing');
     }
 
-    const msgInfo = await uploadPttMsgInfo(ctx.bridge, isGroup, targetIdOrUid, element);
+    const { msgInfo, compatQMsg } = await uploadPtt(ctx.bridge, isGroup, targetIdOrUid, element);
 
     // commonElem.businessType is the QQ NT scene tag the receive-side
     // decoder pairs with: 12=c2c, 22=group. Sending the group tag on a
     // c2c message bounces with PbSendMsg result=79.
     return {
-        commonElem: {
-            serviceType: 48,
-            pbElem: msgInfo,
-            businessType: isGroup ? 22 : 12,
-        },
+        elem: { commonElem: { serviceType: 48, pbElem: msgInfo, businessType: isGroup ? 22 : 12 } },
+        compatQMsg,
     };
 }
 
@@ -689,10 +686,10 @@ async function makeVideoElem(ctx: SendContext, element: MessageElement): Promise
  * Supports: text, face, mface, at, reply, json, xml, markdown, image, record, video, forward, poke.
  * Image, record and video elements trigger NTV2 highway upload via the SendContext.
  */
-export async function buildSendElems(
+async function buildSendContent(
     elements: MessageElement[],
     ctx?: SendContext,
-): Promise<ProtoElem[]> {
+): Promise<{ elems: ProtoElem[]; voiceCompatibility?: Uint8Array }> {
     // Validate the whole message before the first upload or packet build. This
     // preserves all-or-nothing semantics: a malformed later segment cannot make
     // an earlier media segment perform side effects before the send is rejected.
@@ -732,6 +729,9 @@ export async function buildSendElems(
     }
 
     const result: ProtoElem[] = [];
+    let voiceCompatibility: Uint8Array | undefined;
+    const singlePrivateVoice =
+        ctx?.scene === 'direct-private' && elements.filter((e) => e.type === 'record').length === 1;
     // A user-supplied @ that lands immediately after a reply's srcMsg isn't
     // honored by the QQ NT group server (the @ shows but never notifies, #129).
     // When a reply and an @ coexist, emit the replied sender as a trailing
@@ -796,9 +796,16 @@ export async function buildSendElems(
                 result.push(makeForwardElem(elem));
                 break;
 
-            case 'record':
-                result.push(await makePttElem(ctx!, elem));
+            case 'record': {
+                const voice = await makePttElem(ctx!, elem);
+                result.push(voice.elem);
+
+                if (singlePrivateVoice) {
+                    voiceCompatibility = voice.compatQMsg;
+                }
+
                 break;
+            }
 
             case 'video':
                 result.push(await makeVideoElem(ctx!, elem));
@@ -851,5 +858,32 @@ export async function buildSendElems(
         }
     }
 
-    return result;
+    return { elems: result, voiceCompatibility };
+}
+
+export async function buildSendElems(
+    elements: MessageElement[],
+    ctx?: SendContext,
+): Promise<ProtoElem[]> {
+    return (await buildSendContent(elements, ctx)).elems;
+}
+
+export async function encodePrivateRichText(
+    elements: MessageElement[],
+    ctx: SendContext,
+): Promise<Uint8Array> {
+    const { elems, voiceCompatibility } = await buildSendContent(elements, ctx);
+    const modern = protobuf_encode<SendRichText>({ elems });
+
+    // Both parts encode the same RichText message. Preserve the server's playback
+    // data verbatim, including extensions our receive schema does not interpret.
+    if (!voiceCompatibility?.length) {
+        return modern;
+    }
+
+    if (!protobuf_decode<{ ptt?: pb<4, bytes> }>(voiceCompatibility).ptt?.length) {
+        throw new Error('private voice upload returned incomplete playback information');
+    }
+
+    return Buffer.concat([modern, voiceCompatibility]);
 }

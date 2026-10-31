@@ -211,12 +211,12 @@ async function tryPttWaveform(
  * Upload a voice clip and return the encoded MsgInfo bytes that go inside
  * a `commonElem { serviceType: 48, businessType: 22 }`.
  */
-export async function uploadPttMsgInfo(
+export async function uploadPtt(
     bridge: BridgeContext,
     isGroup: boolean,
     targetIdOrUid: string | number,
     element: MessageElement,
-): Promise<Uint8Array> {
+): Promise<{ msgInfo: Uint8Array; compatQMsg?: Uint8Array }> {
     const log = loggerFor(bridge);
     const tempDir = defaultPttTempDir();
     const ptt = await loadPtt(element, tempDir);
@@ -313,7 +313,7 @@ export async function uploadPttMsgInfo(
             fileId: mediaNode?.fileUuid,
             mediaNode,
         });
-        return encoded;
+        return { msgInfo: encoded, compatQMsg: upload.compatQMsg };
     } finally {
         for (const fn of ptt.cleanups) {
             try {
@@ -323,4 +323,13 @@ export async function uploadPttMsgInfo(
             }
         }
     }
+}
+
+export async function uploadPttMsgInfo(
+    bridge: BridgeContext,
+    isGroup: boolean,
+    targetIdOrUid: string | number,
+    element: MessageElement,
+): Promise<Uint8Array> {
+    return (await uploadPtt(bridge, isGroup, targetIdOrUid, element)).msgInfo;
 }

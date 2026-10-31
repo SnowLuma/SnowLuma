@@ -1,3 +1,4 @@
+import type { SendRichText } from '@snowluma/proto-defs/action';
 // Regression test for the c2c-vs-group businessType asymmetry that made
 // private-chat video / record sends bounce with `send private message
 // rejected: result=79`. The receive-side decoder
@@ -22,15 +23,16 @@ vi.mock('@snowluma/protocol/highway/image-upload', () => ({
     uploadImageMsgInfo: vi.fn(async () => new Uint8Array([7, 8, 9])),
 }));
 vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
-    uploadPttMsgInfo: vi.fn(async () => new Uint8Array([4, 5, 6])),
+    uploadPtt: vi.fn(async () => ({ msgInfo: new Uint8Array([4, 5, 6]) })),
 }));
 vi.mock('@snowluma/protocol/highway/video-upload', () => ({
     uploadVideoMsgInfo: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
-import { protobuf_encode } from '@snowluma/proton';
+import { type bytes, type pb, protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { MsgInfo } from '@snowluma/proto-defs/element';
-import { buildSendElems } from '@snowluma/protocol/element-builder';
+import { buildSendElems, encodePrivateRichText } from '@snowluma/protocol/element-builder';
+import { uploadPtt } from '@snowluma/protocol/highway/ptt-upload';
 import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
 import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
 import { uploadVideoMsgInfo } from '@snowluma/protocol/highway/video-upload';
@@ -567,5 +569,35 @@ describe('element-builder / forward preview', () => {
         await expect(
             buildSendElems([{ type: 'forward' } as any], { bridge: fakeBridge, groupId: 12345 }),
         ).rejects.toBeInstanceOf(MessageElementValidationError);
+    });
+});
+
+describe('private voice compatibility', () => {
+    const context = { bridge: fakeBridge, userUid: 'u_peer', scene: 'direct-private' } as const;
+    const record = { type: 'record', url: 'voice.amr' } as const;
+    const modern = Uint8Array.of(4, 5, 6);
+
+    it('keeps all modern clips when one legacy voice slot cannot represent the message', async () => {
+        const compat = protobuf_encode<{ ptt?: pb<4, bytes> }>({ ptt: Uint8Array.of(8, 4) });
+        vi.mocked(uploadPtt)
+            .mockResolvedValueOnce({ msgInfo: modern, compatQMsg: compat })
+            .mockResolvedValueOnce({ msgInfo: modern, compatQMsg: compat });
+        const rich = await encodePrivateRichText([record, record], context);
+        expect(protobuf_decode<{ ptt?: pb<4, bytes> }>(rich).ptt).toBeNull();
+        expect(protobuf_decode<SendRichText>(rich).elems).toHaveLength(2);
+    });
+
+    it('sends modern voice when no compatibility data is available and rejects malformed data', async () => {
+        vi.mocked(uploadPtt).mockResolvedValueOnce({ msgInfo: modern });
+        expect(
+            protobuf_decode<SendRichText>(await encodePrivateRichText([record], context)).elems,
+        ).toHaveLength(1);
+        vi.mocked(uploadPtt).mockResolvedValueOnce({
+            msgInfo: modern,
+            compatQMsg: Uint8Array.of(0x12, 0),
+        });
+        await expect(encodePrivateRichText([record], context)).rejects.toThrow(
+            'incomplete playback information',
+        );
     });
 });

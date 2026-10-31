@@ -8,7 +8,7 @@ import type {
     SsoReadedReportReq,
     SsoReadedReportResp,
 } from '@snowluma/proto-defs/oidb-actions/base';
-import { buildSendElems } from '@snowluma/protocol/element-builder';
+import { buildSendElems, encodePrivateRichText } from '@snowluma/protocol/element-builder';
 import { assertWindowShakeSendPolicy } from '@snowluma/protocol/element-manifest';
 import { FinalizeOfflineFile } from '@snowluma/protocol/oidb-services/group-file/finalize-offline-file';
 import { datalineTextFromElements, encodeDatalineText } from '@snowluma/protocol/dataline/codec';
@@ -22,7 +22,7 @@ import {
     fetchC2cRoamMessagePage,
     fetchGroupMessageRange,
 } from '@snowluma/protocol/msg-push';
-import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { type bytes, protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import { createLogger } from '@snowluma/common/logger';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { BridgeContext } from '../bridge-context';
@@ -548,15 +548,15 @@ export class MessageApi {
             userUid = await this.ctx.resolveUserUid(userUin);
         }
 
-        const protoElems = await buildSendElems(elements, {
-            bridge: this.ctx as unknown as Bridge,
+        const richText = await encodePrivateRichText(elements, {
+            bridge: this.ctx,
             userUid,
             scene: 'direct-private',
         });
         const random = this.ctx.nextMessageRandom();
         const clientSeq = this.ctx.nextClientSequence();
 
-        const request = protobuf_encode<SendMessageRequest>({
+        const request = protobuf_encode<SendMessageRequest<bytes>>({
             routingHead: {
                 c2c: {
                     uin: userUin,
@@ -568,11 +568,7 @@ export class MessageApi {
                 subType: 0,
                 c2cCmd: 11,
             },
-            messageBody: {
-                richText: {
-                    elems: protoElems,
-                },
-            },
+            messageBody: { richText },
             clientSequence: clientSeq,
             random,
             syncCookie: new Uint8Array(0),

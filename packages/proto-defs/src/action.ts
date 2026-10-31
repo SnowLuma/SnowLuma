@@ -47,24 +47,24 @@ export interface MessageControl {
     msgFlag?: pb<1, int_32>;
 }
 
-// RichText (for send — only elems)
+// RichText for outgoing message elements.
 export interface SendRichText {
     elems?: pb_repeated<2, Elem>;
 }
 
 // MessageBody (for send)
-export interface SendMessageBody {
-    richText?: pb<1, SendRichText>;
+export interface SendMessageBody<TRichText = SendRichText> {
+    richText?: pb<1, TRichText>;
     // C2C 离线文件元数据（NotOnlineFile）必须序列化后塞入此字段
     // 服务器不会读取 richText.notOnlineFile。
     msgContent?: pb<2, bytes>;
 }
 
 // SendMessageRequest
-export interface SendMessageRequest {
+export interface SendMessageRequest<TRichText = SendRichText> {
     routingHead?: pb<1, RoutingHead>;
     contentHead?: pb<2, SendContentHead>;
-    messageBody?: pb<3, SendMessageBody>;
+    messageBody?: pb<3, SendMessageBody<TRichText>>;
     clientSequence?: pb<4, uint_32>;
     random?: pb<5, uint_32>;
     syncCookie?: pb<6, bytes>;

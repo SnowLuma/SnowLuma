@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
 import type { DatalineMsgBody, DatalineTextMsg } from '@snowluma/proto-defs/dataline';
-import type { SendMessageRequest, SendMessageResponse } from '@snowluma/proto-defs/action';
+import type {
+    SendMessageRequest,
+    SendMessageResponse,
+    SendRichText,
+} from '@snowluma/proto-defs/action';
 import type { FileExtra } from '@snowluma/proto-defs/message';
 import { DATALINE_UIN_PHONE } from '@snowluma/protocol/dataline/device-contacts';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
@@ -10,6 +14,9 @@ import type { OidbOfflineFileFinalizeResp } from '@snowluma/proto-defs/oidb-acti
 
 vi.mock('@snowluma/protocol/element-builder', () => ({
     buildSendElems: vi.fn(async () => [{ text: { str: 'stub media elem' } }]),
+    encodePrivateRichText: vi.fn(async () =>
+        protobuf_encode<SendRichText>({ elems: [{ text: { str: 'stub media elem' } }] }),
+    ),
 }));
 
 // Imported statically (not via `await import` inside each `it`) so the heavy

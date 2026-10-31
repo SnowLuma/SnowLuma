@@ -6,7 +6,7 @@ import { ForwardApi } from '../../src/bridge/apis/forward';
 import { mockBridge } from './_helpers';
 
 vi.mock('@snowluma/protocol/highway/image-upload', () => ({ uploadImageMsgInfo: vi.fn() }));
-vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({ uploadPttMsgInfo: vi.fn() }));
+vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({ uploadPtt: vi.fn() }));
 vi.mock('@snowluma/protocol/highway/video-upload', () => ({ uploadVideoMsgInfo: vi.fn() }));
 
 describe('forward metadata through upload and cached reads', () => {

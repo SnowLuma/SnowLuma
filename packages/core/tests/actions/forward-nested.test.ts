@@ -33,7 +33,7 @@ vi.mock('@snowluma/protocol/highway/image-upload', () => ({
     uploadImageMsgInfo: vi.fn(async () => new Uint8Array()),
 }));
 vi.mock('@snowluma/protocol/highway/ptt-upload', () => ({
-    uploadPttMsgInfo: vi.fn(async () => new Uint8Array()),
+    uploadPtt: vi.fn(async () => ({ msgInfo: new Uint8Array() })),
 }));
 vi.mock('@snowluma/protocol/highway/video-upload', () => ({
     uploadVideoMsgInfo: vi.fn(async () => new Uint8Array()),
