@@ -193,10 +193,20 @@ describe('IncomingPacketPipeline / group requests', () => {
         ]);
     });
 
-    it('leaves self invitations to the card without querying or waiting', async () => {
+    it('dispatches a self invitation without querying the inbox', async () => {
+        // A self-invite never shows up in the UIN-based inbox, so the lookup is
+        // skipped and the decoder-provided legacy flag is what keeps it actionable.
         const { pipeline, captured, resolveGroupJoinRequest, fetchProfileByUid } = makePipeline();
-        await receive(pipeline, requestEvent({ subType: 'invite', invitedUin: 10001 }));
-        expect(captured).toEqual([]);
+        await receive(
+            pipeline,
+            requestEvent({ subType: 'invite', invitedUin: 10001, flag: 'invite:12345:u_requester' }),
+        );
+        expect(captured).toHaveLength(1);
+        expect(captured[0]).toMatchObject({
+            kind: 'group_invite',
+            invitedUin: 10001,
+            flag: 'invite:12345:u_requester',
+        });
         expect(resolveGroupJoinRequest).not.toHaveBeenCalled();
         expect(fetchProfileByUid).not.toHaveBeenCalled();
     });
