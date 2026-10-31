@@ -46,6 +46,32 @@ export class PipeWatcher extends EventEmitter {
         return this.livePipes.has(pid);
     }
 
+    /**
+     * Wait until the hook pipe for `pid` is observed live, re-scanning on each round.
+     *
+     * Needed because a successful `loadModuleManualAsync` only proves the manual-map
+     * thread was created — the payload inside the target may still fail to initialise,
+     * in which case the control pipe is never created and the session would sit at
+     * "connecting" forever (see issue #578). Callers use this to turn that silent
+     * failure into a real error.
+     *
+     * Returns `true` as soon as the pipe shows up, `false` if `timeoutMs` elapses first.
+     */
+    async waitForPipe(pid: number, timeoutMs = 8000, intervalMs = 400): Promise<boolean> {
+        const deadline = Date.now() + Math.max(0, timeoutMs);
+        // First check is free: if a previous SnowLuma run left the pipe resident the
+        // answer is already known and no scan is needed.
+        if (this.isPipeLive(pid)) return true;
+        do {
+            await this.tickNow().catch(() => undefined);
+            if (this.isPipeLive(pid)) return true;
+            const left = deadline - Date.now();
+            if (left <= 0) break;
+            await new Promise<void>((resolve) => setTimeout(resolve, Math.min(intervalMs, left)));
+        } while (Date.now() < deadline);
+        return this.isPipeLive(pid);
+    }
+
     isProcessAlive(pid: number): boolean {
         return this.knownPids.has(pid);
     }

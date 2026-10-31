@@ -474,3 +474,61 @@ describe('PipeWatcher', () => {
         watcher.stop();
     });
 });
+
+// ── waitForPipe (issue #578) ──
+const PID = 4321;
+
+/** Build a watcher whose pipe becomes live only after `liveAfterScans` positive scans. */
+function makeWatcher(liveAfterScans: number): PipeWatcher {
+    let scans = 0;
+    const deps: PipeWatcherDeps = {
+        listProcesses: async () => [{ pid: PID }] as never,
+        listLivePipes: async () => {
+            scans += 1;
+            return scans >= liveAfterScans ? new Set([PID]) : new Set<number>();
+        },
+        intervalMs: 50,
+    };
+    return new PipeWatcher(deps);
+}
+
+describe('PipeWatcher.waitForPipe', () => {
+    it('returns true immediately when the pipe is already live', async () => {
+        const watcher = makeWatcher(1);
+        await watcher.tickNow();
+        expect(watcher.isPipeLive(PID)).toBe(true);
+        await expect(watcher.waitForPipe(PID, 1000, 50)).resolves.toBe(true);
+    });
+
+    it('returns true once the pipe shows up within the timeout', async () => {
+        const watcher = makeWatcher(3);
+        await expect(watcher.waitForPipe(PID, 2000, 50)).resolves.toBe(true);
+    });
+
+    it('returns false when the pipe never appears before the timeout', async () => {
+        const watcher = makeWatcher(Number.MAX_SAFE_INTEGER);
+        const started = Date.now();
+        await expect(watcher.waitForPipe(PID, 300, 50)).resolves.toBe(false);
+        // Must actually wait roughly the timeout instead of bailing out on the first miss.
+        expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    });
+
+    it('does not throw when a scan fails, and keeps polling', async () => {
+        let scans = 0;
+        const watcher = new PipeWatcher({
+            listProcesses: async () => {
+                scans += 1;
+                if (scans === 1) throw new Error('enumeration failed');
+                return [{ pid: PID }] as never;
+            },
+            listLivePipes: async () => new Set([PID]),
+            intervalMs: 50,
+        });
+        await expect(watcher.waitForPipe(PID, 1500, 50)).resolves.toBe(true);
+    });
+
+    it('handles a zero timeout without hanging', async () => {
+        const watcher = makeWatcher(Number.MAX_SAFE_INTEGER);
+        await expect(watcher.waitForPipe(PID, 0, 50)).resolves.toBe(false);
+    });
+});
