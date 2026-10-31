@@ -148,17 +148,22 @@ describe('FetchUserProfile namespace', () => {
             },
         );
 
-        it('omits only the birth year when the year is hidden', async () => {
+        it.each([
+            [12, 31],
+            [2, 29],
+        ])('keeps a hidden-year birthday %i/%i', async (month, day) => {
             const sender = makeSender({
                 body: {
                     uin: 10001,
                     properties: {
-                        bytesProperties: [{ code: 20031, value: new Uint8Array([0, 0, 12, 31]) }],
+                        bytesProperties: [
+                            { code: 20031, value: new Uint8Array([0, 0, month, day]) },
+                        ],
                     },
                 },
             });
             const profile = await FetchUserProfile.invoke(sender, { uin: 10001 });
-            expect(profile).toMatchObject({ birthdayMonth: 12, birthdayDay: 31 });
+            expect(profile).toMatchObject({ birthdayMonth: month, birthdayDay: day });
             expect(profile).not.toHaveProperty('birthdayYear');
         });
 
@@ -167,7 +172,10 @@ describe('FetchUserProfile namespace', () => {
             ['an all-zero value', [0, 0, 0, 0]],
             ['an out-of-range month', [0x07, 0xd0, 13, 1]],
             ['an out-of-range day', [0x07, 0xd0, 1, 32]],
+            ['April 31', [0x07, 0xd0, 4, 31]],
+            ['a leap day in 1900', [0x07, 0x6c, 2, 29]],
             ['a truncated value', [0x07, 0xd0, 3]],
+            ['an oversized value', [0x07, 0xd0, 3, 15, 0]],
         ])('leaves the birthday unavailable for %s', async (_case, value) => {
             const sender = makeSender({
                 body: {

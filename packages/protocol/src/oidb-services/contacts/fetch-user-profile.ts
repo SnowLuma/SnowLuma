@@ -94,7 +94,7 @@ export function applyProfileDetails(info: UserProfileInfo, numMap: Map<number, n
 export function applyBirthday(info: UserProfileInfo, bytesMap: Map<number, Uint8Array>): void {
     const raw = bytesMap.get(20031);
 
-    if (!raw || raw.length < 4) {
+    if (raw?.length !== 4) {
         return;
     }
 
@@ -103,7 +103,11 @@ export function applyBirthday(info: UserProfileInfo, bytesMap: Map<number, Uint8
     const month = bytes.readUInt8(2);
     const day = bytes.readUInt8(3);
 
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
+    // A hidden year can still represent February 29.
+    const date = new Date(0);
+    date.setUTCFullYear(year || 2000, month - 1, day);
+
+    if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
         return;
     }
 
