@@ -14,6 +14,7 @@
 //   105   — QQ level (numeric)
 //   20002 — nickname
 //   20009 — gender (1 male / 2 female / 255 unknown)
+//   20031 — birthday (4 bytes: uint16 BE year, month, day)
 //   20037 — age
 //   27394 — QID
 
@@ -83,6 +84,35 @@ export function applyProfileDetails(info: UserProfileInfo, numMap: Map<number, n
             info.vipLevel = 0;
         }
     }
+}
+
+/**
+ * 生日（bytes-property 20031）：年 uint16 大端 + 月 + 日，与 Lagrange.Core
+ * `FetchStrangerService.cs` 的解析一致。月或日为 0 表示未设置生日；
+ * 年份为 0 表示未公开出生年份，此时只省略年份。
+ */
+export function applyBirthday(info: UserProfileInfo, bytesMap: Map<number, Uint8Array>): void {
+    const raw = bytesMap.get(20031);
+
+    if (!raw || raw.length < 4) {
+        return;
+    }
+
+    const bytes = Buffer.from(raw);
+    const year = bytes.readUInt16BE(0);
+    const month = bytes.readUInt8(2);
+    const day = bytes.readUInt8(3);
+
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+        return;
+    }
+
+    if (year > 0) {
+        info.birthdayYear = year;
+    }
+
+    info.birthdayMonth = month;
+    info.birthdayDay = day;
 }
 
 const REQUESTED_KEYS = [
@@ -174,6 +204,7 @@ export namespace FetchUserProfile {
             info.level = numMap.get(105) ?? 0;
             applyOnlineStatus(info, bytesMap, numMap);
             applyProfileDetails(info, numMap);
+            applyBirthday(info, bytesMap);
             // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
             info.qidianMasterFlag = numMap.get(42031) ?? 0;
             info.qidianCrewFlag = numMap.get(40410) ?? 0;

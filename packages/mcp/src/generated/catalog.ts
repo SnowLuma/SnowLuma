@@ -12618,7 +12618,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_stranger_info",
     "aliases": [],
     "summary": "获取陌生人信息",
-    "returns": "用户资料，含账号标识、等级别名和可用的注册时间、会员信息。注册时间或会员信息未返回时省略对应字段；登录天数暂无可靠来源，不返回占位值。",
+    "returns": "用户资料，含账号标识、等级别名和可用的注册时间、生日、会员信息。注册时间、生日或会员信息未返回时省略对应字段，出生年份未公开时只省略年份；登录天数暂无可靠来源，不返回占位值。",
     "returnsSchema": {
       "type": "object",
       "properties": {
@@ -12665,6 +12665,18 @@ export const ACTIONS: CatalogAction[] = [
         "reg_time": {
           "type": "integer",
           "description": "注册时间戳（秒），不可用时省略"
+        },
+        "birthday_year": {
+          "type": "integer",
+          "description": "生日年份，兼容 NapCat；未公开或不可用时省略"
+        },
+        "birthday_month": {
+          "type": "integer",
+          "description": "生日月份（1-12），兼容 NapCat；不可用时省略"
+        },
+        "birthday_day": {
+          "type": "integer",
+          "description": "生日日期（1-31），兼容 NapCat；不可用时省略"
         },
         "is_vip": {
           "type": "boolean",

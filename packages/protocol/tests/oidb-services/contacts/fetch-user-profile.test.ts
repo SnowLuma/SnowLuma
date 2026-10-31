@@ -108,7 +108,78 @@ describe('FetchUserProfile namespace', () => {
                 uin: 10001,
             });
 
-            for (const name of ['regTime', 'vipFlag', 'yearVipFlag', 'svipFlag', 'vipLevel']) {
+            for (const name of [
+                'regTime',
+                'vipFlag',
+                'yearVipFlag',
+                'svipFlag',
+                'vipLevel',
+                'birthdayYear',
+                'birthdayMonth',
+                'birthdayDay',
+            ]) {
+                expect(profile).not.toHaveProperty(name);
+            }
+        });
+
+        it.each(['uin', 'uid'])(
+            'decodes the birthday bytes-property through the %s request',
+            async (form) => {
+                const sender = makeSender({
+                    body: {
+                        uin: 10001,
+                        uid: 'u_test',
+                        properties: {
+                            bytesProperties: [
+                                { code: 20031, value: new Uint8Array([0x07, 0xd0, 3, 15]) },
+                            ],
+                        },
+                    },
+                });
+                const profile =
+                    form === 'uin'
+                        ? await FetchUserProfile.invoke(sender, { uin: 10001 })
+                        : await FetchUserProfileByUid.invoke(sender, { uid: 'u_test' });
+                expect(profile).toMatchObject({
+                    birthdayYear: 2000,
+                    birthdayMonth: 3,
+                    birthdayDay: 15,
+                });
+            },
+        );
+
+        it('omits only the birth year when the year is hidden', async () => {
+            const sender = makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [{ code: 20031, value: new Uint8Array([0, 0, 12, 31]) }],
+                    },
+                },
+            });
+            const profile = await FetchUserProfile.invoke(sender, { uin: 10001 });
+            expect(profile).toMatchObject({ birthdayMonth: 12, birthdayDay: 31 });
+            expect(profile).not.toHaveProperty('birthdayYear');
+        });
+
+        it.each([
+            ['an unset birthday', [0x07, 0xd0, 0, 0]],
+            ['an all-zero value', [0, 0, 0, 0]],
+            ['an out-of-range month', [0x07, 0xd0, 13, 1]],
+            ['an out-of-range day', [0x07, 0xd0, 1, 32]],
+            ['a truncated value', [0x07, 0xd0, 3]],
+        ])('leaves the birthday unavailable for %s', async (_case, value) => {
+            const sender = makeSender({
+                body: {
+                    uin: 10001,
+                    properties: {
+                        bytesProperties: [{ code: 20031, value: new Uint8Array(value) }],
+                    },
+                },
+            });
+            const profile = await FetchUserProfile.invoke(sender, { uin: 10001 });
+
+            for (const name of ['birthdayYear', 'birthdayMonth', 'birthdayDay']) {
                 expect(profile).not.toHaveProperty(name);
             }
         });
@@ -133,6 +204,7 @@ describe('FetchUserProfile namespace', () => {
             expect(keys).toContain(101); // avatar
             expect(keys).toContain(102); // sign
             expect(keys).toContain(103); // remark
+            expect(keys).toContain(20031); // birthday
             expect(keys).toContain(40410); // qidian crew flag (企点员工标志)
             expect(keys).toContain(42031); // qidian master flag (企点主号标志)
         });
