@@ -218,6 +218,15 @@ describe('QqHookClient client message receipts', () => {
             await client.startRecv(onPacket);
             const socket = sockets.mock.results[0]!.value;
             socket.emit('data', pipeFrame({ op: PipeOp.clientMessageState, status: -1 }));
+            socket.emit(
+                'data',
+                pipeFrame({ op: PipeOp.clientMessageState, status: -1, value0: 42n }),
+            );
+            const warning = 'Client private-message reporting is unavailable: PID=12345 status=-1';
+            expect(entries.map((entry) => entry.message)).toEqual([
+                warning,
+                `${warning} reason=42`,
+            ]);
 
             for (const patch of [
                 { value0: 0n },
@@ -242,7 +251,7 @@ describe('QqHookClient client message receipts', () => {
                 entries.filter(
                     (entry) => entry.scope === 'QQHook.Runtime' && entry.level === 'warn',
                 ),
-            ).toHaveLength(6);
+            ).toHaveLength(7);
             socket.emit(
                 'data',
                 pipeFrame({ op: PipeOp.recvPacket, cmd: 'normal', message: '10001', value0: 44n }),

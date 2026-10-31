@@ -1378,9 +1378,10 @@ export class QqHookClient extends EventEmitter {
                 runtimeLog.debug('Client private-message reporting is available: PID=%d', this.pid);
             } else {
                 runtimeLog.warn(
-                    'Client private-message reporting is unavailable: PID=%d status=%d',
+                    'Client private-message reporting is unavailable: PID=%d status=%d%s',
                     this.pid,
                     frame.status,
+                    frame.value0 === 0n ? '' : ` reason=${frame.value0}`,
                 );
             }
 
