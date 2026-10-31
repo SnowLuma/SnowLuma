@@ -116,6 +116,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     readonly role: WsRole;
 
     private readonly protocols?: string | string[];
+    private readonly headers?: Record<string, string>;
     private readonly WebSocketCtor: WebSocketConstructor;
     private readonly reconnect: ReconnectOptions | null;
     private readonly emitter = new Emitter<SnowLumaWebSocketEvents>();
@@ -134,6 +135,9 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
         this.role = options.role ?? 'Universal';
         this.protocols = options.protocols;
+        this.headers = options.headers;
+        // SAFETY: the platform WebSocket constructor has the injected constructor's
+        // runtime shape; the SDK's narrow interface only omits browser-specific members.
         this.WebSocketCtor =
             options.webSocket ?? (globalThis.WebSocket as unknown as WebSocketConstructor);
         this.reconnect = normalizeReconnect(options.reconnect);
@@ -403,7 +407,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         });
     }
 
-    /** Connects to SnowLuma's OneBot WebSocket endpoint. */
+    /** Connects to the configured OneBot WebSocket endpoint. */
     async connect(): Promise<void> {
         if (this.connection) {
             return this.connection.opened;
@@ -413,6 +417,7 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         const socket = new this.WebSocketCtor(
             appendAccessToken(this.url, this.accessToken),
             this.protocols,
+            this.headers ? { headers: this.headers } : undefined,
         );
         let resolveOpening!: () => void;
         let rejectOpening!: (error: Error) => void;
@@ -836,8 +841,25 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
     }
 }
 
+/**
+ * Reverse WebSocket client for OneBot-compatible frameworks.
+ *
+ * In OneBot terminology a reverse WebSocket is the mode where SnowLuma
+ * connects to the framework's WebSocket endpoint. This is intentionally the
+ * same transport implementation as SnowLumaWebSocketClient; the named export
+ * makes the connection direction explicit at call sites.
+ */
+export class SnowLumaReverseWebSocketClient extends SnowLumaWebSocketClient {}
+
 export function createWebSocketClient(
     options?: SnowLumaWebSocketClientOptions,
 ): SnowLumaWebSocketClient {
     return new SnowLumaWebSocketClient(options);
+}
+
+/** Creates a client that connects out to a reverse WebSocket endpoint. */
+export function createReverseWebSocketClient(
+    options?: SnowLumaWebSocketClientOptions,
+): SnowLumaReverseWebSocketClient {
+    return new SnowLumaReverseWebSocketClient(options);
 }

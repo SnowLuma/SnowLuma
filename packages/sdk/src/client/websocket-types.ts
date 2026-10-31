@@ -14,6 +14,7 @@ export interface WebSocketLike {
 export type WebSocketConstructor = new (
     url: string,
     protocols?: string | string[],
+    options?: { headers?: Record<string, string> },
 ) => WebSocketLike;
 
 /** Reconnect policy for the WebSocket client. */
@@ -28,12 +29,14 @@ export interface ReconnectOptions {
 
 /** Options for the WebSocket transport client. */
 export interface SnowLumaWebSocketClientOptions extends SnowLumaClientOptions {
-    /** OneBot WebSocket endpoint. Defaults to ws://127.0.0.1:3001/. */
+    /** WebSocket endpoint. Defaults to ws://127.0.0.1:3001/. */
     url?: string;
     /** OneBot WebSocket role advertised by the client. */
     role?: WsRole;
     /** Optional WebSocket protocols argument. */
     protocols?: string | string[];
+    /** Additional handshake headers, supported by Node WebSocket implementations. */
+    headers?: Record<string, string>;
     /** Custom WebSocket constructor for Node runtimes or tests. */
     webSocket?: WebSocketConstructor;
     /** Enables or configures automatic reconnect after unexpected close. */
