@@ -192,7 +192,11 @@ export interface OidbSetAdmin {
 //   dev/napcatQQInside/…/proto/oidb/Oidb.0x8FC_2.ts    (body=3, targetName=8)
 export interface OidbRenameMemberBody {
     targetUid?: pb<1, string>;
-    targetName?: pb<8, string>;
+    // pb_optional (explicit presence): an empty string is how OneBot's
+    // `set_group_card` clears a card (packages/onebot/src/actions/group-admin.ts).
+    // With implicit presence the encoder drops the empty value, the server sees
+    // no targetName and rejects the packet with `OIDB error 1007 on 0x8FC_3`.
+    targetName?: pb_optional<8, string>;
 }
 export interface OidbRenameMember {
     groupUin?: pb<1, uint_32>;

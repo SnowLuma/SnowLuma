@@ -38,4 +38,15 @@ describe('SetMemberCard namespace', () => {
             body: { targetUid: 'resolved-uid', targetName: 'newCard' },
         });
     });
+
+    it('keeps an empty card on the wire (OneBot clears a card with "")', async () => {
+        const deps = makeDeps();
+        await SetMemberCard.invoke(deps, { groupId: 12345, userId: 67890, card: '' });
+        const [, bytes] = deps.sendRawPacket.mock.calls[0] as unknown as [string, Uint8Array];
+        const env = protobuf_decode<OidbBase<OidbRenameMember>>(bytes);
+        // targetName has explicit presence: '' must survive encoding. If the
+        // field were omitted the server answers `OIDB error 1007`, and an
+        // absent field decodes to undefined here.
+        expect(env.body?.body?.targetName).toBe('');
+    });
 });
