@@ -30,6 +30,7 @@ class FakeClient extends EventEmitter {
     isClosed = false;
     isLoggedIn = false;
     shouldFailConnect = false;
+    runtimeErrorOnConnect = false;
     nativeReadyOnIdentityHint = false;
     identityHintFailures = 0;
     sendError: Error | null = null;
@@ -38,6 +39,10 @@ class FakeClient extends EventEmitter {
     private loginState = { loggedIn: false, uin: '0', uinNumber: 0n };
 
     async connectAll(_opts: { recv: boolean }): Promise<void> {
+        if (this.runtimeErrorOnConnect) {
+            this.emit('runtimeError', new Error('QQ service unavailable'));
+        }
+
         if (this.shouldFailConnect) {
             throw new Error('connect failed');
         }
@@ -102,6 +107,7 @@ function makeSession(
         pid?: number;
         pipeLive?: boolean;
         clientFailsConnect?: boolean;
+        runtimeErrorOnConnect?: boolean;
         onPacket?: PacketSink;
         detectLoginUin?: (pid: number) => Promise<string | null>;
         nativeReadyOnIdentityHint?: boolean;
@@ -123,6 +129,7 @@ function makeSession(
         injector,
         makeClient: () => {
             const c = new FakeClient();
+            c.runtimeErrorOnConnect = opts.runtimeErrorOnConnect ?? false;
 
             if (opts.clientFailsConnect) {
                 c.shouldFailConnect = true;
@@ -151,6 +158,77 @@ function makeSession(
 }
 
 const flush = () => new Promise<void>((r) => setImmediate(r));
+
+describe('HookSession runtime failure', () => {
+    it('retains an initialization error instead of waiting for login', async () => {
+        const { session } = makeSession({ pipeLive: true, runtimeErrorOnConnect: true });
+        await session.load();
+        session.onPipeUp();
+        await flush();
+        expect(session.toInfo()).toMatchObject({
+            status: 'error',
+            error: 'QQ service unavailable',
+            connected: false,
+        });
+        session.dispose();
+    });
+
+    it('keeps a late runtime error visible across refresh and login snapshots', async () => {
+        const { session, currentClient, setPipeLive } = makeSession({ pipeLive: true });
+        const disconnect = vi.fn();
+        session.on('disconnected', disconnect);
+        await session.load();
+        session.onPipeUp();
+        await flush();
+        currentClient().fireLogin('10001');
+        currentClient().emit('runtimeError', new Error('QQ service unavailable'));
+        currentClient().emit('error', new Error('connection closed'));
+        expect(session.error).toBe('QQ service unavailable');
+        currentClient().fireLogin('10001');
+        await session.refresh();
+        expect(session.toInfo()).toMatchObject({
+            status: 'error',
+            error: 'QQ service unavailable',
+            loggedIn: false,
+        });
+        setPipeLive(false);
+        await session.refresh();
+        expect(disconnect).toHaveBeenCalledExactlyOnceWith(true);
+        setPipeLive(true);
+        await session.refresh();
+        currentClient().fireLogin('10001');
+        expect(session.toInfo()).toMatchObject({ status: 'online', loggedIn: true, error: '' });
+        session.dispose();
+    });
+
+    it('retains the failure when the pipe closes and discards an in-flight login lookup', async () => {
+        let resolveLogin!: (uin: string) => void;
+        const { session, currentClient, setPipeLive } = makeSession({
+            pipeLive: true,
+            detectLoginUin: () =>
+                new Promise((resolve) => {
+                    resolveLogin = resolve;
+                }),
+        });
+        await session.load();
+        session.onPipeUp();
+        await flush();
+        const client = currentClient();
+        client.emit('runtimeError', new Error('QQ service unavailable'));
+        resolveLogin('10001');
+        await flush();
+        expect(client.loginIdentityHints).toEqual([]);
+        setPipeLive(false);
+        await session.refresh();
+        expect(session.toInfo()).toMatchObject({
+            status: 'error',
+            error: 'QQ service unavailable',
+            loggedIn: false,
+            connected: false,
+        });
+        session.dispose();
+    });
+});
 
 describe('HookSession — runtime TRACE', () => {
     it('records injection and existing-pipe load branches with unique terminals', async () => {

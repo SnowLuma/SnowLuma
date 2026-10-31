@@ -88,6 +88,7 @@ export class HookSession extends EventEmitter {
 
     private _status: HookProcessStatus = 'available';
     private _error = '';
+    private runtimeFailure = '';
     private _uin = '0';
     private _method = '';
     private _name = '';
@@ -500,6 +501,11 @@ export class HookSession extends EventEmitter {
      * defaults to the current `loggedIn`; callers that just tore the client
      * down pass the value captured *before* teardown (teardown clears it). */
     private applyStatus(wasLoggedIn: boolean = this.loggedIn, error = ''): void {
+        if (this.runtimeFailure) {
+            this.setStatus('error', this.runtimeFailure);
+            return;
+        }
+
         this.setStatus(
             statusFor({
                 injected: this.injected,
@@ -559,7 +565,7 @@ export class HookSession extends EventEmitter {
                 this.pid,
                 renderParamsVerbose(this.toInfo()),
             ]);
-            this.tearDownClient();
+            this.tearDownClient(true);
             this.applyStatus(wasLoggedIn);
 
             try {
@@ -607,6 +613,7 @@ export class HookSession extends EventEmitter {
             }
 
             if (!this.client) {
+                this.runtimeFailure = '';
                 this.client = this.makeClient(this.pid);
                 this.sender = new HookPacketClient(this.client, (healthy) =>
                     this.setOutboundHealthy(healthy),
@@ -623,6 +630,11 @@ export class HookSession extends EventEmitter {
 
             try {
                 await client.connectAll({ recv: true });
+
+                if (this.runtimeFailure) {
+                    throw new Error(this.runtimeFailure);
+                }
+
                 this.connected = true;
                 const loginState = client.getLoginState();
 
@@ -650,7 +662,7 @@ export class HookSession extends EventEmitter {
                 this._error = errorMessage(error);
                 // Drop the client so the next attempt builds a fresh socket pair.
                 // A failed connect was never logged in → 'connecting' (or 'available').
-                this.tearDownClient();
+                this.tearDownClient(true);
                 this.applyStatus(false, this._error);
                 this.log.trace(() => [
                     'hook_session_connect_terminal pid=%d outcome=failed reason=connect_failed error=%j state=%s elapsedMs=%d',
@@ -664,11 +676,28 @@ export class HookSession extends EventEmitter {
     }
 
     private bindClient(client: QqHookClient): void {
+        client.on('runtimeError', (error) => {
+            if (this.client !== client || this.disposed) {
+                return;
+            }
+
+            const wasLoggedIn = this.loggedIn;
+            this.runtimeFailure = errorMessage(error);
+            this.loggedIn = false;
+            this.stopLoginReconcile();
+            this.resetReceiveWatch();
+            this.applyStatus(wasLoggedIn);
+            this.log.error('QQ runtime unavailable: PID=%d err=%s', this.pid, this.runtimeFailure);
+
+            if (wasLoggedIn) {
+                this.emit('disconnected', true);
+            }
+        });
         client.on('packet', (packet) => this.handlePacket(packet));
         client.on('loginState', (state) => this.handleLoginState(state));
         client.on('error', (error) => {
             const msg = errorMessage(error);
-            this._error = msg;
+            this._error = this.runtimeFailure || msg;
             this.log.warn('pipe error: PID=%d err=%s', this.pid, msg);
         });
         client.on('close', () => {
@@ -698,7 +727,7 @@ export class HookSession extends EventEmitter {
         });
     }
 
-    private tearDownClient(): void {
+    private tearDownClient(preserveRuntimeFailure = false): void {
         this.stopLoginReconcile();
         this.resetReceiveWatch();
         const client = this.client;
@@ -714,6 +743,11 @@ export class HookSession extends EventEmitter {
         }
 
         this.client = null;
+
+        if (!preserveRuntimeFailure) {
+            this.runtimeFailure = '';
+        }
+
         this.sender = null;
         this.bound = false;
         this.connected = false;
@@ -723,6 +757,10 @@ export class HookSession extends EventEmitter {
     }
 
     private handleLoginState(state: QqHookLoginState): void {
+        if (this.runtimeFailure) {
+            return;
+        }
+
         const wasLoggedIn = this.loggedIn;
         const previousUin = this._uin;
         this._uin = state.uin || state.uinNumber.toString();
@@ -800,7 +838,7 @@ export class HookSession extends EventEmitter {
     // reconciliation, but never synthesize online state from the detection.
 
     private startLoginReconcile(): void {
-        if (this.loginReconcileTimer || this.disposed) {
+        if (this.loginReconcileTimer || this.disposed || this.runtimeFailure) {
             return;
         }
 
@@ -829,7 +867,7 @@ export class HookSession extends EventEmitter {
 
         const client = this.client;
 
-        if (this.disposed || !client || !this.connected || this.loggedIn) {
+        if (this.disposed || !client || !this.connected || this.loggedIn || this.runtimeFailure) {
             this.stopLoginReconcile();
             return;
         }
@@ -861,7 +899,13 @@ export class HookSession extends EventEmitter {
             }
 
             // A reconnect owns a new client; an older read cannot supply its identity.
-            if (this.client !== client || this.disposed || !this.connected || this.loggedIn) {
+            if (
+                this.client !== client ||
+                this.disposed ||
+                !this.connected ||
+                this.loggedIn ||
+                this.runtimeFailure
+            ) {
                 return;
             }
 
@@ -902,7 +946,8 @@ export class HookSession extends EventEmitter {
                         this.client !== client ||
                         this.disposed ||
                         !this.connected ||
-                        this.loggedIn
+                        this.loggedIn ||
+                        this.runtimeFailure
                     ) {
                         return;
                     }
@@ -911,7 +956,7 @@ export class HookSession extends EventEmitter {
                     this.nextLoginIdentityObservationAt =
                         Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
                 } catch (error) {
-                    if (this.client !== client || this.disposed) {
+                    if (this.client !== client || this.disposed || this.runtimeFailure) {
                         return;
                     }
 

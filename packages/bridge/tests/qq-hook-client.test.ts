@@ -85,6 +85,7 @@ function readSendFrame(payload: Buffer): {
 function mockControlPipe(
     pid: number,
     onWrite: (socket: net.Socket, payload: Buffer) => void,
+    ...startupFrames: Buffer[]
 ): ReturnType<typeof vi.spyOn> {
     return vi.spyOn(net, 'createConnection').mockImplementation((() => {
         const socket = new Duplex({
@@ -101,10 +102,13 @@ function mockControlPipe(
             queueMicrotask(() =>
                 socket.emit(
                     'data',
-                    pipeFrame({
-                        op: PipeOp.hello,
-                        value0: BigInt(pid),
-                    }),
+                    Buffer.concat([
+                        pipeFrame({
+                            op: PipeOp.hello,
+                            value0: BigInt(pid),
+                        }),
+                        ...startupFrames,
+                    ]),
                 ),
             );
         });
@@ -117,6 +121,77 @@ function traceMessages(entries: LogEntry[]): string[] {
         .filter((entry) => entry.level === 'trace' && entry.scope === 'QQHook.Packet')
         .map((entry) => entry.message);
 }
+
+describe('runtime initialization failures', () => {
+    const failureFrame = pipeFrame({
+        op: PipeOp.error,
+        cmd: 'runtime',
+        status: -1,
+        message: 'QQ service unavailable',
+    });
+
+    it('rejects startup when a runtime failure follows hello in the same read', async () => {
+        const connection = mockControlPipe(778901, () => {}, failureFrame);
+        const client = new QqHookClient(778901);
+        const failure = vi.fn();
+        client.on('runtimeError', failure);
+
+        try {
+            await expect(client.connect()).rejects.toThrow('QQ service unavailable');
+            expect(failure).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({ status: -1, requestId: 0 }),
+            );
+        } finally {
+            client.close();
+            connection.mockRestore();
+        }
+    });
+
+    it('rejects pending and future requests on a runtime failure', async () => {
+        const connection = mockControlPipe(778902, (socket) => {
+            queueMicrotask(() => socket.emit('data', failureFrame));
+        });
+        const client = new QqHookClient(778902);
+
+        try {
+            await expect(client.sendAndWait('Test', Buffer.alloc(0))).rejects.toThrow(
+                'QQ service unavailable',
+            );
+            await expect(client.sendAndWait('Test', Buffer.alloc(0))).rejects.toThrow(
+                'QQ service unavailable',
+            );
+            await expect(client.startRecv()).rejects.toThrow('QQ service unavailable');
+            await expect(client.waitForLogin()).rejects.toThrow('QQ service unavailable');
+        } finally {
+            client.close();
+            connection.mockRestore();
+        }
+    });
+
+    it('rejects login and queued writes when the runtime fails as a connection resumes', async () => {
+        const onWrite = vi.fn();
+        const sockets = mockControlPipe(778903, onWrite);
+        const client = new QqHookClient(778903);
+
+        try {
+            await client.connect();
+            const waiting = client.waitForLogin({ timeoutMs: 100 });
+            const sending = client.sendNoReply('Test', Buffer.alloc(0), { ackTimeoutMs: 100 });
+            const settled = Promise.allSettled([waiting, sending]);
+            sockets.mock.results[0]!.value.emit('data', failureFrame);
+
+            const expected = {
+                status: 'rejected',
+                reason: expect.objectContaining({ message: 'QQ service unavailable' }),
+            };
+            expect(await settled).toEqual([expected, expected]);
+            expect(onWrite).not.toHaveBeenCalled();
+        } finally {
+            client.close();
+            sockets.mockRestore();
+        }
+    });
+});
 
 function runtimeTrace(entries: LogEntry[]): LogEntry[] {
     return entries.filter((entry) => entry.level === 'trace' && entry.scope === 'QQHook.Runtime');
