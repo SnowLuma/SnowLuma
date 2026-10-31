@@ -3,7 +3,12 @@ export type { SnowLumaKnownAction } from './actions.js';
 export { SnowLumaApiClient } from './client/api-client.js';
 export { createHttpClient, SnowLumaHttpClient } from './client/http-client.js';
 export type { SnowLumaHttpClientOptions } from './client/http-client.js';
-export { createWebSocketClient, SnowLumaWebSocketClient } from './client/websocket-client.js';
+export {
+    createReverseWebSocketClient,
+    createWebSocketClient,
+    SnowLumaReverseWebSocketClient,
+    SnowLumaWebSocketClient,
+} from './client/websocket-client.js';
 export {
     createSnowLumaApiError,
     SnowLumaAbortError,

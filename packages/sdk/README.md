@@ -101,6 +101,30 @@ await bot.connect();
 await bot.sendPrivateMessage(10001, text('ready'));
 ```
 
+### 反向 WebSocket（SnowLuma 主动连接）
+
+在 OneBot 生态中，反向 WebSocket 是 SnowLuma 主动连接 AstrBot、NoneBot2 等框架提供的 WebSocket 地址。SDK 直接复用 WebSocket 客户端协议，`url` 必须填写对方文档中的完整地址（包括路径）：
+
+```ts
+import { createReverseWebSocketClient, text } from '@snowluma/sdk';
+
+const bot = createReverseWebSocketClient({
+  url: 'ws://nonebot:8080/onebot/v11/ws',
+  accessToken: process.env.ONEBOT_ACCESS_TOKEN,
+  role: 'Universal',
+  reconnect: true,
+});
+
+bot.onBotStatus((event) => {
+  console.log(event.sub_type); // online / offline
+});
+
+await bot.connect();
+await bot.sendPrivateMessage(10001, text('ready'));
+```
+
+`createReverseWebSocketClient` 与 `SnowLumaWebSocketClient` 具有相同的事件、Action、流式传输、鉴权和重连能力；它只是明确表示连接方向，实际协议仍由对方框架决定。进程退出时不会伪造 `offline` 事件。
+
 ## 事件中间件与命令
 
 ```ts

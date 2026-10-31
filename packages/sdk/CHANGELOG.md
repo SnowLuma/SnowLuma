@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `createReverseWebSocketClient` and `SnowLumaReverseWebSocketClient` for OneBot reverse WebSocket integrations. The client connects to the framework endpoint and retains the existing event, Action, authentication, streaming, and reconnect behavior.
 - Add one-step local media sends, the optional `@snowluma/sdk/node` file source, stage-aware errors, explicit quoted replies, and cancellable WebSocket event waits; see [MESSAGING.md](MESSAGING.md). Existing methods and handler/context types remain compatible.
 - Report group-file chat publication failures through the runtime's existing error response instead of returning a successful upload result after publication fails.
 - Add HTTP and WebSocket `requestStream()` / `stream()`, incremental `uploadFileStream()` / `downloadFileStream()` helpers, cancellation, bounded response buffering, and transfer validation. Existing single-response methods remain unchanged; see [STREAMING.md](STREAMING.md).
