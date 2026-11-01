@@ -946,6 +946,43 @@ describe.skipIf(!nativeIo)('WebSocket incoming frames', () => {
         expect(errors[0]!.code).toBe(1009);
     });
 
+    it.each([
+        { isServer: false, previousPayloadBytes: 1 },
+        { isServer: false, previousPayloadBytes: 126 },
+        { isServer: true, previousPayloadBytes: 1 },
+        { isServer: true, previousPayloadBytes: 126 },
+    ])('preserves a split header after delivering the preceding message: %j', (options) => {
+        const { isServer, previousPayloadBytes } = options;
+        const { ws, socket } = createWs({ isServer, maxPayload: 1024 });
+        const errors: Array<Error & { code?: number }> = [];
+        const messages: Buffer[] = [];
+        ws.on('error', (err) => errors.push(err));
+        ws.on('message', (data) => messages.push(data));
+        const payload = Buffer.alloc(previousPayloadBytes, 0x61);
+        const precedingFrame = isServer
+            ? clientFrame(OP_TEXT, payload)
+            : serverFrame(OP_TEXT, payload);
+        const header = Buffer.from([0x82, isServer ? 0xfe : 0x7e, 0x82, 0x7e]);
+        socket.emit('data', Buffer.concat([precedingFrame, header.subarray(0, 2)]));
+        expect(messages).toEqual([payload]);
+        expect(errors).toHaveLength(0);
+
+        // The length bytes resemble a new frame header. Losing the buffered
+        // prefix would invent a size from the mask or payload bytes that follow.
+        socket.emit(
+            'data',
+            Buffer.concat([
+                header.subarray(2),
+                isServer ? MASK : Buffer.alloc(0),
+                Buffer.from([0x20, 0x00]),
+            ]),
+        );
+        expect(errors[0]!.message).toBe(
+            'WebSocket protocol error: Payload exceeds configured max: 33406 B binary frame exceeds the 1024 byte limit (maxPayloadBytes)',
+        );
+        expect(errors[0]!.code).toBe(1009);
+    });
+
     it('skips interleaved control frames while locating the oversized frame', () => {
         const { ws, socket } = createWs({ isServer: true });
         const errors: Array<Error & { code?: number }> = [];
@@ -972,18 +1009,70 @@ describe.skipIf(!nativeIo)('WebSocket incoming frames', () => {
         ws.on('error', (err) => {
             errors.push(err);
         });
-        // Build up more than the 64 KiB diagnostic budget with a fragmented
-        // message, so the offending header never gets buffered.
-        const fragment = Buffer.alloc(8 * 1024, 0x61);
-        for (let i = 0; i < 12; i += 1) {
-            socket.emit('data', clientFrame(i === 0 ? OP_TEXT : OP_CONT, fragment, false));
-        }
-        socket.emit('data', maskedOversizedHeader(OP_TEXT, 2 * 1024 * 1024));
+        // This single read exceeds the diagnostic budget before the parser
+        // reports the error, so no reliable header is retained.
+        socket.emit(
+            'data',
+            Buffer.concat([
+                clientFrame(OP_TEXT, Buffer.alloc(96 * 1024, 0x61)),
+                maskedOversizedHeader(OP_TEXT, 2 * 1024 * 1024),
+            ]),
+        );
         expect(errors[0]!.message).toBe(
             'WebSocket protocol error: Payload exceeds configured max: an inbound frame exceeds the 1048576 byte limit (maxPayloadBytes)',
         );
         expect(errors[0]!.message).not.toMatch(/\d+ B /);
         expect(errors[0]!.code).toBe(1009);
+    });
+
+    it('releases parsed fragments and control frames from the diagnostic budget', () => {
+        const maxPayload = 1024 * 1024;
+        const { ws, socket } = createWs({ isServer: true, maxPayload });
+        const errors: Error[] = [];
+        ws.on('error', (err) => errors.push(err));
+        const fragment = Buffer.alloc(8 * 1024, 0x61);
+
+        for (let i = 0; i < 12; i += 1) {
+            socket.emit('data', clientFrame(i === 0 ? OP_TEXT : OP_CONT, fragment, i === 11));
+            socket.emit('data', clientFrame(OP_PING, Buffer.from('hb')));
+        }
+
+        expect(errors).toHaveLength(0);
+        socket.emit('data', maskedOversizedHeader(OP_BIN, 2 * 1024 * 1024));
+        expect(errors[0]!.message).toContain('2097152 B binary frame');
+    });
+
+    it('recovers diagnostics after a complete frame exceeds the diagnostic budget', () => {
+        const { ws, socket } = createWs({ isServer: true, maxPayload: 1024 * 1024 });
+        const errors: Error[] = [];
+        const messages: Buffer[] = [];
+        ws.on('error', (err) => errors.push(err));
+        ws.on('message', (data) => messages.push(data));
+        const payload = Buffer.alloc(96 * 1024, 0x61);
+        socket.emit('data', clientFrame(OP_TEXT, payload));
+        expect(messages).toEqual([payload]);
+        expect(errors).toHaveLength(0);
+        socket.emit('data', maskedOversizedHeader(OP_BIN, 2 * 1024 * 1024));
+        expect(errors[0]!.message).toContain('2097152 B binary frame');
+    });
+
+    it('keeps size unknown when a partial next header was discarded by the budget', () => {
+        const { ws, socket } = createWs({ isServer: true, maxPayload: 1024 * 1024 });
+        const errors: Error[] = [];
+        ws.on('error', (err) => errors.push(err));
+        const header = maskedOversizedHeader(OP_BIN, 2 * 1024 * 1024);
+        socket.emit(
+            'data',
+            Buffer.concat([
+                clientFrame(OP_TEXT, Buffer.alloc(96 * 1024, 0x61)),
+                header.subarray(0, 2),
+            ]),
+        );
+        expect(errors).toHaveLength(0);
+        socket.emit('data', header.subarray(2));
+        expect(errors[0]!.message).toBe(
+            'WebSocket protocol error: Payload exceeds configured max: an inbound frame exceeds the 1048576 byte limit (maxPayloadBytes)',
+        );
     });
 
     it('names the message type when a binary frame exceeds the limit', () => {

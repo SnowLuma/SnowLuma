@@ -119,8 +119,8 @@ const DIAG_BUFFER_LIMIT = 64 * 1024;
  * payload exceeds `maxPayload`.
  *
  * The native parser rejects an oversized frame without saying where it is or how
- * large it is, so the reporting path re-reads the bytes buffered since the last
- * delivered message. Walking from a frame boundary removes the "the first bytes of
+ * large it is, so the reporting path re-reads the retained bytes from the first
+ * unparsed frame. Walking from a frame boundary removes the "the first bytes of
  * this chunk are the offending header" assumption: earlier data frames, interleaved
  * control frames and a header split across chunks are all stepped over correctly.
  * Returns `null` when the walk cannot reach a verdict, in which case the caller
@@ -298,9 +298,9 @@ export class WebSocket extends EventEmitter {
     protected _msgCompressed = false;
 
     // Diagnostic re-read of inbound bytes, kept only so an oversized-frame error
-    // can name the offending frame. It never feeds parsing, is cleared whenever a
-    // message is delivered, and downgrades the error text (instead of growing)
-    // once the small budget would be exceeded.
+    // can name the offending frame. It follows the parser's frame boundaries,
+    // retaining any partial next frame, and downgrades the error text once the
+    // small budget would be exceeded. It never feeds parsing.
     private _diagChunks: Buffer[] = [];
     private _diagBytes = 0;
     private _diagOverflow = false;
@@ -368,6 +368,7 @@ export class WebSocket extends EventEmitter {
         }
 
         for (const f of res.frames) {
+            this._consumeDiagnosticFrame(f);
             this._handleFrame(f);
 
             if (this._readyState === CLOSED) {
@@ -401,21 +402,57 @@ export class WebSocket extends EventEmitter {
         return `${message}: ${info.payloadBytes} B ${opcodeLabel(info.opcode)} frame exceeds the ${limit}`;
     }
 
-    /** Keep a bounded copy of the bytes received since the last delivered message. */
+    /** Keep bounded diagnostic bytes starting at the first unparsed frame. */
     private _recordDiagnosticBytes(chunk: Buffer): void {
+        this._diagBytes += chunk.length;
+
         if (this._diagOverflow) {
             return;
         }
 
-        if (this._diagBytes + chunk.length > DIAG_BUFFER_LIMIT) {
+        if (this._diagBytes > DIAG_BUFFER_LIMIT) {
             this._diagOverflow = true;
             this._diagChunks = [];
-            this._diagBytes = 0;
             return;
         }
 
         this._diagChunks.push(chunk);
-        this._diagBytes += chunk.length;
+    }
+
+    private _consumeDiagnosticFrame(frame: ParsedFrame): void {
+        const payloadBytes = frame.payload.length;
+        // The parser enforces minimal length encoding and the masking direction,
+        // so every accepted frame has this exact wire length, including controls.
+        const lengthBytes = payloadBytes <= 125 ? 0 : payloadBytes <= 65535 ? 2 : 8;
+        let remaining = 2 + lengthBytes + (this._isServer ? 4 : 0) + payloadBytes;
+        this._diagBytes -= remaining;
+
+        if (this._diagBytes === 0) {
+            this._resetDiagnosticBytes();
+            return;
+        }
+
+        // Once bytes are discarded, wait until the parser drains all pending
+        // bytes before recording again; a new read may start inside a frame.
+        if (this._diagOverflow) {
+            return;
+        }
+
+        let consumedChunks = 0;
+
+        while (remaining > 0) {
+            const chunk = this._diagChunks[consumedChunks]!;
+
+            if (remaining < chunk.length) {
+                this._diagChunks[consumedChunks] = chunk.subarray(remaining);
+                break;
+            }
+
+            remaining -= chunk.length;
+            consumedChunks += 1;
+        }
+
+        this._diagChunks.splice(0, consumedChunks);
     }
 
     private _resetDiagnosticBytes(): void {
@@ -572,7 +609,6 @@ export class WebSocket extends EventEmitter {
             this._msgSize = 0;
             this._msgValidator = null;
             this._msgCompressed = false;
-            this._resetDiagnosticBytes();
             this.emit('message', data, isBinary);
         }
     }

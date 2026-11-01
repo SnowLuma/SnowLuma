@@ -437,11 +437,43 @@ describe('loadOneBotConfig', () => {
         const junk = structuredClone(onDisk) as {
             networks: { wsClients: Array<Record<string, unknown>> };
         };
-        junk.networks.wsClients[0]!.maxPayloadBytes = 0;
-        expect(() => prepareOneBotConfigForRestore(junk, 'per-uin')).toThrow(/maxPayloadBytes/);
+
+        for (const value of [0, '268435456', 1024.5, null]) {
+            junk.networks.wsClients[0]!.maxPayloadBytes = value;
+            expect(() => prepareOneBotConfigForRestore(junk, 'per-uin')).toThrow(/maxPayloadBytes/);
+        }
     });
 
-    it('persists maxPayloadBytes for httpServers and drops it for httpClients', () => {
+    it.each(['httpServers', 'wsServers', 'wsClients'] as const)(
+        'rejects invalid on-disk maxPayloadBytes for %s without rewriting the file',
+        (kind) => {
+            const dir = path.join(tempDir, 'config');
+            fs.mkdirSync(dir, { recursive: true });
+            const file = path.join(dir, 'onebot_10023.json');
+
+            for (const value of [-1, 0, 1023, 1024.5, 2 * 1024 ** 3 + 1, '2048', null, true]) {
+                const raw = JSON.stringify({
+                    mode: 'snapshot',
+                    networks: {
+                        [kind]: [
+                            {
+                                name: 'invalid-limit',
+                                port: 3001,
+                                url: 'ws://127.0.0.1:3001',
+                                enableWebSocket: true,
+                                maxPayloadBytes: value,
+                            },
+                        ],
+                    },
+                });
+                fs.writeFileSync(file, raw, 'utf8');
+                expect(() => loadOneBotConfig('10023'), String(value)).toThrow(/maxPayloadBytes/);
+                expect(fs.readFileSync(file, 'utf8')).toBe(raw);
+            }
+        },
+    );
+
+    it('persists maxPayloadBytes for httpServers and rejects it for httpClients', () => {
         const uin = '10021';
         const config = makeDefaultOneBotConfig();
         config.networks.httpServers[0].enableWebSocket = true;
@@ -469,8 +501,8 @@ describe('loadOneBotConfig', () => {
             /maxPayloadBytes is not supported/,
         );
 
-        // A hand-written file is parsed permissively, but the key is not carried
-        // into the canonical config (nor written back).
+        // A hand-written file must reject the same unsupported field instead
+        // of discarding it before the canonical validation runs.
         const dir = path.join(tempDir, 'config');
         fs.writeFileSync(
             path.join(dir, 'onebot_10022.json'),
@@ -493,10 +525,9 @@ describe('loadOneBotConfig', () => {
             }),
             'utf8',
         );
-        const loaded = loadOneBotConfig('10022');
-        expect(
-            (loaded.networks.httpClients[0] as unknown as Record<string, unknown>).maxPayloadBytes,
-        ).toBeUndefined();
+        expect(() => loadOneBotConfig('10022')).toThrow(
+            /maxPayloadBytes is only supported by WebSocket adapters/,
+        );
     });
 
     it('replays a saved per-UIN snapshot without reviving deleted global adapters', () => {
