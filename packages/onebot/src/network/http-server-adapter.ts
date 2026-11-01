@@ -2,7 +2,7 @@ import { createLogger, runWithTraceRequest } from '@snowluma/common/logger';
 import { WebSocketServer } from '@snowluma/websocket';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import type { ApiHandler } from '../api-handler';
-import type { DispatchPayload } from '../event-filter';
+import { resolveReportOptions, type DispatchPayload } from '../event-filter';
 import type { ApiResponse, HttpServerNetwork, JsonObject, JsonValue } from '../types';
 import {
     StreamTransportClosedError,
@@ -14,6 +14,7 @@ import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext }
 import { isAuthorized, normalizePath } from './utils';
 import { WsServerConnections } from './ws-server-connections';
 import { httpTraceparent } from './http-trace';
+import { HttpSseConnections } from './http-sse-connections';
 
 const moduleLog = createLogger('OneBot.HTTP');
 
@@ -26,9 +27,13 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
     private acceptingActions = false;
     private readonly inFlightActions = new Set<Promise<void>>();
     private readonly webSocketConnections: WsServerConnections;
+    private readonly sseConnections: HttpSseConnections;
 
     constructor(name: string, config: HttpServerNetwork, ctx: NetworkAdapterContext) {
         super(name, config, ctx, moduleLog);
+        this.sseConnections = new HttpSseConnections(config, this.log, () =>
+            this.bootstrapMetaFrames(resolveReportOptions(this.config)),
+        );
         this.webSocketConnections = new WsServerConnections(name, config, ctx, this.log, {
             frame: (event, options) => this.metaFrame(event, options),
             bootstrap: (options) => this.bootstrapMetaFrames(options),
@@ -80,6 +85,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         const wasAcceptingWebSocketActions = this.webSocketConnections.isAcceptingActions;
         this.acceptingActions = false;
         this.webSocketConnections.stopAccepting();
+        this.sseConnections.close('server closing');
         this.isEnabled = false;
         this.listening = false;
         const server = this.server;
@@ -161,6 +167,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
         this.releaseForced = true;
         this.acceptingActions = false;
         this.webSocketConnections.stopAccepting();
+        this.sseConnections.close('server closing');
         this.isEnabled = false;
         this.listening = false;
         this.webSocketConnections.terminateAll();
@@ -206,10 +213,15 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
             };
         }
 
-        const detail =
+        let detail =
             this.config.enableWebSocket === true
                 ? `监听中 · WebSocket ${this.webSocketConnections.connectionCount} 个客户端`
                 : '监听中';
+
+        if (this.config.enableSse === true) {
+            detail += ` · SSE ${this.sseConnections.connectionCount} 个客户端`;
+        }
+
         return { name: this.name, kind: 'httpServer', status: 'ok', detail };
     }
 
@@ -225,14 +237,21 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
 
     protected override onConfigReplaced(next: HttpServerNetwork): void {
         this.webSocketConnections.updateConfig(next);
+        this.sseConnections.updateConfig(next);
     }
 
     onEvent(_event: JsonObject, payload: DispatchPayload): void {
-        if (this.config.enableWebSocket !== true || !this.isEnabled) {
+        if (!this.isEnabled) {
             return;
         }
 
-        this.webSocketConnections.onEvent(payload);
+        if (this.config.enableWebSocket === true) {
+            this.webSocketConnections.onEvent(payload);
+        }
+
+        if (this.config.enableSse === true) {
+            this.sseConnections.onEvent(payload);
+        }
     }
 
     private startServer(): Promise<void> {
@@ -307,6 +326,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
                     this.isEnabled = false;
                     this.acceptingActions = false;
                     this.webSocketConnections.stopAccepting();
+                    this.sseConnections.close('server closing');
                     this.recordTransportFailure(error);
 
                     if (opening) {
@@ -388,8 +408,35 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
             return;
         }
 
-        if (!isAuthorized(req, accessToken)) {
+        if (!isAuthorized(req, accessToken, true)) {
             respond(401, { status: 'failed', retcode: 1401, data: null, wording: 'unauthorized' });
+            return;
+        }
+
+        if (action === '_events') {
+            if (apiQuiescedAtIngress) {
+                return;
+            }
+
+            if (this.config.enableSse !== true) {
+                respond(404, {
+                    status: 'failed',
+                    retcode: 1404,
+                    data: null,
+                    wording: 'SSE is disabled',
+                });
+            } else if (req.method !== 'GET') {
+                res.setHeader('Allow', 'GET');
+                respond(405, {
+                    status: 'failed',
+                    retcode: 1405,
+                    data: null,
+                    wording: 'SSE requires GET',
+                });
+            } else {
+                this.sseConnections.accept(req, res);
+            }
+
             return;
         }
 

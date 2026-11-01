@@ -9,14 +9,18 @@ import type { IncomingMessage } from 'http';
 export const MAX_PAYLOAD_HINT =
     "Raise this adapter's maxPayloadBytes, or have the peer send a smaller frame (a URL/file reference or SILK instead of inline PCM)";
 
-export function isAuthorized(request: IncomingMessage, token: string): boolean {
+export function isAuthorized(
+    request: IncomingMessage,
+    token: string,
+    allowRawToken = false,
+): boolean {
     if (!token) {
         return true;
     }
 
     const auth = request.headers.authorization ?? '';
 
-    if (auth === `Bearer ${token}`) {
+    if (auth === `Bearer ${token}` || (allowRawToken && auth === token)) {
         return true;
     }
 

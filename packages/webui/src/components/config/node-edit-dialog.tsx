@@ -235,6 +235,19 @@ export function NodeEditDialog<K extends NetworkKind>(props: NodeEditDialogProps
                             </SettingRow>
                         )}
 
+                        {isHttpServer && (
+                            <SettingRow
+                                label="启用 SSE"
+                                desc="通过当前 HTTP 路径下的 /_events 持续推送事件，支持短暂断线重放"
+                            >
+                                <ToggleSwitch
+                                    value={(draft as HttpServerNetwork).enableSse === true}
+                                    onChange={(v) => patch({ ...draft, enableSse: v })}
+                                    ariaLabel="启用 SSE"
+                                />
+                            </SettingRow>
+                        )}
+
                         <SettingRow label="消息格式" desc="数组为标准 OneBot 段，CQ 码为兼容字符串">
                             <DropdownSelect
                                 className="w-32"

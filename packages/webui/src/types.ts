@@ -120,6 +120,7 @@ export interface HttpServerNetwork extends NetworkBase, WsFrameLimitConfig {
     port: number;
     path?: string;
     enableWebSocket?: boolean;
+    enableSse?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {

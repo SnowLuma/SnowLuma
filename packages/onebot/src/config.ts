@@ -56,6 +56,7 @@ export function makeDefaultOneBotConfig(): OneBotConfig {
                     port: 3000,
                     path: '/',
                     enableWebSocket: false,
+                    enableSse: false,
                     accessToken: generateAccessToken(),
                     messageFormat: 'array',
                     reportSelfMessage: false,
@@ -417,7 +418,7 @@ function validateRestoreAdapterArray(
               : ['url', 'role', 'reconnectIntervalMs'];
 
     if (kind === 'httpServers') {
-        specific.push('enableWebSocket', 'maxPayloadBytes');
+        specific.push('enableWebSocket', 'enableSse', 'maxPayloadBytes');
     }
 
     if (kind === 'wsServers') {
@@ -487,6 +488,14 @@ function validateRestoreAdapterArray(
                 typeof raw.enableWebSocket !== 'boolean'
             ) {
                 invalid(`${pathAt}.enableWebSocket must be a boolean`);
+            }
+
+            if (
+                kind === 'httpServers' &&
+                raw.enableSse !== undefined &&
+                typeof raw.enableSse !== 'boolean'
+            ) {
+                invalid(`${pathAt}.enableSse must be a boolean`);
             }
         } else {
             if (raw.url !== undefined && typeof raw.url !== 'string') {
@@ -673,6 +682,10 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
 
         if (item.enableWebSocket !== undefined && typeof item.enableWebSocket !== 'boolean') {
             invalid(`${at}.enableWebSocket must be a boolean`);
+        }
+
+        if (item.enableSse !== undefined && typeof item.enableSse !== 'boolean') {
+            invalid(`${at}.enableSse must be a boolean`);
         }
 
         validateServerBinding(item, at, serverBindings);
@@ -1103,6 +1116,7 @@ function httpServerToJson(n: HttpServerNetwork): JsonObject {
     out.port = n.port;
     out.path = n.path ?? '/';
     out.enableWebSocket = n.enableWebSocket === true;
+    out.enableSse = n.enableSse === true;
     return out;
 }
 
@@ -1418,6 +1432,10 @@ function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServ
         invalid('http server enableWebSocket must be a boolean');
     }
 
+    if (value.enableSse !== undefined && typeof value.enableSse !== 'boolean') {
+        invalid('http server enableSse must be a boolean');
+    }
+
     const port = asNumber(value.port, 0);
 
     if (port <= 0) {
@@ -1430,6 +1448,7 @@ function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServ
         port,
         path: asString(value.path, '/'),
         enableWebSocket: value.enableWebSocket === true,
+        enableSse: value.enableSse === true,
         maxPayloadBytes,
     });
 }

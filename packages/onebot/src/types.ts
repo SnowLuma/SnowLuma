@@ -65,6 +65,8 @@ export interface HttpServerNetwork extends NetworkBase, WsFrameLimitConfig {
     path?: string;
     /** Accept OneBot WebSocket clients on the same HTTP listener. */
     enableWebSocket?: boolean;
+    /** Serve OneBot events at <path>/_events, with bounded reconnect replay. */
+    enableSse?: boolean;
 }
 
 export interface HttpClientNetwork extends NetworkBase {

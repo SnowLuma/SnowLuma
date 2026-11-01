@@ -44,7 +44,7 @@ const httpServersTab: NetworkTabDescriptor<'httpServers'> = {
     summarize: (it: HttpServerNetwork) => {
         const host = it.host?.trim() || '0.0.0.0';
         const path = (it.path?.trim() || '/').replace(/^\/?/, '/');
-        return `${host}:${it.port}${path}${it.enableWebSocket === true ? ' · WebSocket' : ''}`;
+        return `${host}:${it.port}${path}${it.enableWebSocket === true ? ' · WebSocket' : ''}${it.enableSse === true ? ' · SSE' : ''}`;
     },
     defaultEntry: (suffix): HttpServerNetwork => ({
         name: `http-${suffix}`,
@@ -52,6 +52,7 @@ const httpServersTab: NetworkTabDescriptor<'httpServers'> = {
         port: 3000,
         path: '/',
         enableWebSocket: false,
+        enableSse: false,
         accessToken: generateAccessToken(),
         messageFormat: 'array',
         reportSelfMessage: false,
