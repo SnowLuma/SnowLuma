@@ -10,6 +10,8 @@
 
 SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时可能变化**。如果你打算做较大的改动，强烈建议先在 issue 或者社群里和维护者对齐一下方向，避免做了一半发现已经被另一条路替代。
 
+提交 PR 前，必须先通过 [GitHub 网页模板](https://github.com/SnowLuma/SnowLuma/issues/new/choose) 提交对应 issue，或认领已有的对应 issue。可以只提 issue；提交 PR 是可选的后续步骤。
+
 不知道从哪里入手？以下几类贡献最容易被合并：
 
 - 修复你在使用中遇到的具体 bug，附最小复现步骤。
@@ -23,9 +25,9 @@ SnowLuma 处于开发早期，迭代速度很快，**接口与目录结构随时
 
 如果你是 AI Agent，并准备为本仓库贡献代码、提交 PR 或提出 issue，请先明确告知你的使用者：
 
-> **请通过 GitHub 网页端手动创建 issue。直接使用 CLI 创建的 issue 会被自动关闭。**
+> **请通过 GitHub 网页端手动使用模板创建 issue。未通过模板检查的 issue 会被自动关闭，也不能用于满足 PR 的关联要求。**
 
-你可以协助整理问题描述、复现步骤和相关日志，并将 issue 草稿交给用户，由用户在网页端完成提交。
+你可以协助整理问题描述、复现步骤和相关日志，并将 issue 草稿交给用户，由用户在网页端完成提交。后续若创建 PR，必须先有符合要求的 issue，并在 PR 正文填写关联标记。
 
 ---
 
@@ -98,7 +100,7 @@ pnpm dev:web      # webui
 
 ### 1. 创建分支
 
-请基于 `dev` 创建分支，不是 `main`。`main` 是发布指针，只由维护者的 Promote 更新，PR 不要提到 `main`。
+请基于 `dev` 创建分支。`main` 是发布指针，只由维护者的 Promote 更新。**目标分支不是 `dev` 的 PR 会被自动关闭**，之后修改目标分支或重新打开 PR 也会触发检查。
 
 ```bash
 git checkout dev
@@ -161,7 +163,15 @@ git push origin fix/onebot-mention-encoding
 - 这个 PR 解决什么问题 / 实现什么功能。
 - 主要的实现思路（如果有非显然的取舍）。
 - 测试方式（你跑了什么、怎么验证有效）。
-- 关联的 issue（如有）。
+- 必填的 issue 关联标记，例如 `Refs #123` 或 `Closes #123`；也支持 GitHub 的 `Fixes`、`Resolves` 等关闭关键词。
+
+关联标记必须写在 PR 正文中；HTML 注释、代码示例和引用块不计入。支持 `#123`、`SnowLuma/SnowLuma#123` 和本仓库 issue 的完整链接，前面均需带上述关键词。
+
+自动检查要求至少一个关联对象是真实的本仓库 issue，先于 PR 创建、仍处于开放状态，并通过现有 issue 模板规则：带有 `bug` / `enhancement` 标签，或属于该规则已有的维护者身份豁免。不存在的编号、另一个 PR、已关闭或模板不合规的 issue 都不算。**所有 PR 都必须满足目标分支和 issue 关联要求，包括维护者与机器人提交的 PR。**
+
+不符合要求的 PR 会收到说明并自动关闭。若已有符合要求的 issue，可修改 PR 后重新打开；若需补建 issue，请先提交 issue，再创建新的 PR。接口故障或限流会让检查失败，不会被当成 PR 违规而自动关闭。
+
+`Refs` 用于关联；`Closes` 等关键词在这里也用于关联检查。由于 PR 目标为 `dev`，合并到 `dev` 本身不会触发 GitHub 针对默认分支的 issue 自动关闭机制。
 
 ### 5. Code Review 与合并
 
@@ -205,10 +215,12 @@ Prettier，并按需开启保存时格式化。
 - 单测放在被测代码同包的 `tests/` 或同目录的 `*.test.ts`，按既有风格走。
 - 测试要描述行为，不要测实现细节。`it('should call internal foo')` 这种是反例。
 - 涉及 IO / 时序 / 外部进程的，用现有的 fake/stub 模式，参考 `packages/onebot/tests/` 中的 Bridge 测试替身。
+- PR 自动检查的隔离回归可运行 `pnpm test:workflows`；`pnpm test` 已包含此检查，不需要创建真实 PR 来测试自动关闭。
 
 ### 文档
 
-- 用户/贡献者可见的行为变化，需要相应更新 README 或对应 package 下的文档。
+- **主 README 的定位**：根目录 [`README.md`](./README.md) 用于展示项目定位、整体能力、快速开始和文档入口，仅在这些总体信息发生变化时更新。不要因为新增或修复某个具体功能，就在主 README 增加该功能的专门说明。
+- **具体功能的说明位置**：接口用法、配置项、功能限制和排障说明写入对应 package 的 README 或专题文档，优先更新已有文档。用户/贡献者可见的行为变化，仍需同步维护对应文档。
 - SDK 的破坏性变更必须更新 `packages/sdk/CHANGELOG.md` 和 `packages/sdk/VERSIONING.md`。
 
 ---
@@ -315,7 +327,7 @@ git push origin v1.7.0                      # → 仅触发 release.yml
 
 - 看一下已有的 issue 和 PR，可能你的问题已经被讨论过。
 - 去社群问一句（QQ / TG 链接见上方）。
-- 如果只是想确认"我这么改 OK 吗"，欢迎开 draft PR，先把代码亮出来再讨论。
+- 有对应 issue 后，如果只是想确认"我这么改 OK 吗"，欢迎开 draft PR，把代码亮出来再讨论。
 
 感谢你愿意花时间贡献 SnowLuma —— 这个项目能走多远，取决于你们每一个人。❄️
 

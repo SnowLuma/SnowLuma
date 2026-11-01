@@ -5,9 +5,10 @@ SnowLuma translates QQ client sessions into OneBot v11 actions and events, with 
 ## Before making changes
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) for contribution requirements, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations, and [LICENSE](LICENSE) for contribution and redistribution terms.
-- **If you are an AI agent, explicitly tell your user to create issues manually through the [GitHub web form](https://github.com/SnowLuma/SnowLuma/issues/new/choose). Issues created directly with a CLI will be automatically closed.** Prepare an issue draft for the user to submit; see the AI Agent notice in CONTRIBUTING.md.
+- **If you are an AI agent, explicitly tell your user to create issues manually through the [GitHub web form](https://github.com/SnowLuma/SnowLuma/issues/new/choose). Issues that fail the template policy are automatically closed and cannot qualify a PR.** Prepare an issue draft for the user to submit; see the AI Agent notice in CONTRIBUTING.md.
 - Check `git status` and preserve unrelated work. Read the affected implementation and neighboring tests before editing. Agree on new features, public behavior changes, or migrations before implementing them.
-- Target PRs at `dev`. `main` is the release pointer. Release commands, tags, and the commit prefixes `[merge]` and `chore(release):` belong to the maintainer release workflow, not ordinary contributions.
+- Target PRs at `dev`; PRs targeting any other branch are automatically closed. `main` is the release pointer. Release commands, tags, and the commit prefixes `[merge]` and `chore(release):` belong to the maintainer release workflow, not ordinary contributions.
+- Before opening a PR, create or identify the corresponding issue. PRs are optional after an issue is filed. Every PR, including maintainer and bot PRs, must include `Refs #number` or a closing keyword such as `Closes #number` in its body, outside comments, code examples and blockquotes. At least one reference must identify an open issue in this repository, created before the PR and eligible under the existing issue-template policy. PRs without a qualifying issue are automatically closed. See [the PR submission rules](CONTRIBUTING.md#4-推送并发起-pr) for supported forms and correction steps.
 
 ## Repository map
 
@@ -61,7 +62,8 @@ Run commands from the repository root:
 ```sh
 pnpm typecheck                       # all workspace packages with a typecheck script
 pnpm lint
-pnpm test                            # all workspace packages with a test script
+pnpm test                            # workflow policy checks and workspace tests
+pnpm test:workflows                  # isolated PR policy tests; no GitHub writes
 pnpm run build:all                   # release inputs and published packages
 pnpm test:core                       # Core only; not a substitute for workspace tests
 pnpm --filter @snowluma/onebot test   # example: tests for the affected package
@@ -116,6 +118,8 @@ After changing an action name, parameter, result description/schema, example or 
 `pnpm test` also runs the MCP catalog generator and may change these tracked snapshots. CI's `node tools/check-action-catalog.mjs` rejects a working-tree catalog diff; it is a clean-checkout drift check, not the generator itself.
 
 SDK breaking changes also update [CHANGELOG.md](packages/sdk/CHANGELOG.md) and [VERSIONING.md](packages/sdk/VERSIONING.md). WebUI changes follow its [interaction conventions](packages/webui/README.md). Keep user-facing documentation aligned with behavior.
+
+The root [README.md](README.md) presents the project's purpose, overall capabilities, quick start and documentation entry points. Update it only when those overview details change; adding or fixing an individual feature does not justify adding a dedicated section there. Put feature-specific API usage, configuration, limitations and troubleshooting in the relevant package README or topic document, preferring existing documentation.
 
 Edit sources rather than `dist` outputs. Native artifacts in `packages/runtime/native` are supplied build inputs; do not substitute arbitrary local binaries to make a build pass. Packaging changes must preserve the checks in [Core's build configuration](packages/core/vite.config.ts) and [the release layout validator](tools/check-release-layout.mjs).
 

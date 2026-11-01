@@ -1,20 +1,36 @@
-name: Main PR target guard
+name: PR policy guard
 
-# `main` is a pointer moved by Promote Dev to Main. Contributor and bot
-# feature work lands on dev. A PR opened against main (like the GHCR
-# fork PR) is what puts unique commits on main and fans the network graph.
+# pull_request_target uses the default branch's trusted workflow and script.
+# This policy becomes active after it reaches main through Promote.
 on:
-  pull_request:
-    branches: [main]
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: write
+
+concurrency:
+  group: pr-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  reject:
+  guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Reject pull requests targeting main
-        run: |
-          echo '::error::Open this PR against dev, not main. main is updated only by Promote Dev to Main.'
-          exit 1
+      - name: Read the trusted policy script
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/pr-policy-guard.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Enforce target branch and linked issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const guard = require('./.github/scripts/pr-policy-guard.cjs');
+            await guard({ github, context, core });
