@@ -51,6 +51,7 @@ function makeSender() {
 describe('FetchGroupRequests namespace', () => {
     it('maps native list notification types to 0x10C8 operation types', () => {
         expect(groupRequestOperationType(1)).toBe(2);
+        expect(groupRequestOperationType(2)).toBe(10);
         expect(groupRequestOperationType(7)).toBe(1);
         expect(groupRequestOperationType(17)).toBe(100);
         expect(groupRequestOperationType(5)).toBe(22);

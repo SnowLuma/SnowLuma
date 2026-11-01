@@ -121,6 +121,12 @@ export interface GroupRequestInfo {
     operateTransInfo?: Uint8Array;
 }
 
+/** Invitations handled by the invited account, rather than a group administrator.
+ * Notification types 1 and 2 use different approval discriminators. */
+export function isSelfGroupInvitation(request: Pick<GroupRequestInfo, 'eventType'>): boolean {
+    return request.eventType === 2 || request.eventType === 10;
+}
+
 /** Approval tuple required by OIDB 0x10C8. The OneBot flag is opaque to
  * clients, but carrying the complete tuple makes delayed handling stateless. */
 export type GroupRequestHandle = Pick<

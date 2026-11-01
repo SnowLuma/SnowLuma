@@ -5,7 +5,7 @@ import type { BridgeEventBus } from './event-bus';
 import type { QQEventVariant } from './events';
 import type { GroupInviteTracker } from './group-invite-tracker';
 import type { IdentityService } from './identity-service';
-import { formatGroupRequestFlag, type GroupRequestInfo } from './qq-info';
+import { formatGroupRequestFlag, isSelfGroupInvitation, type GroupRequestInfo } from './qq-info';
 
 const moduleLog = createLogger('Bridge');
 const moduleEventLog = createLogger('Event');
@@ -564,7 +564,7 @@ export class IncomingPacketPipeline {
             return 0;
         }
 
-        if (request.eventType === 2) {
+        if (isSelfGroupInvitation(request)) {
             return 0;
         }
 

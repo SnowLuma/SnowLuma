@@ -1,4 +1,5 @@
 import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
+import { isSelfGroupInvitation } from '@snowluma/protocol/qq-info';
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
 import {
     FetchFriendListPage,
@@ -607,7 +608,7 @@ export class ContactsApi {
 
                 return subType === 'add'
                     ? request.eventType === 1 && request.targetUid === uid
-                    : (request.eventType === 2 || request.eventType === 22) &&
+                    : (isSelfGroupInvitation(request) || request.eventType === 22) &&
                           request.invitorUid === uid &&
                           request.targetUid === invitedUid;
             }) ?? null

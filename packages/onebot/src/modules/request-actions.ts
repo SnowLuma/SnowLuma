@@ -1,6 +1,10 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
-import type { GroupRequestHandle, GroupRequestInfo } from '@snowluma/protocol/qq-info';
+import {
+    isSelfGroupInvitation,
+    type GroupRequestHandle,
+    type GroupRequestInfo,
+} from '@snowluma/protocol/qq-info';
 
 const log = createLogger('OneBot.Request');
 
@@ -265,7 +269,7 @@ export async function handleGroupAddRequest(
 
         if (
             notice &&
-            (request.eventType !== 2 ||
+            (!isSelfGroupInvitation(request) ||
                 (request.targetUin > 0 && request.targetUin !== Number(bridge.identity.uin)) ||
                 (request.targetUid &&
                     bridge.identity.selfUid &&
@@ -282,6 +286,19 @@ export async function handleGroupAddRequest(
     const matching = candidates[0];
 
     if (!matching) {
+        log.warn(
+            'group request match failed: group=%d kind=%s selfInvitation=%s inboxTypes=%s',
+            parsed.groupId,
+            parsed.requestType,
+            Boolean(notice),
+            lookup.requests
+                .filter((request) => request.groupId === parsed.groupId)
+                .map(
+                    (request) =>
+                        `${request.notifyType ?? '?'}:${request.eventType}:${request.state}`,
+                )
+                .join(','),
+        );
         throwMissingGroupRequest('matching group request not found', lookup.failures);
     }
 

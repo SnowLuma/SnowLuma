@@ -219,7 +219,7 @@ describe('group request events', () => {
         expect(received).toEqual([]);
     });
 
-    it.each([22, 2])(
+    it.each([22, 2, 10])(
         'cannot use a self-invitation flag to approve another account joining the group (type %i)',
         async (eventType) => {
             const { bridge, received, fetchRequests } = setup();

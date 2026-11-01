@@ -7,6 +7,7 @@ import {
 } from '@snowluma/protocol/dataline/device-contacts';
 import {
     formatGroupRequestFlag,
+    isSelfGroupInvitation,
     type GroupMemberInfo,
     type GroupRequestInfo,
     type UserProfileInfo,
@@ -573,11 +574,12 @@ async function resolveRequesterUins(
     return resolved;
 }
 
-/** Join request (7) or invite that still needs an admin (5 / mapped 22). */
+/** Join requests, self invitations, and invitations awaiting administrator approval. */
 function isJoinOrInviteNotify(notifyType: number | undefined): boolean {
     return (
         notifyType === undefined ||
         notifyType === 1 ||
+        notifyType === 2 ||
         notifyType === 5 ||
         notifyType === 7 ||
         notifyType === 22
@@ -589,7 +591,7 @@ function groupRequestActor(request: GroupRequestInfo): {
     uin: number;
     name: string;
 } {
-    if (request.notifyType === 1) {
+    if (isSelfGroupInvitation(request)) {
         return {
             uid: request.invitorUid,
             uin: request.invitorUin,
