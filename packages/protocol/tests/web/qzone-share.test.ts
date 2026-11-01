@@ -62,6 +62,26 @@ describe('Qzone share card', () => {
         });
     });
 
+    it('preserves a successful card when the upstream business error is null', async () => {
+        const card = '{ "app": "com.tencent.miniapp.lua", "view": "miniapp" }';
+        const req = request({
+            template_data: card,
+            err: null,
+            info: {
+                busi_data: Buffer.from(
+                    JSON.stringify({ err_code: 0, err_msg: '', need_break: false, tips: {} }),
+                ).toString('base64'),
+            },
+        });
+
+        await expect(getQzoneShareArk(cookies, feed)).resolves.toEqual({
+            ark: card,
+            requires_confirmation: false,
+            notice: null,
+        });
+        expect(req).toHaveBeenCalledOnce();
+    });
+
     it('rejects unavailable sharing and incomplete feeds before requesting a card', async () => {
         const req = request({ template_data: ark });
         await expect(
@@ -77,6 +97,11 @@ describe('Qzone share card', () => {
     it.each([
         [{ err: { code: 3, msg: '参数错误' }, template_data: ark }, '3 参数错误'],
         [{ err: { code: '0' }, template_data: ark }, '业务响应异常'],
+        [{ err: false, template_data: ark }, '业务响应异常'],
+        [{ err: 0, template_data: ark }, '业务响应异常'],
+        [{ err: '', template_data: ark }, '业务响应异常'],
+        [{ err: [], template_data: ark }, '业务响应异常'],
+        [{ err: null }, '未返回卡片'],
         [{}, '未返回卡片'],
         [{ template_data: '[]' }, '卡片格式异常'],
         [{ template_data: ark, info: { busi_data: '!' } }, '提示编码异常'],

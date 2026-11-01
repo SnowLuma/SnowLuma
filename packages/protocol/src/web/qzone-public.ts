@@ -286,7 +286,7 @@ export async function getQzoneShareArk(
         },
     });
 
-    if (data.err !== undefined) {
+    if (data.err !== undefined && data.err !== null) {
         if (
             !isObject(data.err) ||
             (data.err.code !== undefined && typeof data.err.code !== 'number')
