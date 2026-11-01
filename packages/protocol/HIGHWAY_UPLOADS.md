@@ -35,3 +35,26 @@ excluding cached uploads, before drawing performance conclusions.
 Regression tests use isolated transports and cover concurrency bounds,
 out-of-order acknowledgements, a stalled early chunk, retry exhaustion, backpressure
 and cleanup. They do not establish real QQ delivery or upload throughput.
+
+## Media download limits
+
+Two deployment-wide knobs bound HTTP media downloads in `highway/utils.ts`. They are
+environment variables rather than per-account OneBot settings because every caller
+reaches the same download engine (`loadBinarySource` / `stageSourceToDisk`):
+
+```sh
+# One HTTP attempt, in milliseconds. Default 60000.
+SNOWLUMA_HTTP_DOWNLOAD_TIMEOUT_MS=180000
+# Cap on one binary source buffered in memory, in bytes. Default 1073741824 (1 GiB).
+SNOWLUMA_MAX_BINARY_DOWNLOAD_BYTES=2147483648
+```
+
+Both default to their previous hardcoded values, so an unconfigured deployment
+behaves exactly as before. Invalid values are logged and ignored, falling back to the
+default. Callers that already pass an explicit ceiling keep it: group/private files
+and flash transfer still use 4 GiB, and inline `base64://` / `data:` flash sources
+keep the 1 GiB buffered-load ceiling.
+
+`SNOWLUMA_HTTP_DOWNLOAD_TIMEOUT_MS` is not related to
+`SNOWLUMA_DOWNLOAD_FILE_TIMEOUT_MS` (used by the `download_file` OneBot action): the
+former bounds highway media downloads, the latter the action's own file staging.

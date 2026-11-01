@@ -2,6 +2,11 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+    DEFAULT_MAX_BINARY_DOWNLOAD_BYTES,
+    httpDownloadTimeoutMs,
+    maxBinaryDownloadBytes,
+} from './download-settings';
 
 export interface LoadedBinary {
     bytes: Uint8Array;
@@ -16,8 +21,12 @@ export interface LoadedBinary {
  * directly and enforces its own cap via `MAX_VIDEO_SIZE`. Group/private
  * file uploads override this via `FILE_UPLOAD_MAX_BYTES` because QQ's
  * file protocol legitimately supports up to 4 GiB.
+ *
+ * The effective default is `SNOWLUMA_MAX_BINARY_DOWNLOAD_BYTES` (see
+ * `download-settings`); this constant is the documented 1 GiB floor reused by
+ * the static flash-transfer ceiling below.
  */
-const DEFAULT_MAX_BINARY_SIZE = 1024 * 1024 * 1024; // 1 GiB
+const DEFAULT_MAX_BINARY_SIZE = DEFAULT_MAX_BINARY_DOWNLOAD_BYTES;
 /** Hard ceiling QQ's file protocol supports — used by group/private files. */
 export const FILE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GiB
 /** Local / HTTP flash sources. Official fileset max is unknown; reuse the
@@ -27,7 +36,6 @@ export const FLASH_TRANSFER_MAX_BYTES = FILE_UPLOAD_MAX_BYTES;
 /** Inline `base64://` / `data:` flash sources still decode into RAM inside
  *  `stageSourceToDisk`, so they keep the 1 GiB buffered-load ceiling. */
 export const FLASH_TRANSFER_INLINE_MAX_BYTES = DEFAULT_MAX_BINARY_SIZE;
-const FETCH_TIMEOUT_MS = 60_000;
 
 /**
  * Browser-like User-Agent for remote media downloads. Many image / CDN
@@ -152,11 +160,11 @@ export interface DownloadSink<T> {
 /**
  * Shared HTTP download engine for both the buffered and the disk-streaming
  * paths — the single owner of the observable download behavior: browser UA +
- * Accept, redirect follow, 60s timeout, incremental `maxBytes` enforcement
- * (declared Content-Length AND streamed total, `noRetry`-tagged), and one
- * Referer retry on a non-size failure. Bytes are delivered chunk-by-chunk to a
- * caller-provided sink so the same length-checking transport feeds either RAM
- * or disk.
+ * Accept, redirect follow, the configurable download timeout, incremental
+ * `maxBytes` enforcement (declared Content-Length AND streamed total,
+ * `noRetry`-tagged), and one Referer retry on a non-size failure. Bytes are
+ * delivered chunk-by-chunk to a caller-provided sink so the same
+ * length-checking transport feeds either RAM or disk.
  */
 export async function downloadHttp<T>(
     source: string,
@@ -170,7 +178,7 @@ export async function downloadHttp<T>(
         const resp = await fetch(source, {
             headers,
             redirect: 'follow',
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            signal: AbortSignal.timeout(httpDownloadTimeoutMs()),
         });
 
         if (!resp.ok) {
@@ -261,7 +269,7 @@ export async function downloadHttp<T>(
 export async function loadBinarySource(
     source: string,
     resourceName: string,
-    maxBytes: number = DEFAULT_MAX_BINARY_SIZE,
+    maxBytes: number = maxBinaryDownloadBytes(),
 ): Promise<LoadedBinary> {
     if (!source) {
         throw new Error(`${resourceName} source is empty`);
