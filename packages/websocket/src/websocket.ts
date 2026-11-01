@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import type { Socket } from 'node:net';
-import native, { type ParsedFrame, type ParserInstance } from './native';
+import native, { type ParsedFrame, type ParserInstance, type ParseResult } from './native';
 import { type AcceptedPerMessageDeflate, compressRaw, decompressRaw } from './extensions';
 
 // RFC 6455 opcodes.
@@ -19,7 +19,17 @@ export const OPEN = 1;
 export const CLOSING = 2;
 export const CLOSED = 3;
 
-const DEFAULT_MAX_PAYLOAD = 100 * 1024 * 1024;
+/**
+ * Default cap on one inbound WebSocket message (all fragments included).
+ * Exported so callers can name the default in configuration and diagnostics
+ * instead of duplicating the number.
+ */
+export const DEFAULT_MAX_PAYLOAD_BYTES = 100 * 1024 * 1024;
+
+/** RFC 6455 §5.5 bounds a close frame's payload to 125 bytes; the 2-byte code
+ *  leaves this much room for a reason. Long diagnostics are truncated (never
+ *  mid-code-point) because an over-long reason would make the close invalid. */
+const MAX_CLOSE_REASON_BYTES = 123;
 
 export function isValidCloseCode(code: number): boolean {
     if (
@@ -44,7 +54,7 @@ export function isValidCloseCode(code: number): boolean {
 }
 
 export function encodeClosePayload(code: number | undefined | null, reason?: string): Buffer {
-    const reasonBuf = reason ? Buffer.from(String(reason), 'utf8') : Buffer.alloc(0);
+    const reasonBuf = truncateCloseReason(reason);
 
     if (code === undefined || code === null) {
         if (reasonBuf.length > 0) {
@@ -58,6 +68,117 @@ export function encodeClosePayload(code: number | undefined | null, reason?: str
     buf.writeUInt16BE(code & 0xffff, 0);
     reasonBuf.copy(buf, 2);
     return buf;
+}
+
+/** UTF-8 safe truncation of a close reason to the RFC 6455 control-frame room. */
+function truncateCloseReason(reason: string | undefined): Buffer {
+    if (!reason) {
+        return Buffer.alloc(0);
+    }
+
+    const encoded = Buffer.from(String(reason), 'utf8');
+
+    if (encoded.length <= MAX_CLOSE_REASON_BYTES) {
+        return encoded;
+    }
+
+    let end = MAX_CLOSE_REASON_BYTES;
+
+    // Back off to a code-point boundary: `encoded[end]` is the first dropped
+    // byte, and continuation bytes must never lead a truncated string.
+    while (end > 0 && (encoded[end]! & 0xc0) === 0x80) {
+        end -= 1;
+    }
+
+    return encoded.subarray(0, end);
+}
+
+/** Human label for the message type carried by a frame's opcode. */
+function opcodeLabel(opcode: number): string {
+    if (opcode === OP_TEXT) {
+        return 'text';
+    }
+
+    if (opcode === OP_BIN) {
+        return 'binary';
+    }
+
+    return `opcode ${opcode}`;
+}
+
+interface FrameHeaderInfo {
+    opcode: number;
+    payloadBytes: number;
+}
+
+/** Budget for re-reading inbound bytes when an oversized frame is reported. */
+const DIAG_BUFFER_LIMIT = 64 * 1024;
+
+/**
+ * Walk a frame stream from `bytes` and return the first data frame whose declared
+ * payload exceeds `maxPayload`.
+ *
+ * The native parser rejects an oversized frame without saying where it is or how
+ * large it is, so the reporting path re-reads the bytes buffered since the last
+ * delivered message. Walking from a frame boundary removes the "the first bytes of
+ * this chunk are the offending header" assumption: earlier data frames, interleaved
+ * control frames and a header split across chunks are all stepped over correctly.
+ * Returns `null` when the walk cannot reach a verdict, in which case the caller
+ * reports the cap without a size instead of guessing.
+ */
+function scanOversizedFrame(bytes: Buffer, maxPayload: number): FrameHeaderInfo | null {
+    let offset = 0;
+
+    while (offset + 2 <= bytes.length) {
+        const first = bytes[offset]!;
+        const second = bytes[offset + 1]!;
+        const opcode = first & 0x0f;
+        const masked = (second & 0x80) !== 0;
+        const shortLength = second & 0x7f;
+        let payloadBytes: number;
+        let headerBytes: number;
+
+        if (shortLength === 126) {
+            if (offset + 4 > bytes.length) {
+                return null;
+            }
+
+            payloadBytes = bytes.readUInt16BE(offset + 2);
+            headerBytes = 4;
+        } else if (shortLength === 127) {
+            if (offset + 10 > bytes.length) {
+                return null;
+            }
+
+            const high = bytes.readUInt32BE(offset + 2);
+            const low = bytes.readUInt32BE(offset + 6);
+
+            if (high > 0x1fffff) {
+                return null;
+            }
+
+            payloadBytes = high * 2 ** 32 + low;
+            headerBytes = 10;
+        } else {
+            payloadBytes = shortLength;
+            headerBytes = 2;
+        }
+
+        if (masked) {
+            headerBytes += 4;
+        }
+
+        if (payloadBytes > maxPayload) {
+            // Only a data frame may legitimately exceed the cap; any other opcode
+            // means the walk is out of sync, so report nothing rather than a
+            // misleading number.
+            return opcode === OP_TEXT || opcode === OP_BIN ? { opcode, payloadBytes } : null;
+        }
+
+        offset += headerBytes + payloadBytes;
+    }
+
+    return null;
 }
 
 // Streaming UTF-8 validator used while a text message is being received in
@@ -176,6 +297,14 @@ export class WebSocket extends EventEmitter {
     protected _msgValidator: Utf8Validator | null = null;
     protected _msgCompressed = false;
 
+    // Diagnostic re-read of inbound bytes, kept only so an oversized-frame error
+    // can name the offending frame. It never feeds parsing, is cleared whenever a
+    // message is delivered, and downgrades the error text (instead of growing)
+    // once the small budget would be exceeded.
+    private _diagChunks: Buffer[] = [];
+    private _diagBytes = 0;
+    private _diagOverflow = false;
+
     // Close state.
     protected _closeCodeSent: number | null = null;
     protected _closeCodeReceived: number | null = null;
@@ -194,7 +323,7 @@ export class WebSocket extends EventEmitter {
         options = options || {};
         this._socket = socket;
         this._isServer = !!options.isServer;
-        this._maxPayload = options.maxPayload ?? DEFAULT_MAX_PAYLOAD;
+        this._maxPayload = options.maxPayload ?? DEFAULT_MAX_PAYLOAD_BYTES;
         this._readyState = options.readyState ?? OPEN;
         this._perMessageDeflate = options.extensions?.perMessageDeflate;
         this.protocol = options.protocol || '';
@@ -230,10 +359,11 @@ export class WebSocket extends EventEmitter {
             return;
         }
 
+        this._recordDiagnosticBytes(chunk);
         const res = this._parser.push(chunk);
 
         if (res.error) {
-            this._failConnection(res.code || 1002, res.message || 'Protocol error');
+            this._failConnection(res.code || 1002, this._describeParseError(res));
             return;
         }
 
@@ -244,6 +374,67 @@ export class WebSocket extends EventEmitter {
                 return;
             }
         }
+    }
+
+    /**
+     * Add the numbers a payload-limit failure needs to be actionable: how big the
+     * offending frame is, its message type, and the effective cap. The native
+     * parser only reports that the cap was exceeded, so the size is recovered by
+     * re-walking the buffered bytes; when that walk cannot reach a verdict the
+     * text names the cap alone instead of inventing a size.
+     */
+    protected _describeParseError(res: ParseResult): string {
+        const message = res.message || 'Protocol error';
+
+        if (res.code !== 1009) {
+            return message;
+        }
+
+        const info = this._scanDiagnosticBytes();
+        this._resetDiagnosticBytes();
+        const limit = `${this._maxPayload} byte limit (maxPayloadBytes)`;
+
+        if (!info) {
+            return `${message}: an inbound frame exceeds the ${limit}`;
+        }
+
+        return `${message}: ${info.payloadBytes} B ${opcodeLabel(info.opcode)} frame exceeds the ${limit}`;
+    }
+
+    /** Keep a bounded copy of the bytes received since the last delivered message. */
+    private _recordDiagnosticBytes(chunk: Buffer): void {
+        if (this._diagOverflow) {
+            return;
+        }
+
+        if (this._diagBytes + chunk.length > DIAG_BUFFER_LIMIT) {
+            this._diagOverflow = true;
+            this._diagChunks = [];
+            this._diagBytes = 0;
+            return;
+        }
+
+        this._diagChunks.push(chunk);
+        this._diagBytes += chunk.length;
+    }
+
+    private _resetDiagnosticBytes(): void {
+        this._diagChunks = [];
+        this._diagBytes = 0;
+        this._diagOverflow = false;
+    }
+
+    private _scanDiagnosticBytes(): FrameHeaderInfo | null {
+        if (this._diagOverflow || this._diagChunks.length === 0) {
+            return null;
+        }
+
+        const bytes =
+            this._diagChunks.length === 1
+                ? this._diagChunks[0]!
+                : Buffer.concat(this._diagChunks, this._diagBytes);
+
+        return scanOversizedFrame(bytes, this._maxPayload);
     }
 
     protected _onEnd(): void {
@@ -341,7 +532,10 @@ export class WebSocket extends EventEmitter {
         this._msgSize += payload.length;
 
         if (this._msgSize > this._maxPayload) {
-            this._failConnection(1009, 'Message too large');
+            this._failConnection(
+                1009,
+                `Message too large: ${this._msgSize} B ${opcodeLabel(this._msgOpcode)} message exceeds the ${this._maxPayload} byte limit (maxPayloadBytes)`,
+            );
             return;
         }
 
@@ -378,6 +572,7 @@ export class WebSocket extends EventEmitter {
             this._msgSize = 0;
             this._msgValidator = null;
             this._msgCompressed = false;
+            this._resetDiagnosticBytes();
             this.emit('message', data, isBinary);
         }
     }

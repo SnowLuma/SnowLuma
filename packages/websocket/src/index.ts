@@ -40,6 +40,7 @@ const Server = WebSocketServer;
 const _internal = { WebSocket: InternalWebSocket, native };
 
 export { WebSocketClient, WebSocketServer, Server, InternalWebSocket, _internal };
+export { DEFAULT_MAX_PAYLOAD_BYTES } from './websocket';
 
 export type { SendOptions, SendCallback, WebSocketRawData } from './websocket';
 export type { WebSocketClientOptions } from './client';

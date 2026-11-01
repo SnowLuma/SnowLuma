@@ -2,6 +2,13 @@ import { StreamTransportClosedError } from '../streaming';
 import type { WebSocket } from '@snowluma/websocket';
 import type { IncomingMessage } from 'http';
 
+/**
+ * Appended to a 1009 (frame-over-cap) log line. Shared so the client and server
+ * adapters cannot drift apart on the advice they give.
+ */
+export const MAX_PAYLOAD_HINT =
+    "Raise this adapter's maxPayloadBytes, or have the peer send a smaller frame (a URL/file reference or SILK instead of inline PCM)";
+
 export function isAuthorized(request: IncomingMessage, token: string): boolean {
     if (!token) {
         return true;

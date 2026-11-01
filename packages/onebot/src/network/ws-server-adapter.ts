@@ -154,7 +154,9 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
     }
 
     protected override bindingSignature(config: WsServerNetwork): string {
-        return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path)}#${config.role ?? 'auto'}#${config.accessToken ?? ''}`;
+        // The frame cap is fixed when the WebSocketServer is constructed, so a
+        // change must rebind instead of silently keeping the old limit.
+        return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path)}#${config.role ?? 'auto'}#${config.accessToken ?? ''}#${config.maxPayloadBytes ?? ''}`;
     }
 
     protected override onConfigReplaced(next: WsServerNetwork): void {
@@ -177,6 +179,7 @@ export class WsServerAdapter extends IOneBotNetworkAdapter<WsServerNetwork> {
                 wss = new WebSocketServer({
                     host: this.config.host ?? '0.0.0.0',
                     port: this.config.port,
+                    maxPayload: this.config.maxPayloadBytes,
                     verifyClient: (
                         { req }: { req: IncomingMessage },
                         done: (allow: boolean, code?: number, message?: string) => void,

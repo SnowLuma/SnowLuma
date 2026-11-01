@@ -346,25 +346,29 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
         const it = draft as HttpServerNetwork;
         const set = patch as (c: Partial<HttpServerNetwork>) => void;
         return (
-            <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-                <Field
-                    label="主机"
-                    placeholder="127.0.0.1"
-                    value={it.host}
-                    onChange={(v) => set({ host: v || undefined })}
-                />
-                <Field
-                    label="端口"
-                    type="number"
-                    value={it.port}
-                    onChange={(v) => set({ port: Number(v) || 0 })}
-                />
-                <Field
-                    label="路径"
-                    placeholder="/"
-                    value={it.path}
-                    onChange={(v) => set({ path: v || undefined })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+                    <Field
+                        label="主机"
+                        placeholder="127.0.0.1"
+                        value={it.host}
+                        onChange={(v) => set({ host: v || undefined })}
+                    />
+                    <Field
+                        label="端口"
+                        type="number"
+                        value={it.port}
+                        onChange={(v) => set({ port: Number(v) || 0 })}
+                    />
+                    <Field
+                        label="路径"
+                        placeholder="/"
+                        value={it.path}
+                        onChange={(v) => set({ path: v || undefined })}
+                    />
+                </div>
+                {/* The cap only exists for the embedded WebSocket listener. */}
+                {it.enableWebSocket === true ? maxPayloadField(it.maxPayloadBytes, set) : null}
             </div>
         );
     }
@@ -396,25 +400,28 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
         const it = draft as WsServerNetwork;
         const set = patch as (c: Partial<WsServerNetwork>) => void;
         return (
-            <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-                <Field
-                    label="主机"
-                    placeholder="127.0.0.1"
-                    value={it.host}
-                    onChange={(v) => set({ host: v || undefined })}
-                />
-                <Field
-                    label="端口"
-                    type="number"
-                    value={it.port}
-                    onChange={(v) => set({ port: Number(v) || 0 })}
-                />
-                <Field
-                    label="路径"
-                    placeholder="/"
-                    value={it.path}
-                    onChange={(v) => set({ path: v || undefined })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
+                    <Field
+                        label="主机"
+                        placeholder="127.0.0.1"
+                        value={it.host}
+                        onChange={(v) => set({ host: v || undefined })}
+                    />
+                    <Field
+                        label="端口"
+                        type="number"
+                        value={it.port}
+                        onChange={(v) => set({ port: Number(v) || 0 })}
+                    />
+                    <Field
+                        label="路径"
+                        placeholder="/"
+                        value={it.path}
+                        onChange={(v) => set({ path: v || undefined })}
+                    />
+                </div>
+                {maxPayloadField(it.maxPayloadBytes, set)}
             </div>
         );
     }
@@ -423,25 +430,62 @@ function KindFields<K extends NetworkKind>({ kind, draft, patch }: KindFieldsPro
         const it = draft as WsClientNetwork;
         const set = patch as (c: Partial<WsClientNetwork>) => void;
         return (
-            <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
-                <Field
-                    label="目标 URL"
-                    type="url"
-                    placeholder="ws://..."
-                    value={it.url}
-                    onChange={(v) => set({ url: v })}
-                />
-                <Field
-                    label="重连间隔 (ms)"
-                    type="number"
-                    value={it.reconnectIntervalMs}
-                    onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="grid gap-3 sm:grid-cols-[1fr_160px_160px]">
+                    <Field
+                        label="目标 URL"
+                        type="url"
+                        placeholder="ws://..."
+                        value={it.url}
+                        onChange={(v) => set({ url: v })}
+                    />
+                    <Field
+                        label="重连间隔 (ms)"
+                        type="number"
+                        value={it.reconnectIntervalMs}
+                        onChange={(v) => set({ reconnectIntervalMs: Number(v) || undefined })}
+                    />
+                </div>
+                {maxPayloadField(it.maxPayloadBytes, set)}
             </div>
         );
     }
 
     return null;
+}
+
+/**
+ * Inbound WebSocket frame cap. Shared by every editor that owns a WebSocket
+ * transport (wsServers, wsClients, httpServers with the embedded listener): the
+ * value is empty by default (transport default of 100 MiB), and the hint spells
+ * out why inline PCM audio hits it at ~7:26.
+ */
+function maxPayloadField(
+    value: number | undefined,
+    set: (patch: { maxPayloadBytes?: number }) => void,
+) {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="grid gap-3 sm:grid-cols-[160px_1fr] sm:items-end">
+                <Field
+                    label="单帧上限 (bytes)"
+                    type="number"
+                    min={1024}
+                    max={2147483648}
+                    step={1024}
+                    placeholder="104857600"
+                    value={value}
+                    onChange={(v) => set({ maxPayloadBytes: Number(v) || undefined })}
+                />
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+                入站 WebSocket 单帧上限，留空即默认 100 MiB（104857600），有效范围 1024 –
+                2147483648。44.1 kHz 立体声 PCM 语音约 445
+                秒（7:26）就会触顶并断开连接；超长音频应由上游改发 URL/文件或压缩为
+                SILK，调大上限会按帧大小增加内存占用。
+            </p>
+        </div>
+    );
 }
 
 // ─────────────── shared form bits ───────────────
@@ -452,10 +496,23 @@ interface FieldProps {
     onChange: (v: string) => void;
     placeholder?: string;
     type?: 'text' | 'number' | 'url';
+    min?: number;
+    max?: number;
+    step?: number;
     error?: string;
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text', error }: FieldProps) {
+function Field({
+    label,
+    value,
+    onChange,
+    placeholder,
+    type = 'text',
+    min,
+    max,
+    step,
+    error,
+}: FieldProps) {
     return (
         <div className="flex flex-col gap-1.5">
             <Label>{label}</Label>
@@ -464,6 +521,9 @@ function Field({ label, value, onChange, placeholder, type = 'text', error }: Fi
                 value={value ?? ''}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
+                min={min}
+                max={max}
+                step={step}
                 className={cn(error && 'border-destructive focus-visible:ring-destructive/40')}
             />
             {error && <p className="text-xs text-destructive">{error}</p>}

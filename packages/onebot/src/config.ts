@@ -24,6 +24,11 @@ const CONFIG_DIR = 'config';
 const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, 'onebot.json');
 const DEFAULT_ACCESS_TOKEN_BYTES = 32;
 const NODE_TIMER_MAX_MS = 2_147_483_647;
+/** Bounds for a per-adapter inbound WebSocket frame cap. 2 GiB is several
+ *  orders of magnitude past any real OneBot frame; above that a sender has to
+ *  split its payload instead of expecting a single buffer to hold it. */
+const MAX_PAYLOAD_BYTES_MIN = 1024;
+const MAX_PAYLOAD_BYTES_MAX = 2 * 1024 * 1024 * 1024;
 const PER_UIN_SNAPSHOT_MARKER = 'snapshot';
 
 const DEFAULT_STATUS_COMMAND: StatusCommandConfig = {
@@ -412,11 +417,15 @@ function validateRestoreAdapterArray(
               : ['url', 'role', 'reconnectIntervalMs'];
 
     if (kind === 'httpServers') {
-        specific.push('enableWebSocket');
+        specific.push('enableWebSocket', 'maxPayloadBytes');
     }
 
     if (kind === 'wsServers') {
-        specific.push('role');
+        specific.push('role', 'maxPayloadBytes');
+    }
+
+    if (kind === 'wsClients') {
+        specific.push('maxPayloadBytes');
     }
 
     const allowed = new Set<string>([...RESTORE_BASE_ADAPTER_KEYS, ...specific]);
@@ -451,6 +460,20 @@ function validateRestoreAdapterArray(
 
         if (raw.reportSelfMessage !== undefined && typeof raw.reportSelfMessage !== 'boolean') {
             invalid(`${pathAt}.reportSelfMessage must be a boolean`);
+        }
+
+        if (kind !== 'httpClients' && raw.maxPayloadBytes !== undefined) {
+            const maxPayload = parseRestoreInteger(raw.maxPayloadBytes);
+
+            if (
+                maxPayload === null ||
+                maxPayload < MAX_PAYLOAD_BYTES_MIN ||
+                maxPayload > MAX_PAYLOAD_BYTES_MAX
+            ) {
+                invalid(
+                    `${pathAt}.maxPayloadBytes must be an integer between ${MAX_PAYLOAD_BYTES_MIN} and ${MAX_PAYLOAD_BYTES_MAX}`,
+                );
+            }
         }
 
         if (kind === 'httpServers' || kind === 'wsServers') {
@@ -656,6 +679,7 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
     const serverBindings = new Map<string, string>();
     validateNetworkList(value.networks, 'httpServers', seen, (item, at) => {
         validateServer(item, at);
+        validateMaxPayloadBytes(item, at);
 
         if (item.enableWebSocket !== undefined && typeof item.enableWebSocket !== 'boolean') {
             invalid(`${at}.enableWebSocket must be a boolean`);
@@ -665,6 +689,11 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
     });
     validateNetworkList(value.networks, 'httpClients', seen, (item, at) => {
         validateClient(item, at, new Set(['http:', 'https:']));
+
+        // A frame cap on the pure HTTP POST adapter would be saved and ignored.
+        if (item.maxPayloadBytes !== undefined) {
+            invalid(`${at}.maxPayloadBytes is only supported by WebSocket adapters`);
+        }
 
         if (
             item.timeoutMs !== undefined &&
@@ -680,10 +709,12 @@ export function assertValidOneBotConfig(value: unknown): asserts value is OneBot
         validateServer(item, at);
         validateServerBinding(item, at, serverBindings);
         validateRole(item.role, `${at}.role`);
+        validateMaxPayloadBytes(item, at);
     });
     validateNetworkList(value.networks, 'wsClients', seen, (item, at) => {
         validateClient(item, at, new Set(['ws:', 'wss:']));
         validateRole(item.role, `${at}.role`);
+        validateMaxPayloadBytes(item, at);
 
         if (
             item.reconnectIntervalMs !== undefined &&
@@ -813,6 +844,24 @@ function validateNetworkBase(item: JsonObject, at: string): void {
 
     if (typeof item.reportSelfMessage !== 'boolean') {
         invalid(`${at}.reportSelfMessage must be a boolean`);
+    }
+}
+
+/** Strict gate for the WebSocket-only frame cap; `httpClients` must not carry it. */
+function validateMaxPayloadBytes(item: JsonObject, at: string): void {
+    if (item.maxPayloadBytes === undefined) {
+        return;
+    }
+
+    if (
+        typeof item.maxPayloadBytes !== 'number' ||
+        !Number.isSafeInteger(item.maxPayloadBytes) ||
+        item.maxPayloadBytes < MAX_PAYLOAD_BYTES_MIN ||
+        item.maxPayloadBytes > MAX_PAYLOAD_BYTES_MAX
+    ) {
+        invalid(
+            `${at}.maxPayloadBytes must be an integer between ${MAX_PAYLOAD_BYTES_MIN} and ${MAX_PAYLOAD_BYTES_MAX}`,
+        );
     }
 }
 
@@ -1030,6 +1079,7 @@ function applyBase(
         accessToken?: string;
         messageFormat: MessageFormat;
         reportSelfMessage: boolean;
+        maxPayloadBytes?: number;
     },
 ): void {
     out.name = n.name;
@@ -1044,6 +1094,10 @@ function applyBase(
 
     out.messageFormat = n.messageFormat;
     out.reportSelfMessage = n.reportSelfMessage;
+
+    if (n.maxPayloadBytes !== undefined) {
+        out.maxPayloadBytes = n.maxPayloadBytes;
+    }
 }
 
 function httpServerToJson(n: HttpServerNetwork): JsonObject {
@@ -1361,6 +1415,22 @@ function parseBase(value: JsonObject, defaults: AdapterDefaults) {
     };
 }
 
+/**
+ * Compatibility parser for the optional frame cap. Clamps like its neighbours
+ * (`timeoutMs`, `reconnectIntervalMs`) so an on-disk value written by an
+ * older/newer build still loads; `assertValidOneBotConfig` is the strict gate
+ * for values saved through the API/WebUI.
+ */
+function parseMaxPayloadBytes(value: unknown): number | undefined {
+    const parsed = asNumber(value, 0);
+
+    if (parsed <= 0) {
+        return undefined;
+    }
+
+    return Math.min(Math.max(parsed, MAX_PAYLOAD_BYTES_MIN), MAX_PAYLOAD_BYTES_MAX);
+}
+
 function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServerNetwork | null {
     if (value.enableWebSocket !== undefined && typeof value.enableWebSocket !== 'boolean') {
         invalid('http server enableWebSocket must be a boolean');
@@ -1378,6 +1448,7 @@ function parseHttpServer(value: JsonObject, defaults: AdapterDefaults): HttpServ
         port,
         path: asString(value.path, '/'),
         enableWebSocket: value.enableWebSocket === true,
+        maxPayloadBytes: parseMaxPayloadBytes(value.maxPayloadBytes),
     });
 }
 
@@ -1410,6 +1481,7 @@ function parseWsServer(value: JsonObject, defaults: AdapterDefaults): WsServerNe
         port,
         path: asString(value.path, '/'),
         role: asRole(value.role, 'Universal'),
+        maxPayloadBytes: parseMaxPayloadBytes(value.maxPayloadBytes),
     });
 }
 
@@ -1427,6 +1499,7 @@ function parseWsClient(value: JsonObject, defaults: AdapterDefaults): WsClientNe
         url,
         role: asRole(value.role, 'Universal'),
         reconnectIntervalMs: Math.max(1000, reconnectIntervalMs),
+        maxPayloadBytes: parseMaxPayloadBytes(value.maxPayloadBytes),
     });
 }
 

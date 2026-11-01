@@ -66,6 +66,14 @@ SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生
 
 JSON 消息段接受标准的 `data.data` 字符串，也兼容 `data.data` 非数组对象和 `{ type: "json", data: "..." }` 简写；`data` 必填，最终内容必须是 JSON 对象。
 
+## 已知限制
+
+### WebSocket 单帧上限与超长语音
+
+SnowLuma 读取 WebSocket 帧的上限默认是 **100 MiB**，可在每个 WebSocket 适配器上用 `maxPayloadBytes` 调整（WebUI 连接配置中为「单帧上限 (bytes)」），服务端与客户端两个方向都生效。
+
+对 OneBot 的内联媒体消息，这等于整段音频必须装进一帧：44.1 kHz 立体声 16-bit PCM（176 400 B/s）在 100 MiB 下只够 **约 445 秒（7 分 26 秒）**。超限时连接以 1009 关闭，日志会给出帧字节数、消息类型和当时生效的上限。更长的音频请让上游改发 URL/文件引用，或在发送前压缩（如 SILK）；单纯调大上限会按帧大小占用内存，不建议作为常规手段。
+
 ## 开发
 
 需要 Node.js 24+ 与 pnpm 11.25.0，日常开发基于 `dev` 分支：

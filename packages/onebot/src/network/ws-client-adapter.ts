@@ -8,7 +8,14 @@ import {
 } from '../event-filter';
 import type { JsonObject, WsClientNetwork, WsRole } from '../types';
 import { IOneBotNetworkAdapter, type AdapterStatus, type NetworkAdapterContext } from './adapter';
-import { rawDataToString, safeClose, safeSend, safeSendAsync, startHeartbeat } from './utils';
+import {
+    MAX_PAYLOAD_HINT,
+    rawDataToString,
+    safeClose,
+    safeSend,
+    safeSendAsync,
+    startHeartbeat,
+} from './utils';
 
 const moduleLog = createLogger('OneBot.WS-Client');
 const DEFAULT_RECONNECT_INTERVAL_MS = 5000;
@@ -107,7 +114,9 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
     }
 
     protected override bindingSignature(config: WsClientNetwork): string {
-        return `${config.url}#${config.role ?? 'Universal'}#${Math.max(1000, config.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${config.accessToken ?? ''}`;
+        // The frame cap is baked into the socket when it is created, so a change
+        // must reconnect instead of silently keeping the old limit.
+        return `${config.url}#${config.role ?? 'Universal'}#${Math.max(1000, config.reconnectIntervalMs ?? DEFAULT_RECONNECT_INTERVAL_MS)}#${config.accessToken ?? ''}#${config.maxPayloadBytes ?? ''}`;
     }
 
     protected override willEnable(config: WsClientNetwork): boolean {
@@ -160,7 +169,10 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
             headers.Authorization = `Bearer ${this.config.accessToken}`;
         }
 
-        const socket = new WebSocket(this.config.url, { headers });
+        const socket = new WebSocket(this.config.url, {
+            headers,
+            maxPayload: this.config.maxPayloadBytes,
+        });
         this.socket = socket;
         // Per-socket so a hot-reload overlap (old close firing after the new socket
         // is assigned, see #97) can only ever stop its own keepalive.
@@ -255,11 +267,16 @@ export class WsClientAdapter extends IOneBotNetworkAdapter<WsClientNetwork> {
         });
 
         socket.on('error', (err: Error) => {
+            // Keep the established `error <url>:` line intact (deployments grep
+            // it); the actionable hint is appended, never substituted.
+            const message = err instanceof Error ? err.message : String(err);
             this.log.warn(
                 '[%s] error %s: %s',
                 this.name,
                 this.config.url,
-                err instanceof Error ? err.message : String(err),
+                (err as Error & { code?: number }).code === 1009
+                    ? `${message}. ${MAX_PAYLOAD_HINT}`
+                    : message,
             );
         });
     }

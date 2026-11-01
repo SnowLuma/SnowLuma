@@ -215,7 +215,12 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
 
     protected override bindingSignature(config: HttpServerNetwork): string {
         const webSocket = config.enableWebSocket === true ? 'ws' : 'http';
-        return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path ?? '/')}#${webSocket}`;
+        // The frame cap is fixed when the WebSocketServer is constructed, so a
+        // change must rebind instead of silently keeping the old limit — but only
+        // when this adapter actually owns a WebSocket transport, otherwise the
+        // HTTP listener would be torn down for a value it never uses.
+        const maxPayload = config.enableWebSocket === true ? (config.maxPayloadBytes ?? '') : '';
+        return `${config.host ?? '0.0.0.0'}:${config.port}${normalizePath(config.path ?? '/')}#${webSocket}#${maxPayload}`;
     }
 
     protected override onConfigReplaced(next: HttpServerNetwork): void {
@@ -242,6 +247,7 @@ export class HttpServerAdapter extends IOneBotNetworkAdapter<HttpServerNetwork> 
                 if (this.config.enableWebSocket === true) {
                     webSocketServer = new WebSocketServer({
                         server,
+                        maxPayload: this.config.maxPayloadBytes,
                         verifyClient: ({ req }: { req: IncomingMessage }) =>
                             this.webSocketConnections.authorizeUpgrade(req),
                     });

@@ -1033,7 +1033,9 @@ describe('WebSocketClient', () => {
             ),
         );
         const err = await events.waitError();
-        expect(err.message).toBe('WebSocket protocol error: Payload exceeds configured max');
+        expect(err.message).toBe(
+            'WebSocket protocol error: Payload exceeds configured max: 5 B text frame exceeds the 4 byte limit (maxPayloadBytes)',
+        );
         expect((err as Error & { code?: number }).code).toBe(1009);
     });
 

@@ -10,6 +10,7 @@ import {
 import type { JsonObject, NetworkBase, WsRole } from '../types';
 import type { NetworkAdapterContext } from './adapter';
 import {
+    MAX_PAYLOAD_HINT,
     isAuthorized,
     normalizePath,
     parseRequestPath,
@@ -211,10 +212,15 @@ export class WsServerConnections {
             this.connections.delete(socket);
         });
         socket.on('error', (error: Error) => {
+            // Keep the established `socket error:` line intact (deployments grep
+            // it); the actionable hint is appended, never substituted.
+            const message = error instanceof Error ? error.message : String(error);
             this.log.warn(
                 '[%s] socket error: %s',
                 this.name,
-                error instanceof Error ? error.message : String(error),
+                (error as Error & { code?: number }).code === 1009
+                    ? `${message}. ${MAX_PAYLOAD_HINT}`
+                    : message,
             );
         });
 

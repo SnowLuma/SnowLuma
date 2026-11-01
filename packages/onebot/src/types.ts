@@ -38,7 +38,28 @@ export interface NetworkBase {
     reportSelfMessage: boolean;
 }
 
-export interface HttpServerNetwork extends NetworkBase {
+/**
+ * Inbound WebSocket frame cap, shared by the three adapters that read WebSocket
+ * frames: `wsServers`, `wsClients`, and `httpServers` with `enableWebSocket`.
+ * It is deliberately not part of {@link NetworkBase}: `httpClients` has no
+ * WebSocket transport, and a saved-but-ignored option is worse than none.
+ */
+export interface WsFrameLimitConfig {
+    /**
+     * Cap on one inbound WebSocket message, in bytes (all fragments included).
+     * Omitted means the transport default of 100 MiB
+     * (`DEFAULT_MAX_PAYLOAD_BYTES`).
+     *
+     * Frames larger than the cap close the connection with 1009. A OneBot peer
+     * that sends media inline has to fit the whole payload into one frame: at
+     * 44.1 kHz stereo 16-bit PCM (176 400 B/s), 100 MiB is ~445 s (7:26), so
+     * longer audio must arrive as a URL/file reference or be compressed (SILK).
+     * Raising this value raises peak memory by the frame size.
+     */
+    maxPayloadBytes?: number;
+}
+
+export interface HttpServerNetwork extends NetworkBase, WsFrameLimitConfig {
     host?: string;
     port: number;
     path?: string;
@@ -51,14 +72,14 @@ export interface HttpClientNetwork extends NetworkBase {
     timeoutMs?: number;
 }
 
-export interface WsServerNetwork extends NetworkBase {
+export interface WsServerNetwork extends NetworkBase, WsFrameLimitConfig {
     host?: string;
     port: number;
     path?: string;
     role?: WsRole;
 }
 
-export interface WsClientNetwork extends NetworkBase {
+export interface WsClientNetwork extends NetworkBase, WsFrameLimitConfig {
     url: string;
     role?: WsRole;
     reconnectIntervalMs?: number;
