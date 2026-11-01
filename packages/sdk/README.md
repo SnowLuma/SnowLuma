@@ -444,3 +444,7 @@ src/
 ## 版本策略
 
 当前包版本为 `0.1.0`。版本规则、发布检查清单和破坏性变更边界见 [VERSIONING.md](./VERSIONING.md)。
+
+## 接收反向 WebSocket 连接
+
+Node 程序可通过 `@snowluma/sdk/node` 的 `createReverseWebSocketServer()` 接受 SnowLuma 的反向连接，按账号使用原有消息监听、动作和流式接口。支持统一连接或分开的 API/Event 通道。配置、鉴权和重连处理见 [REVERSE_WEBSOCKET.md](REVERSE_WEBSOCKET.md)。

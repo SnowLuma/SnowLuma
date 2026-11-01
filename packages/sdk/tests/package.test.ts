@@ -1,5 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    copyFileSync,
+    cpSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -41,6 +50,21 @@ beforeAll(() => {
     const installed = path.join(consumerRoot, 'node_modules', '@snowluma', 'sdk');
     mkdirSync(installed, { recursive: true });
     copyFileSync(path.join(sdkRoot, 'package.json'), path.join(installed, 'package.json'));
+    // Install the declared runtime dependency into this isolated consumer. Node
+    // type declarations belong to the consuming Node project's dev environment.
+    const require = createRequire(import.meta.url);
+    cpSync(
+        path.dirname(require.resolve('ws/package.json')),
+        path.join(consumerRoot, 'node_modules', 'ws'),
+        { recursive: true },
+    );
+    mkdirSync(path.join(consumerRoot, 'node_modules', '@types'), { recursive: true });
+    symlinkSync(
+        path.dirname(require.resolve('@types/node/package.json')),
+        path.join(consumerRoot, 'node_modules', '@types', 'node'),
+        'dir',
+    );
+
     copyFileSync(
         path.join(sdkRoot, 'tests', 'fixtures', 'action-types.mts'),
         path.join(consumerRoot, 'action-types.mts'),
@@ -52,6 +76,46 @@ beforeAll(() => {
     copyFileSync(
         path.join(sdkRoot, 'tests', 'fixtures', 'messaging-types.mts'),
         path.join(consumerRoot, 'messaging-types.mts'),
+    );
+
+    writeFileSync(
+        path.join(consumerRoot, 'reverse-types.mts'),
+        `import { text } from '@snowluma/sdk';
+import { createReverseWebSocketServer, type SnowLumaReverseWebSocketSession } from '@snowluma/sdk/node';
+const reverse = createReverseWebSocketServer({ port: 0, selfIds: ['10001'] });
+reverse.on('connection', (bot: SnowLumaReverseWebSocketSession) => {
+    const id: string = bot.selfId;
+    const ready: boolean = bot.canCallActions;
+    void bot.getStatus();
+    bot.onMessage(async (_event, context) => { await context.reply(text(id)); });
+    void ready;
+});
+`,
+    );
+
+    writeFileSync(
+        path.join(consumerRoot, 'browser-types.mts'),
+        `
+import { SnowLumaWebSocketClient, text } from '@snowluma/sdk';
+new SnowLumaWebSocketClient().onMessage(async (_event, context) => { await context.reply(text('hello')); });
+// @ts-expect-error Node globals must not leak through the browser entry.
+process.cwd();
+`,
+    );
+    writeFileSync(
+        path.join(consumerRoot, 'tsconfig.browser.json'),
+        JSON.stringify({
+            compilerOptions: {
+                strict: true,
+                noEmit: true,
+                target: 'ES2022',
+                lib: ['ES2022', 'DOM'],
+                module: 'ESNext',
+                moduleResolution: 'Bundler',
+                types: [],
+            },
+            files: ['browser-types.mts'],
+        }),
     );
 
     // Compile fresh output outside the workspace so neither stale dist files nor
@@ -103,6 +167,25 @@ afterAll(() => {
 });
 
 describe('SDK package entry points', () => {
+    it('keeps browser consumers independent of Node server declarations', () => {
+        node([compiler, '-p', path.join(consumerRoot, 'tsconfig.browser.json')]);
+    });
+
+    it('starts the published Node reverse server without workspace resolution', () => {
+        node([
+            '--input-type=module',
+            '--eval',
+            `
+import assert from 'node:assert/strict';
+import { createReverseWebSocketServer } from '@snowluma/sdk/node';
+const server = createReverseWebSocketServer({ port: 0 });
+await server.listen();
+assert.ok(server.address.port > 0);
+await server.close();
+`,
+        ]);
+    });
+
     it.each(entrypoints)('loads %s in native Node without a bundler', (entrypoint) => {
         node(['--input-type=module', '--eval', `await import(${JSON.stringify(entrypoint)});`]);
     });
@@ -155,6 +238,22 @@ assert.equal(actions.isSnowLumaAction('consumer_extension'), false);
                 path.join(consumerRoot, 'consumer.mts'),
                 path.join(consumerRoot, 'action-types.mts'),
                 path.join(consumerRoot, 'messaging-types.mts'),
+            ]);
+            node([
+                compiler,
+                '--noEmit',
+                '--strict',
+                '--target',
+                'ES2022',
+                '--lib',
+                'ES2022,DOM',
+                '--types',
+                'node',
+                '--module',
+                module,
+                '--moduleResolution',
+                resolution,
+                path.join(consumerRoot, 'reverse-types.mts'),
             ]);
         },
         30_000,

@@ -4,6 +4,14 @@ import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { NamedMediaSource } from '../types/index.js';
 
+export {
+    createReverseWebSocketServer,
+    SnowLumaReverseWebSocketServer,
+    type SnowLumaReverseWebSocketSession,
+    type ReverseWebSocketServerOptions,
+    type ReverseWebSocketServerEvents,
+} from './reverse-websocket-server.js';
+
 /** Opens a file-backed source without buffering the entire file in memory.
  * Keep the file unchanged until the send finishes; read failures are propagated. */
 export async function localFile(path: string | URL): Promise<NamedMediaSource> {

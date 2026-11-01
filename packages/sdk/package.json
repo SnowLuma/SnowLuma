@@ -78,7 +78,8 @@
     "CHANGELOG.md",
     "STREAMING.md",
     "MESSAGING.md",
-    "VERSIONING.md"
+    "VERSIONING.md",
+    "REVERSE_WEBSOCKET.md"
   ],
   "scripts": {
     "clean": "node -e \"const fs = require('node:fs'); fs.rmSync('dist', { recursive: true, force: true })\"",
@@ -96,7 +97,11 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/ws": "8.18.2",
     "typescript": "catalog:",
     "vitest": "4.1.12"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
   }
 }

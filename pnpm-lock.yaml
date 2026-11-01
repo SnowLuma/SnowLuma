@@ -345,10 +345,17 @@ importers:
   packages/runtime: {}
 
   packages/sdk:
+    dependencies:
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      '@types/ws':
+        specifier: 8.18.2
+        version: 8.18.2
       typescript:
         specifier: 'catalog:'
         version: 6.0.2

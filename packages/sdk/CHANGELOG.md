@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a Node reverse WebSocket server with authenticated per-account sessions, Universal and paired API/Event channels, existing action/event/stream helpers, bounded buffers and explicit disconnect handling; see [REVERSE_WEBSOCKET.md](REVERSE_WEBSOCKET.md).
+
 - Add one-step local media sends, the optional `@snowluma/sdk/node` file source, stage-aware errors, explicit quoted replies, and cancellable WebSocket event waits; see [MESSAGING.md](MESSAGING.md). Existing methods and handler/context types remain compatible.
 - Report group-file chat publication failures through the runtime's existing error response instead of returning a successful upload result after publication fails.
 - Add HTTP and WebSocket `requestStream()` / `stream()`, incremental `uploadFileStream()` / `downloadFileStream()` helpers, cancellation, bounded response buffering, and transfer validation. Existing single-response methods remain unchanged; see [STREAMING.md](STREAMING.md).

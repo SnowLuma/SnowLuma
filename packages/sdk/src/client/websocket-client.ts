@@ -414,6 +414,16 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
             appendAccessToken(this.url, this.accessToken),
             this.protocols,
         );
+        return this.attachSocket(socket);
+    }
+
+    /** Shared protocol session for outgoing and already accepted connections. */
+    protected attachSocket(socket: WebSocketLike): Promise<void> {
+        if (this.connection) {
+            throw new SnowLumaConnectionError('A WebSocket is already attached');
+        }
+
+        this.closedByUser = false;
         let resolveOpening!: () => void;
         let rejectOpening!: (error: Error) => void;
         const opened = new Promise<void>((resolve, reject) => {
@@ -430,16 +440,19 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
             },
         };
         this.connection = connection;
-        listeners.push(
-            addSocketListener(socket, 'open', () => {
-                if (this.connection !== connection) {
-                    return;
-                }
 
-                this.reconnectAttempts = 0;
-                resolveOpening();
-                this.emitter.emit('open', undefined);
-            }),
+        const openedSocket = (): void => {
+            if (this.connection !== connection) {
+                return;
+            }
+
+            this.reconnectAttempts = 0;
+            resolveOpening();
+            this.emitter.emit('open', undefined);
+        };
+
+        listeners.push(
+            addSocketListener(socket, 'open', openedSocket),
             addSocketListener(socket, 'message', (...args) => {
                 if (this.connection === connection) {
                     this.handleMessage(args);
@@ -460,6 +473,10 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
                 this.handleClose(args);
             }),
         );
+
+        if (socket.readyState === WEBSOCKET_OPEN) {
+            openedSocket();
+        }
 
         return opened;
     }
