@@ -27,6 +27,8 @@ import {
 import {
     getQzonePublicCapabilities,
     getQzoneHomeFeeds,
+    getQzoneFeedDetail,
+    type QzoneFeedDetail,
     getQzoneShareArk,
     type QzoneShareArk,
     getQzonePublicFeeds,
@@ -79,6 +81,11 @@ export class QzoneApi {
     async getHomeFeeds(targetUin?: number, cursor?: string): Promise<QzonePublicFeedsPage> {
         const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
         return getQzoneHomeFeeds(cookies, this.ctx.identity.uin, targetUin?.toString(), cursor);
+    }
+
+    async getFeedDetail(tid: string): Promise<QzoneFeedDetail> {
+        const cookies = await this.ctx.apis.web.getCookies('qzone.qq.com');
+        return getQzoneFeedDetail(cookies, tid);
     }
 
     async getShareArk(feed: JsonObject): Promise<QzoneShareArk> {

@@ -164,6 +164,15 @@ export const invalidQzoneProfilePatch: ActionParams<'set_qzone_profile'> = {
     // @ts-expect-error profile fields accept string, number or boolean primitives
     description: [],
 };
+const feedDetail = await http.raw('get_qzone_feed_detail', actionParams.get_qzone_feed_detail);
+export const fullQzoneFeed: JsonObject = feedDetail.feed;
+export const feedDetailCursor: string | null = feedDetail.attach_info;
+export const feedDetailCard = await http.raw('get_qzone_share_ark', { feed: feedDetail.feed });
+// @ts-expect-error querying a feed requires a post ID
+http.raw('get_qzone_feed_detail', {});
+// @ts-expect-error the post ID is hexadecimal text, not an array
+http.raw('get_qzone_feed_detail', { tid: [] });
+
 const publicPage = await http.raw('get_qzone_public_feeds', {});
 export const publicCells: JsonObject[] = publicPage.feeds;
 export const publicHasMore: boolean = publicPage.has_more;

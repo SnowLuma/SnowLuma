@@ -422,6 +422,13 @@ export interface QzonePublicFeedsPage extends JsonObject {
     next_cursor: string | null;
 }
 
+export interface QzoneFeedDetailResult extends JsonObject {
+    /** Original cells, suitable for get_qzone_share_ark when sharing is permitted. */
+    feed: JsonObject;
+    /** Upstream comment continuation; null when none is supplied. No automatic pagination. */
+    attach_info: string | null;
+}
+
 export interface QzoneShareArkResult extends JsonObject {
     /** Preserve this string when sending a JSON message. */
     ark: string;

@@ -185,7 +185,17 @@ for (const comment of detail.comments) {
 
 `get_qzone_home_feeds` 读取自己的空间主页，可传 `target_uin` 访问有权限的其他主页；`cursor` 使用同一账号、同一主页上次返回的 `next_cursor`。它返回完整动态，旧版 `get_qzone_feeds` 和 `get_qzone_msg_list` 保持原有格式。
 
-把主页或推荐列表的完整动态传给 `get_qzone_share_ark`，可获得 `{ ark, requires_confirmation, notice }`。此动作会生成分享卡片但不发送消息；将 `ark` 原文交给普通 JSON 消息发送接口即可获得消息编号，继续使用已有撤回及发送事件能力。
+已有说说编号时，可调用 `get_qzone_feed_detail`，传入 `get_qzone_msg_list` 或 `send_qzone_msg` 返回的 24 位十六进制 `tid`。此接口读取普通空间说说，自动从编号取得作者和发布时间，不需要 `target_uin`；访问仍使用当前账号的权限。结果的 `feed` 是单个完整动态对象，保留图片、视频、分享信息和未知字段，无需再取 `.feed.feed`。其余上游详情字段也会保留，`attach_info` 为上游评论游标（未提供时为 `null`）；只读取一次详情，不自动翻页，也不保证评论和回复完整。旧的 `get_qzone_msg_detail` 及其 `pos/num` 分页保持不变。
+
+```ts
+const detail = await bot.raw('get_qzone_feed_detail', {
+  tid: '1127000000f1536501000000', // 替换为实际说说编号
+});
+const card = await bot.raw('get_qzone_share_ark', { feed: detail.feed });
+// 若 card.requires_confirmation 为 true，发送前展示 card.notice 并取得确认。
+```
+
+把详情、主页或推荐列表的完整动态传给 `get_qzone_share_ark`，可获得 `{ ark, requires_confirmation, notice }`。此动作会生成分享卡片但不发送消息；将 `ark` 原文交给普通 JSON 消息发送接口即可获得消息编号，继续使用已有撤回及发送事件能力。能读取不代表允许分享：分享受限或缺少上游分享信息时，分享接口会明确报错。
 
 分享链接可能让未登录者也能访问动态，并包含作者 QQ 号。若 `requires_confirmation` 为 `true`，发送前应展示 `notice` 并取得确认；上游禁止分享或生成失败会返回错误。
 

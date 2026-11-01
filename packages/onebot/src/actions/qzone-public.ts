@@ -80,6 +80,45 @@ export const actions = [
             okResponse(await ctx.bridge.apis.qzone.getHomeFeeds(p.target_uin, p.cursor)),
     }),
     defineAction({
+        name: 'get_qzone_feed_detail',
+        summary: '按说说 tid 读取完整空间动态，可用于生成分享卡片',
+        readOnly: true,
+        examples: [
+            {
+                summary: '按说说编号获取完整动态',
+                params: { tid: '1127000000f1536501000000' },
+                notes: '将示例 tid 替换为 get_qzone_msg_list 或 send_qzone_msg 返回的 24 位十六进制说说编号。把结果的 feed 原样传给 get_qzone_share_ark；读取和分享均受空间权限限制。',
+            },
+        ],
+        returns:
+            '完整动态及上游详情字段。feed 保留图片、视频、分享信息和未知字段，可直接用于 get_qzone_share_ark；attach_info 保留上游评论游标，不自动翻页。',
+        returnsSchema: {
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+                feed: {
+                    type: 'object',
+                    additionalProperties: true,
+                    description: '去除上游包装后的完整动态，可原样传给 get_qzone_share_ark',
+                },
+                attach_info: {
+                    type: ['string', 'null'],
+                    description: '上游评论续页游标，未提供时为 null；不保证评论及回复完整',
+                },
+            },
+            required: ['feed', 'attach_info'],
+        },
+        params: {
+            tid: f.string({ allowEmpty: false, maxLen: 24 }).describe('24 位十六进制说说编号'),
+        },
+        rules: (r) => [
+            r.rule('tid must be a 24-character hexadecimal post ID', (p) =>
+                /^[0-9a-f]{24}$/i.test(p.tid),
+            ),
+        ],
+        run: async (p, ctx) => okResponse(await ctx.bridge.apis.qzone.getFeedDetail(p.tid)),
+    }),
+    defineAction({
         name: 'get_qzone_share_ark',
         summary: '生成空间动态分享卡片，返回原文及分享提示',
         readOnly: false,
@@ -100,7 +139,7 @@ export const actions = [
                         },
                     },
                 },
-                notes: 'feed 原样取自 get_qzone_home_feeds 或 get_qzone_public_feeds。分享链接可能允许未登录者访问并包含作者 QQ 号；如 requires_confirmation=true，发送前展示 notice 并取得确认。将 ark 原文作为 JSON 消息发送，不要修改卡片内容。',
+                notes: 'feed 原样取自 get_qzone_feed_detail 的 feed，或 get_qzone_home_feeds / get_qzone_public_feeds 的 feeds 条目。分享链接可能允许未登录者访问并包含作者 QQ 号；如 requires_confirmation=true，发送前展示 notice 并取得确认。将 ark 原文作为 JSON 消息发送，不要修改卡片内容。',
             },
         ],
         returns: '生成卡片但不发送消息；后续发送仍返回普通消息编号。',
@@ -116,7 +155,9 @@ export const actions = [
             },
             required: ['ark', 'requires_confirmation', 'notice'],
         },
-        params: { feed: f.object().describe('主页或推荐列表返回的完整动态，保留所有原始字段') },
+        params: {
+            feed: f.object().describe('主页、详情或推荐列表返回的完整动态，保留所有原始字段'),
+        },
         run: async (p, ctx) => okResponse(await ctx.bridge.apis.qzone.getShareArk(p.feed)),
     }),
     defineAction({

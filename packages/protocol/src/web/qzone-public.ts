@@ -1,4 +1,6 @@
 import type { JsonObject } from '@snowluma/common/json';
+import type { QzoneEmotionUgcId } from '@snowluma/proto-defs/qzone';
+import { protobuf_encode } from '@snowluma/proton';
 import { RequestUtil, cookieToString, getBknFromCookie } from './request-util';
 
 export type QzonePublicContent = string | JsonObject[];
@@ -13,6 +15,13 @@ export interface QzoneShareArk extends JsonObject {
     ark: string;
     requires_confirmation: boolean;
     notice: string | null;
+}
+
+export interface QzoneFeedDetail extends JsonObject {
+    /** Original cells, ready to pass to getQzoneShareArk when sharing is allowed. */
+    feed: JsonObject;
+    /** Upstream comment continuation; null when the server supplies none. */
+    attach_info: string | null;
 }
 
 interface HomeFeedCursor {
@@ -238,6 +247,63 @@ export async function getQzoneHomeFeeds(
     return { ...data, feeds, has_more: data.has_more, next_cursor: nextCursor };
 }
 
+export async function getQzoneFeedDetail(
+    cookies: Record<string, string>,
+    tid: string,
+): Promise<QzoneFeedDetail> {
+    if (tid.length !== 24 || !/^[0-9a-f]{24}$/i.test(tid)) {
+        throw new Error('空间说说 tid 必须是 24 位十六进制编号');
+    }
+
+    const feedId = tid.toLowerCase();
+    const identity = Buffer.from(feedId, 'hex');
+    // Personal-space tids carry the author and creation time as little-endian
+    // uint32 words. Use the actual time rather than guessing an ignored field.
+    const ugcId = protobuf_encode<QzoneEmotionUgcId>({
+        appId: 311n,
+        uin: BigInt(identity.readUInt32LE(0)),
+        publishTime: BigInt(identity.readUInt32LE(4)),
+        field4: '',
+        field5: '',
+        field6: '0',
+        tid: feedId,
+    });
+    const data = await request(cookies, reader, 'GetFeedDetail', '0x97b1_1', {
+        union_id: {
+            feed_id: feedId,
+            ugc_id: Buffer.from(ugcId).toString('base64'),
+            adv_id: null,
+        },
+        feed_action_domain_type: 1,
+        from_page: 1,
+    });
+    const wrapper = data.feed;
+
+    if (!isObject(wrapper) || !isObject(wrapper.feed)) {
+        throw new Error('qzone GetFeedDetail 响应缺少完整动态 feed.feed');
+    }
+
+    const feed = wrapper.feed;
+    const common = feed.cell_common;
+    const unionId = isObject(common) ? common.union_id : undefined;
+
+    if (
+        !isObject(unionId) ||
+        typeof unionId.feed_id !== 'string' ||
+        unionId.feed_id.toLowerCase() !== feedId
+    ) {
+        throw new Error('qzone GetFeedDetail 返回的动态编号与请求不符');
+    }
+
+    if (data.attach_info != null && typeof data.attach_info !== 'string') {
+        throw new Error('qzone GetFeedDetail 评论游标格式异常');
+    }
+
+    // Match homepage feeds: remove only the item wrapper, retaining every cell
+    // (especially the opaque sharing fields) and the remaining response metadata.
+    return { ...data, feed, attach_info: data.attach_info ?? null };
+}
+
 export async function getQzoneShareArk(
     cookies: Record<string, string>,
     feed: JsonObject,
@@ -272,7 +338,7 @@ export async function getQzoneShareArk(
         typeof feed.cell_feed_transfer !== 'string' ||
         !feed.cell_feed_transfer
     ) {
-        throw new Error('空间动态缺少分享信息，请传入主页或推荐列表返回的完整动态');
+        throw new Error('空间动态缺少分享信息，请传入主页、详情或推荐列表返回的完整动态');
     }
 
     const data = await request(cookies, 'trpc.qq.share.Service', 'CreateShare', '0x9409_1', {

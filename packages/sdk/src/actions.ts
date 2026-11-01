@@ -185,6 +185,7 @@ export const SNOWLUMA_ACTIONS = [
     'get_qun_album_list',
     'get_qzone_feeds',
     'get_qzone_home_feeds',
+    'get_qzone_feed_detail',
     'get_qzone_msg_detail',
     'get_qzone_msg_list',
     'get_qzone_profile',

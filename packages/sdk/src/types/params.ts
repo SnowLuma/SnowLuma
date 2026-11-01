@@ -633,8 +633,13 @@ export interface GetQzoneHomeFeedsParams extends JsonObject {
     cursor?: string;
 }
 
+export interface GetQzoneFeedDetailParams extends JsonObject {
+    /** 24 hexadecimal characters from get_qzone_msg_list or send_qzone_msg. */
+    tid: string;
+}
+
 export interface GetQzoneShareArkParams extends JsonObject {
-    /** Original feed from get_qzone_home_feeds or get_qzone_public_feeds. */
+    /** Original feed from get_qzone_feed_detail, get_qzone_home_feeds or get_qzone_public_feeds. */
     feed: JsonObject;
 }
 
