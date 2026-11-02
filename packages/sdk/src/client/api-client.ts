@@ -297,8 +297,12 @@ export abstract class SnowLumaApiClient {
         return this.call('delete_msg', { message_id: messageId }, options);
     }
 
-    getFriendList(options?: RequestOptions) {
-        return this.call('get_friend_list', {}, options);
+    getFriendList(options?: RequestOptions & { withProfile?: boolean }) {
+        return this.call(
+            'get_friend_list',
+            options?.withProfile === undefined ? {} : { with_profile: options.withProfile },
+            options,
+        );
     }
 
     getStrangerInfo(userId: number, options?: RequestOptions) {

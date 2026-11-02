@@ -1,5 +1,6 @@
 import { defineAction, f } from '../action-kit';
-import { okResponse } from '../types';
+import { failedResponse, okResponse, RETCODE } from '../types';
+import { friendResultSchema, publicProfileProperties } from './contact-profile-schema';
 
 export const actions = [
     defineAction({
@@ -12,23 +13,25 @@ export const actions = [
         ],
         summary: '获取好友列表',
         readOnly: true,
-        returns: '好友列表数组，每项含 QQ 号、昵称与备注。',
+        returns:
+            '好友列表，包含账号、昵称、备注及回包已有的公开资料；with_profile=true 时主动补查，失败会报错。未返回的资料省略，零、空字符串和 false 保留。',
         returnsSchema: {
             type: 'array',
-            items: {
-                type: 'object',
-                properties: {
-                    user_id: { type: 'integer', description: '好友 QQ 号' },
-                    nickname: { type: 'string', description: '好友昵称' },
-                    remark: { type: 'string', description: '好友备注' },
-                },
-                required: ['user_id', 'nickname', 'remark'],
-            },
+            items: friendResultSchema,
         },
-        params: {},
-        run: async (_p, ctx) => {
+        params: {
+            with_profile: f
+                .bool()
+                .default(false)
+                .describe('主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长'),
+        },
+        run: async (p, ctx) => {
             if (ctx.getFriendList) {
-                return okResponse(await ctx.getFriendList());
+                return okResponse(await ctx.getFriendList(p.with_profile));
+            }
+
+            if (p.with_profile) {
+                return failedResponse(RETCODE.ACTION_FAILED, 'friend profile provider unavailable');
             }
 
             return okResponse([]);
@@ -53,6 +56,7 @@ export const actions = [
         returnsSchema: {
             type: 'object',
             properties: {
+                ...publicProfileProperties,
                 user_id: { type: 'integer', description: 'QQ 号' },
                 uid: { type: 'string', description: '账号唯一标识（仅查到资料时返回）' },
                 qid: { type: 'string', description: '自定义账号标识（仅查到资料时返回）' },

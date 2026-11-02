@@ -6176,7 +6176,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_friend_list",
     "aliases": [],
     "summary": "获取好友列表",
-    "returns": "好友列表数组，每项含 QQ 号、昵称与备注。",
+    "returns": "好友列表，包含账号、昵称、备注及回包已有的公开资料；with_profile=true 时主动补查，失败会报错。未返回的资料省略，零、空字符串和 false 保留。",
     "returnsSchema": {
       "type": "array",
       "items": {
@@ -6193,6 +6193,171 @@ export const ACTIONS: CatalogAction[] = [
           "remark": {
             "type": "string",
             "description": "好友备注"
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "好友分组编号，有来源时返回"
+          },
+          "long_nick": {
+            "type": "string",
+            "description": "个性签名"
+          },
+          "sex": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "unknown"
+            ],
+            "description": "性别"
+          },
+          "age": {
+            "type": "integer",
+            "description": "年龄"
+          },
+          "level": {
+            "type": "integer",
+            "description": "QQ 等级"
+          },
+          "birthday_year": {
+            "type": "integer",
+            "description": "生日年份，未公开时省略"
+          },
+          "birthday_month": {
+            "type": "integer",
+            "description": "生日月份（1-12）"
+          },
+          "birthday_day": {
+            "type": "integer",
+            "description": "生日日期（1-31）"
+          },
+          "phone_num": {
+            "type": "string",
+            "description": "资料卡公开的电话号码"
+          },
+          "email": {
+            "type": "string",
+            "description": "资料卡公开的邮箱"
+          },
+          "country": {
+            "type": "string",
+            "description": "国家"
+          },
+          "province": {
+            "type": "string",
+            "description": "省份"
+          },
+          "city": {
+            "type": "string",
+            "description": "城市"
+          },
+          "college": {
+            "type": "string",
+            "description": "学校"
+          },
+          "is_qq_vip": {
+            "type": "boolean",
+            "description": "普通会员状态"
+          },
+          "is_vip": {
+            "type": "boolean",
+            "description": "超级会员状态，兼容已有接口"
+          },
+          "is_years_vip": {
+            "type": "boolean",
+            "description": "年费会员状态"
+          },
+          "vip_level": {
+            "type": "integer",
+            "description": "会员等级"
+          },
+          "privilege_icons": {
+            "type": "object",
+            "description": "业务图标；未返回该资料时省略整个字段，空列表表示没有该类图标",
+            "properties": {
+              "jump_url": {
+                "type": "string",
+                "description": "业务列表跳转地址"
+              },
+              "open": {
+                "type": "array",
+                "description": "已开通业务",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "integer",
+                      "description": "业务类型"
+                    },
+                    "level": {
+                      "type": "integer",
+                      "description": "业务等级"
+                    },
+                    "flag": {
+                      "type": "integer",
+                      "description": "服务端业务标志"
+                    },
+                    "is_big": {
+                      "type": "integer",
+                      "description": "服务端大图标标志"
+                    },
+                    "jump_url": {
+                      "type": "string",
+                      "description": "业务跳转地址"
+                    },
+                    "icon_url": {
+                      "type": "string",
+                      "description": "普通图标地址"
+                    },
+                    "deluxe_icon_url": {
+                      "type": "string",
+                      "description": "高级图标地址，可与普通图标同时存在"
+                    }
+                  }
+                }
+              },
+              "closed": {
+                "type": "array",
+                "description": "未开通业务",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "integer",
+                      "description": "业务类型"
+                    },
+                    "level": {
+                      "type": "integer",
+                      "description": "业务等级"
+                    },
+                    "flag": {
+                      "type": "integer",
+                      "description": "服务端业务标志"
+                    },
+                    "is_big": {
+                      "type": "integer",
+                      "description": "服务端大图标标志"
+                    },
+                    "jump_url": {
+                      "type": "string",
+                      "description": "业务跳转地址"
+                    },
+                    "icon_url": {
+                      "type": "string",
+                      "description": "普通图标地址"
+                    },
+                    "deluxe_icon_url": {
+                      "type": "string",
+                      "description": "高级图标地址，可与普通图标同时存在"
+                    }
+                  }
+                }
+              }
+            },
+            "required": [
+              "open",
+              "closed"
+            ]
           }
         },
         "required": [
@@ -6209,11 +6374,28 @@ export const ACTIONS: CatalogAction[] = [
       }
     ],
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "with_profile",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长"
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "with_profile": {
+          "type": "boolean",
+          "description": "主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长",
+          "default": false
+        }
+      },
       "additionalProperties": true
     },
     "category": "好友"
@@ -6443,7 +6625,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_friends_with_category",
     "aliases": [],
     "summary": "获取分组好友列表",
-    "returns": "好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList。",
+    "returns": "好友分组数组；buddyList 与 get_friend_list 使用相同资料字段。默认只使用列表回包，with_profile=true 主动补查，失败会报错；未返回的资料省略。",
     "returnsSchema": {
       "type": "array",
       "description": "带分组的好友列表",
@@ -6470,15 +6652,180 @@ export const ACTIONS: CatalogAction[] = [
               "properties": {
                 "user_id": {
                   "type": "integer",
-                  "description": "QQ 号"
+                  "description": "好友 QQ 号"
                 },
                 "nickname": {
                   "type": "string",
-                  "description": "昵称"
+                  "description": "好友昵称"
                 },
                 "remark": {
                   "type": "string",
                   "description": "好友备注"
+                },
+                "category_id": {
+                  "type": "integer",
+                  "description": "好友分组编号，有来源时返回"
+                },
+                "long_nick": {
+                  "type": "string",
+                  "description": "个性签名"
+                },
+                "sex": {
+                  "type": "string",
+                  "enum": [
+                    "male",
+                    "female",
+                    "unknown"
+                  ],
+                  "description": "性别"
+                },
+                "age": {
+                  "type": "integer",
+                  "description": "年龄"
+                },
+                "level": {
+                  "type": "integer",
+                  "description": "QQ 等级"
+                },
+                "birthday_year": {
+                  "type": "integer",
+                  "description": "生日年份，未公开时省略"
+                },
+                "birthday_month": {
+                  "type": "integer",
+                  "description": "生日月份（1-12）"
+                },
+                "birthday_day": {
+                  "type": "integer",
+                  "description": "生日日期（1-31）"
+                },
+                "phone_num": {
+                  "type": "string",
+                  "description": "资料卡公开的电话号码"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "资料卡公开的邮箱"
+                },
+                "country": {
+                  "type": "string",
+                  "description": "国家"
+                },
+                "province": {
+                  "type": "string",
+                  "description": "省份"
+                },
+                "city": {
+                  "type": "string",
+                  "description": "城市"
+                },
+                "college": {
+                  "type": "string",
+                  "description": "学校"
+                },
+                "is_qq_vip": {
+                  "type": "boolean",
+                  "description": "普通会员状态"
+                },
+                "is_vip": {
+                  "type": "boolean",
+                  "description": "超级会员状态，兼容已有接口"
+                },
+                "is_years_vip": {
+                  "type": "boolean",
+                  "description": "年费会员状态"
+                },
+                "vip_level": {
+                  "type": "integer",
+                  "description": "会员等级"
+                },
+                "privilege_icons": {
+                  "type": "object",
+                  "description": "业务图标；未返回该资料时省略整个字段，空列表表示没有该类图标",
+                  "properties": {
+                    "jump_url": {
+                      "type": "string",
+                      "description": "业务列表跳转地址"
+                    },
+                    "open": {
+                      "type": "array",
+                      "description": "已开通业务",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "integer",
+                            "description": "业务类型"
+                          },
+                          "level": {
+                            "type": "integer",
+                            "description": "业务等级"
+                          },
+                          "flag": {
+                            "type": "integer",
+                            "description": "服务端业务标志"
+                          },
+                          "is_big": {
+                            "type": "integer",
+                            "description": "服务端大图标标志"
+                          },
+                          "jump_url": {
+                            "type": "string",
+                            "description": "业务跳转地址"
+                          },
+                          "icon_url": {
+                            "type": "string",
+                            "description": "普通图标地址"
+                          },
+                          "deluxe_icon_url": {
+                            "type": "string",
+                            "description": "高级图标地址，可与普通图标同时存在"
+                          }
+                        }
+                      }
+                    },
+                    "closed": {
+                      "type": "array",
+                      "description": "未开通业务",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "integer",
+                            "description": "业务类型"
+                          },
+                          "level": {
+                            "type": "integer",
+                            "description": "业务等级"
+                          },
+                          "flag": {
+                            "type": "integer",
+                            "description": "服务端业务标志"
+                          },
+                          "is_big": {
+                            "type": "integer",
+                            "description": "服务端大图标标志"
+                          },
+                          "jump_url": {
+                            "type": "string",
+                            "description": "业务跳转地址"
+                          },
+                          "icon_url": {
+                            "type": "string",
+                            "description": "普通图标地址"
+                          },
+                          "deluxe_icon_url": {
+                            "type": "string",
+                            "description": "高级图标地址，可与普通图标同时存在"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "open",
+                    "closed"
+                  ]
                 }
               },
               "required": [
@@ -6504,11 +6851,28 @@ export const ACTIONS: CatalogAction[] = [
       }
     ],
     "readOnly": true,
-    "params": [],
+    "params": [
+      {
+        "name": "with_profile",
+        "type": "bool",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "default": false,
+        "desc": "主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长"
+      }
+    ],
     "invariants": [],
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "with_profile": {
+          "type": "boolean",
+          "description": "主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长",
+          "default": false
+        }
+      },
       "additionalProperties": true
     },
     "category": "扩展"
@@ -12880,6 +13244,162 @@ export const ACTIONS: CatalogAction[] = [
     "returnsSchema": {
       "type": "object",
       "properties": {
+        "long_nick": {
+          "type": "string",
+          "description": "个性签名"
+        },
+        "sex": {
+          "type": "string",
+          "description": "性别（male/female/unknown）"
+        },
+        "age": {
+          "type": "integer",
+          "description": "年龄"
+        },
+        "level": {
+          "type": "integer",
+          "description": "QQ 等级，同 qq_level（仅查到资料时返回）"
+        },
+        "birthday_year": {
+          "type": "integer",
+          "description": "生日年份，兼容 NapCat；未公开或不可用时省略"
+        },
+        "birthday_month": {
+          "type": "integer",
+          "description": "生日月份（1-12），兼容 NapCat；不可用时省略"
+        },
+        "birthday_day": {
+          "type": "integer",
+          "description": "生日日期（1-31），兼容 NapCat；不可用时省略"
+        },
+        "phone_num": {
+          "type": "string",
+          "description": "资料卡公开的电话号码"
+        },
+        "email": {
+          "type": "string",
+          "description": "资料卡公开的邮箱"
+        },
+        "country": {
+          "type": "string",
+          "description": "国家"
+        },
+        "province": {
+          "type": "string",
+          "description": "省份"
+        },
+        "city": {
+          "type": "string",
+          "description": "城市"
+        },
+        "college": {
+          "type": "string",
+          "description": "学校"
+        },
+        "is_qq_vip": {
+          "type": "boolean",
+          "description": "普通会员状态"
+        },
+        "is_vip": {
+          "type": "boolean",
+          "description": "超级会员状态，兼容 NapCat；不可用时省略"
+        },
+        "is_years_vip": {
+          "type": "boolean",
+          "description": "年费会员状态，不可用时省略"
+        },
+        "vip_level": {
+          "type": "integer",
+          "description": "会员等级，不可用时省略"
+        },
+        "privilege_icons": {
+          "type": "object",
+          "description": "业务图标；未返回该资料时省略整个字段，空列表表示没有该类图标",
+          "properties": {
+            "jump_url": {
+              "type": "string",
+              "description": "业务列表跳转地址"
+            },
+            "open": {
+              "type": "array",
+              "description": "已开通业务",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "integer",
+                    "description": "业务类型"
+                  },
+                  "level": {
+                    "type": "integer",
+                    "description": "业务等级"
+                  },
+                  "flag": {
+                    "type": "integer",
+                    "description": "服务端业务标志"
+                  },
+                  "is_big": {
+                    "type": "integer",
+                    "description": "服务端大图标标志"
+                  },
+                  "jump_url": {
+                    "type": "string",
+                    "description": "业务跳转地址"
+                  },
+                  "icon_url": {
+                    "type": "string",
+                    "description": "普通图标地址"
+                  },
+                  "deluxe_icon_url": {
+                    "type": "string",
+                    "description": "高级图标地址，可与普通图标同时存在"
+                  }
+                }
+              }
+            },
+            "closed": {
+              "type": "array",
+              "description": "未开通业务",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "integer",
+                    "description": "业务类型"
+                  },
+                  "level": {
+                    "type": "integer",
+                    "description": "业务等级"
+                  },
+                  "flag": {
+                    "type": "integer",
+                    "description": "服务端业务标志"
+                  },
+                  "is_big": {
+                    "type": "integer",
+                    "description": "服务端大图标标志"
+                  },
+                  "jump_url": {
+                    "type": "string",
+                    "description": "业务跳转地址"
+                  },
+                  "icon_url": {
+                    "type": "string",
+                    "description": "普通图标地址"
+                  },
+                  "deluxe_icon_url": {
+                    "type": "string",
+                    "description": "高级图标地址，可与普通图标同时存在"
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "open",
+            "closed"
+          ]
+        },
         "user_id": {
           "type": "integer",
           "description": "QQ 号"
@@ -12900,18 +13420,6 @@ export const ACTIONS: CatalogAction[] = [
           "type": "string",
           "description": "好友备注；非好友或未设置时为空字符串"
         },
-        "sex": {
-          "type": "string",
-          "description": "性别（male/female/unknown）"
-        },
-        "age": {
-          "type": "integer",
-          "description": "年龄"
-        },
-        "long_nick": {
-          "type": "string",
-          "description": "个性签名"
-        },
         "qq_level": {
           "type": "integer",
           "description": "QQ 等级（仅查到资料时返回）"
@@ -12923,34 +13431,6 @@ export const ACTIONS: CatalogAction[] = [
         "reg_time": {
           "type": "integer",
           "description": "注册时间戳（秒），不可用时省略"
-        },
-        "birthday_year": {
-          "type": "integer",
-          "description": "生日年份，兼容 NapCat；未公开或不可用时省略"
-        },
-        "birthday_month": {
-          "type": "integer",
-          "description": "生日月份（1-12），兼容 NapCat；不可用时省略"
-        },
-        "birthday_day": {
-          "type": "integer",
-          "description": "生日日期（1-31），兼容 NapCat；不可用时省略"
-        },
-        "is_vip": {
-          "type": "boolean",
-          "description": "超级会员状态，兼容 NapCat；不可用时省略"
-        },
-        "is_years_vip": {
-          "type": "boolean",
-          "description": "年费会员状态，不可用时省略"
-        },
-        "vip_level": {
-          "type": "integer",
-          "description": "会员等级，不可用时省略"
-        },
-        "level": {
-          "type": "integer",
-          "description": "QQ 等级，同 qq_level（仅查到资料时返回）"
         },
         "status": {
           "type": "integer",

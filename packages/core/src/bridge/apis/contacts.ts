@@ -44,6 +44,7 @@ import type {
     FriendInfo,
     GroupMemberInfo,
     GroupRequestInfo,
+    PublicProfileFields,
     QQGroupInfo,
     UserProfileInfo,
 } from '@snowluma/protocol/qq-info';
@@ -94,6 +95,13 @@ function normalizeGroupRequestSequence(
 }
 
 const MEMBER_LIST_TTL_MS = 60_000;
+const FRIEND_PROFILE_TTL_MS = 5 * 60_000;
+const FRIEND_PROFILE_CONCURRENCY = 4;
+
+export interface FriendListOptions {
+    /** Explicitly query profiles; ordinary roster refreshes never fan out. */
+    withProfile?: boolean;
+}
 
 export class ContactsApi {
     /**
@@ -112,6 +120,15 @@ export class ContactsApi {
         });
     private robotUinRangesPromise_: Promise<RobotUinRangeSnapshot> | null = null;
     readonly groupInvites = new GroupInviteTracker();
+    private friendRosterGeneration = 0;
+    private rememberedFriendRosterGeneration = 0;
+    private activeProfiles = 0;
+    private readonly profileWaiters: (() => void)[] = [];
+    private readonly friendProfiles: SingleFlightCache<number, PublicProfileFields> =
+        createSingleFlightCache({
+            ttlMs: FRIEND_PROFILE_TTL_MS,
+            load: (uin) => this.loadFriendProfile(uin),
+        });
 
     constructor(private readonly ctx: BridgeContext) {}
 
@@ -177,7 +194,73 @@ export class ContactsApi {
         return SendTuwenArk.invoke(this.ctx, params);
     }
 
-    private async fetchFriendRoster(): Promise<FriendRoster> {
+    private async loadFriendProfile(uin: number): Promise<PublicProfileFields> {
+        if (this.activeProfiles >= FRIEND_PROFILE_CONCURRENCY) {
+            await new Promise<void>((resolve) => this.profileWaiters.push(resolve));
+        } else {
+            this.activeProfiles++;
+        }
+
+        try {
+            const profile = await this.fetchUserProfile(uin);
+
+            return profile.profile ?? {};
+        } catch (cause) {
+            log.warn(
+                'friend profile query failed: user=%d error=%s',
+                uin,
+                cause instanceof Error ? cause.message : String(cause),
+            );
+            throw new Error(`friend profile query failed for ${uin}`, { cause });
+        } finally {
+            const next = this.profileWaiters.shift();
+
+            if (next) {
+                next();
+            } else {
+                this.activeProfiles--;
+            }
+        }
+    }
+
+    private async enrichFriendProfiles(entries: FriendListPageEntry[]): Promise<void> {
+        const started = Date.now();
+
+        for (let offset = 0; offset < entries.length; offset += FRIEND_PROFILE_CONCURRENCY) {
+            const batch = entries.slice(offset, offset + FRIEND_PROFILE_CONCURRENCY);
+            const results = await Promise.allSettled(
+                batch.map(async ({ friend }) => {
+                    const extra = await this.friendProfiles.get(friend.uin);
+                    friend.profile = { ...structuredClone(extra), ...friend.profile };
+                }),
+            );
+            const errors = results.filter(
+                (result): result is PromiseRejectedResult => result.status === 'rejected',
+            );
+
+            if (errors.length > 0) {
+                log.warn(
+                    'friend profile enrichment failed: batch=%d failures=%d elapsedMs=%d',
+                    offset,
+                    errors.length,
+                    Date.now() - started,
+                );
+                throw new AggregateError(
+                    errors.map((result) => result.reason),
+                    'friend profile enrichment failed',
+                );
+            }
+        }
+
+        log.debug(
+            'friend profiles loaded: friends=%d elapsedMs=%d',
+            entries.length,
+            Date.now() - started,
+        );
+    }
+
+    private async fetchFriendRoster(options: FriendListOptions = {}): Promise<FriendRoster> {
+        const generation = ++this.friendRosterGeneration;
         const entries: FriendListPageEntry[] = [];
         const categories = new Map<number, FriendListPageCategory>();
         const seenCookies = new Set<string>();
@@ -207,18 +290,25 @@ export class ContactsApi {
             cookie = next;
         }
 
-        const friends = entries.map((entry) => entry.friend);
-        this.ctx.identity.rememberFriends(friends);
+        if (options.withProfile) {
+            await this.enrichFriendProfiles(entries);
+        }
+
+        if (generation > this.rememberedFriendRosterGeneration) {
+            this.ctx.identity.rememberFriends(entries.map((entry) => entry.friend));
+            this.rememberedFriendRosterGeneration = generation;
+        }
+
         return { entries, categories: [...categories.values()] };
     }
 
-    async fetchFriendList(): Promise<FriendInfo[]> {
-        const roster = await this.fetchFriendRoster();
+    async fetchFriendList(options: FriendListOptions = {}): Promise<FriendInfo[]> {
+        const roster = await this.fetchFriendRoster(options);
         return roster.entries.map((entry) => entry.friend);
     }
 
-    async fetchFriendCategories(): Promise<FriendCategoryInfo[]> {
-        const roster = await this.fetchFriendRoster();
+    async fetchFriendCategories(options: FriendListOptions = {}): Promise<FriendCategoryInfo[]> {
+        const roster = await this.fetchFriendRoster(options);
         const buckets = new Map(
             roster.categories.map((category) => [category.categoryId, [] as FriendInfo[]]),
         );

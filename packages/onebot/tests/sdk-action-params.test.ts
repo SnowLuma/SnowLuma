@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { actionParams } from '../../sdk/tests/fixtures/action-contracts';
 import { actions as extended } from '../src/actions/extended';
+import { actions as friend } from '../src/actions/friend';
 import { actions as albums } from '../src/actions/group-album';
 import { actions as groupAdmin } from '../src/actions/group-admin';
 import { actions as qzone } from '../src/actions/qzone';
@@ -9,6 +10,7 @@ import { actions as streamDownload } from '../src/actions/stream-download';
 import { actions as streamFile } from '../src/actions/stream-file';
 
 const actions = [
+    ...friend,
     ...extended,
     ...albums,
     ...groupAdmin,

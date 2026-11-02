@@ -828,6 +828,56 @@ describe('extended-actions / get_essence_msg_list', () => {
 });
 
 describe('extended-actions / get_friends_with_category', () => {
+    it('forwards explicit enrichment and uses the same public field names', async () => {
+        const fetchFriendCategories = vi.fn(async () => [
+            {
+                categoryId: 0,
+                categoryName: 'Friends',
+                memberCount: 1,
+                sortId: 0,
+                friends: [
+                    {
+                        uin: 10001,
+                        uid: 'u1',
+                        nickname: 'Name',
+                        remark: '',
+                        profile: {
+                            sign: '',
+                            age: 0,
+                            vipFlag: false,
+                            privilegeIcons: { open: [], closed: [] },
+                        },
+                    },
+                ],
+            },
+        ]);
+        const handler = makeHandler(fakeCtx(fakeBridge({ fetchFriendCategories })));
+        expect(
+            await handler.handle('get_friends_with_category', { with_profile: true }),
+        ).toMatchObject({
+            status: 'ok',
+            data: [
+                {
+                    buddyList: [
+                        {
+                            user_id: 10001,
+                            category_id: 0,
+                            long_nick: '',
+                            age: 0,
+                            is_qq_vip: false,
+                            privilege_icons: { open: [], closed: [] },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(fetchFriendCategories).toHaveBeenCalledWith({ withProfile: true });
+        expect(
+            await handler.handle('get_friends_with_category', { with_profile: 'invalid' }),
+        ).toMatchObject({ status: 'failed' });
+        expect(fetchFriendCategories).toHaveBeenCalledOnce();
+    });
+
     it('returns the exact categorized friend contract', async () => {
         const fetchFriendCategories = vi.fn(async () => [
             {
@@ -848,7 +898,7 @@ describe('extended-actions / get_friends_with_category', () => {
                 categoryId: 7,
                 categoryName: 'Work',
                 categoryMbCount: 1,
-                buddyList: [{ user_id: 10001, nickname: 'Alice', remark: 'A' }],
+                buddyList: [{ user_id: 10001, nickname: 'Alice', remark: 'A', category_id: 7 }],
             },
         ]);
     });

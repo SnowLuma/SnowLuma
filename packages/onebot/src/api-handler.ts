@@ -76,7 +76,7 @@ export interface ApiActionContext {
     deleteMessage: (messageId: number, meta: MessageMeta) => Promise<void>;
     canSendImage: () => boolean;
     canSendRecord: () => boolean;
-    getFriendList: () => Promise<JsonObject[]>;
+    getFriendList: (withProfile?: boolean) => Promise<JsonObject[]>;
     getGroupList: (noCache?: boolean) => Promise<JsonObject[]>;
     getGroupInfo: (groupId: number, noCache?: boolean) => Promise<JsonObject | null>;
     getGroupMemberList: (groupId: number, noCache?: boolean) => Promise<JsonObject[]>;

@@ -99,6 +99,7 @@ describe('FetchUserProfile namespace', () => {
                     yearVipFlag: !!(flags & 2),
                     svipFlag: !!(flags & 0x100),
                     vipLevel: level,
+                    profile: { vipLevel: level },
                 });
             },
         );

@@ -1,8 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ApiActionContext } from '../src/api-handler';
 import { actions } from '../src/actions/friend';
 
 const getStrangerInfo = actions.find((action) => action.names[0] === 'get_stranger_info');
+
+describe('get_friend_list profile option', () => {
+    it('defaults off, validates the option and forwards explicit enrichment', async () => {
+        const action = actions.find((entry) => entry.names[0] === 'get_friend_list')!;
+        const getFriendList = vi.fn(async () => []);
+        const handler = action.toHandler({ getFriendList } as unknown as ApiActionContext);
+        await handler({});
+        expect(getFriendList).toHaveBeenLastCalledWith(false);
+        await handler({ with_profile: true });
+        expect(getFriendList).toHaveBeenLastCalledWith(true);
+        expect(await handler({ with_profile: 'invalid' })).toMatchObject({ status: 'failed' });
+        expect(getFriendList).toHaveBeenCalledTimes(2);
+        expect(
+            await action.toHandler({} as ApiActionContext)({ with_profile: true }),
+        ).toMatchObject({ status: 'failed', wording: 'friend profile provider unavailable' });
+    });
+});
 
 if (!getStrangerInfo) {
     throw new Error('get_stranger_info action missing');

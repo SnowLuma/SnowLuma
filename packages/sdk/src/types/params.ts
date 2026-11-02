@@ -804,3 +804,7 @@ export type DownloadFileStreamParams = JsonObject & {
 export interface TestDownloadStreamParams extends JsonObject {
     error?: ActionBooleanInput;
 }
+export interface GetFriendListParams extends JsonObject {
+    /** Query missing public profiles explicitly; cached per account for five minutes. */
+    with_profile?: boolean;
+}

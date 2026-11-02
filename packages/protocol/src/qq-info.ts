@@ -1,3 +1,39 @@
+export interface ProfilePrivilege {
+    type?: number;
+    level?: number;
+    flag?: number;
+    isBig?: number;
+    jumpUrl?: string;
+    iconUrl?: string;
+    deluxeIconUrl?: string;
+}
+
+/** Only fields actually supplied by the profile service; absent values stay absent. */
+export interface PublicProfileFields {
+    sign?: string;
+    sex?: 'male' | 'female' | 'unknown';
+    age?: number;
+    level?: number;
+    birthdayYear?: number;
+    birthdayMonth?: number;
+    birthdayDay?: number;
+    phoneNum?: string;
+    email?: string;
+    country?: string;
+    province?: string;
+    city?: string;
+    college?: string;
+    vipFlag?: boolean;
+    svipFlag?: boolean;
+    yearVipFlag?: boolean;
+    vipLevel?: number;
+    privilegeIcons?: {
+        jumpUrl?: string;
+        open: ProfilePrivilege[];
+        closed: ProfilePrivilege[];
+    };
+}
+
 export interface UserProfileInfo {
     uin: number;
     uid: string;
@@ -12,6 +48,7 @@ export interface UserProfileInfo {
      *  Already requested in `fetchUserProfile` keys[]; LagrangeV2
      *  `FetchStrangerService.cs` confirms `// Level`. */
     level: number;
+    profile?: PublicProfileFields;
     regTime?: number;
     /**
      * 生日 — OIDB 0xFE1_2 bytes-property key 20031。
@@ -46,6 +83,8 @@ export interface FriendInfo {
     uid: string;
     nickname: string;
     remark: string;
+    categoryId?: number;
+    profile?: PublicProfileFields;
 }
 
 export interface FriendCategoryInfo {

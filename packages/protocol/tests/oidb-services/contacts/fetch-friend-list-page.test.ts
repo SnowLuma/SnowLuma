@@ -63,10 +63,18 @@ describe('FetchFriendListPage namespace', () => {
             expect(out.nextUin).toBeUndefined();
         });
 
-        it('emits the verbatim property request list (codes 100/101/102/103/20002/27394)', () => {
+        it('requests basic identity and public profiles in the same roster page', () => {
             const out = FetchFriendListPage.serialize({} as any, {}) as any;
             expect(out.body).toEqual([
-                { type: 1, number: { numbers: [103, 102, 20002, 27394] } },
+                {
+                    type: 1,
+                    number: {
+                        numbers: [
+                            103, 102, 20002, 27394, 105, 107, 20003, 20004, 20020, 20009, 20011,
+                            20016, 20021, 20031, 20037, 41756, 41757, 42241,
+                        ],
+                    },
+                },
                 { type: 4, number: { numbers: [100, 101, 102] } },
             ]);
         });
@@ -92,8 +100,8 @@ describe('FetchFriendListPage namespace', () => {
                                 type: 1,
                                 layer1: {
                                     properties: [
-                                        { code: 20002, value: 'Alice' },
-                                        { code: 103, value: 'A' },
+                                        { code: 20002, value: Buffer.from('Alice') },
+                                        { code: 103, value: Buffer.from('A') },
                                     ],
                                 },
                             },
@@ -114,7 +122,13 @@ describe('FetchFriendListPage namespace', () => {
                 entries: [
                     {
                         categoryId: 7,
-                        friend: { uin: 10001, uid: 'u1', nickname: 'Alice', remark: 'A' },
+                        friend: {
+                            uin: 10001,
+                            uid: 'u1',
+                            nickname: 'Alice',
+                            remark: 'A',
+                            categoryId: 7,
+                        },
                     },
                 ],
                 categories: [
@@ -138,7 +152,7 @@ describe('FetchFriendListPage namespace', () => {
                 entries: [
                     {
                         categoryId: 0,
-                        friend: { uin: 0, uid: '', nickname: '0', remark: '' },
+                        friend: { uin: 0, uid: '', nickname: '0', remark: '', categoryId: 0 },
                     },
                 ],
                 categories: [],

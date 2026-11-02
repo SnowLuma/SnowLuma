@@ -30,6 +30,8 @@ const qzonePublicReply = {
 // The same examples are compiled against the published declarations and parsed
 // by the real server action definitions. They never invoke QQ or perform I/O.
 export const actionParams = {
+    get_friend_list: { with_profile: true },
+    get_friends_with_category: { with_profile: false },
     get_group_admin_permissions: { group_id: '10001', user_id: '10002' },
     set_group_admin_permissions: {
         group_id: '10001',
@@ -192,6 +194,8 @@ export const actionParams = {
 // Keep this independent of SnowLumaActionMap: a missing map entry must fail the
 // consumer's coverage check rather than silently remove that example.
 export type CoveredAction =
+    | 'get_friend_list'
+    | 'get_friends_with_category'
     | 'get_group_admin_permissions'
     | 'set_group_admin_permissions'
     | 'set_group_admin_receive_verify'
@@ -286,6 +290,29 @@ const flashInfo = {
 };
 
 export const actionResults = {
+    get_friend_list: [
+        {
+            user_id: 10001,
+            nickname: 'Friend',
+            remark: '',
+            category_id: 0,
+            long_nick: '',
+            age: 0,
+            is_qq_vip: false,
+            privilege_icons: {
+                open: [{ type: 1, icon_url: 'normal', deluxe_icon_url: 'deluxe' }],
+                closed: [],
+            },
+        },
+    ],
+    get_friends_with_category: [
+        {
+            categoryId: 0,
+            categoryName: 'Friends',
+            categoryMbCount: 1,
+            buddyList: [{ user_id: 10001, nickname: 'Friend', remark: '', city: 'City' }],
+        },
+    ],
     get_group_admin_permissions: {
         group_id: 10001,
         user_id: 10002,
@@ -478,7 +505,11 @@ export const actionResults = {
         },
         attach_info: 'comments-from-detail',
     },
-    get_qzone_share_ark: { ark: '{"app":"com.tencent.tuwen.lua"}', requires_confirmation: false, notice: null },
+    get_qzone_share_ark: {
+        ark: '{"app":"com.tencent.tuwen.lua"}',
+        requires_confirmation: false,
+        notice: null,
+    },
     get_qzone_public_comments: {
         cell_comment: { comments: [qzonePublicComment] },
         attach_info: 'next-comments',

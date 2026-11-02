@@ -180,6 +180,69 @@ function makeGroupRequest(overrides: Partial<GroupRequestInfo> = {}): GroupReque
     };
 }
 
+describe('public contact profile output', () => {
+    const profile = {
+        sign: '',
+        age: 0,
+        level: 0,
+        sex: 'unknown' as const,
+        vipFlag: false,
+        svipFlag: false,
+        country: 'CN',
+        city: 'City',
+        email: '',
+        birthdayMonth: 2,
+        birthdayDay: 29,
+        privilegeIcons: {
+            open: [{ type: 1, iconUrl: 'normal', deluxeIconUrl: 'deluxe' }],
+            closed: [],
+        },
+    };
+    const expected = {
+        long_nick: '',
+        age: 0,
+        level: 0,
+        sex: 'unknown',
+        is_qq_vip: false,
+        is_vip: false,
+        country: 'CN',
+        city: 'City',
+        email: '',
+        birthday_month: 2,
+        birthday_day: 29,
+        privilege_icons: {
+            open: [{ type: 1, icon_url: 'normal', deluxe_icon_url: 'deluxe' }],
+            closed: [],
+        },
+    };
+
+    it('returns the same public fields for friends and stranger profiles without invented values', async () => {
+        const fetchFriendList = vi.fn(async () => [
+            { ...makeFriend(123, 'Name'), categoryId: 0, profile },
+        ]);
+        const bridge = fakeBridge({
+            fetchFriendList,
+            fetchUserProfile: vi.fn(async () => ({ ...makeProfile(123, 'Name'), profile })),
+        });
+        const friends = await getFriendList(bridge, true);
+        expect(friends[0]).toMatchObject({ user_id: 123, category_id: 0, ...expected });
+        expect(friends[0]).not.toHaveProperty('phone_num');
+        expect(friends[0]).not.toHaveProperty('birthday_year');
+        expect(fetchFriendList).toHaveBeenCalledWith({ withProfile: true });
+        expect(await getStrangerInfo(bridge, 123)).toMatchObject(expected);
+    });
+
+    it('does not mask explicit enrichment failures with cached friends', async () => {
+        const bridge = fakeBridge({
+            fetchFriendList: vi.fn().mockRejectedValue(new Error('profile failed')),
+            identity: fakeIdentity({ friends: [makeFriend(123, 'Cached')] }),
+        });
+        await expect(getFriendList(bridge, true)).rejects.toThrow('profile failed');
+        // The legacy ordinary-list cache behavior remains available.
+        expect((await getFriendList(bridge))[0]?.nickname).toBe('Cached');
+    });
+});
+
 // ─── Tests ───
 
 describe('onebot/contact-actions / getLoginInfo', () => {

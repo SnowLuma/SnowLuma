@@ -24,12 +24,30 @@ import type {
 import type { UserProfileInfo } from '../../qq-info';
 import { applyBirthday, applyOnlineStatus, applyProfileDetails } from './fetch-user-profile';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { decodePublicProfile, PUBLIC_PROFILE_KEYS } from './public-profile';
 
 const REQUESTED_KEYS = [
-    20002, 27394, 20009, 20031, 101, 103, 102, 20020, 20003, 20026, 105, 27372, 27406, 20037, 41756,
-    41757, 42241,
+    20002,
+    27394,
+    20009,
+    20031,
+    101,
+    103,
+    102,
+    20020,
+    20003,
+    20026,
+    105,
+    27372,
+    27406,
+    20037,
+    41756,
+    41757,
+    42241,
     // 企点标志（QQ 企点 / 企业版 QQ 账号）：员工号实测为 1，普通账号为 0
-    40410, 42031,
+    40410,
+    42031,
+    ...PUBLIC_PROFILE_KEYS,
 ];
 
 export namespace FetchUserProfileByUid {
@@ -47,7 +65,7 @@ export namespace FetchUserProfileByUid {
 
     export const serialize = (_ctx: Deps, p: Params): OidbUserInfoByUidRequest => ({
         uid: p.uid,
-        keys: REQUESTED_KEYS.map((k) => ({ key: k })),
+        keys: [...new Set(REQUESTED_KEYS)].map((k) => ({ key: k })),
     });
 
     export const deserialize = (_ctx: Deps, body: OidbUserInfoResponse): UserProfileInfo => {
@@ -110,6 +128,12 @@ export namespace FetchUserProfileByUid {
             applyOnlineStatus(info, bytesMap, numMap);
             applyProfileDetails(info, numMap);
             applyBirthday(info, bytesMap);
+            const profile = decodePublicProfile(bytesMap, numMap);
+
+            if (Object.keys(profile).length > 0) {
+                info.profile = profile;
+            }
+
             // 企点标志：40410 / 42031，服务器仅在返回时才出现（普通账号缺省 → 0）
             info.qidianMasterFlag = numMap.get(42031) ?? 0;
             info.qidianCrewFlag = numMap.get(40410) ?? 0;

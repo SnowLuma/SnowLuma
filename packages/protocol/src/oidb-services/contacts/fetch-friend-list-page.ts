@@ -14,6 +14,7 @@ import type { OidbFriendListRequest } from '@snowluma/proto-defs/oidb-actions/ba
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { FriendInfo } from '../../qq-info';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import { decodePublicProfile, PUBLIC_PROFILE_KEYS } from './public-profile';
 
 export interface FriendListPageEntry {
     friend: FriendInfo;
@@ -33,8 +34,9 @@ export interface FriendListPage {
     cookie?: Uint8Array;
 }
 
-function friendProperties(raw: OidbFriend): Map<number, string> {
-    const props = new Map<number, string>();
+function friendProperties(raw: OidbFriend) {
+    const props = new Map<number, Uint8Array>();
+    const numbers = new Map<number, number>();
 
     for (const additional of raw.additional ?? []) {
         if ((additional.type ?? 0) !== 1 || !additional.layer1) {
@@ -42,22 +44,31 @@ function friendProperties(raw: OidbFriend): Map<number, string> {
         }
 
         for (const property of additional.layer1.properties ?? []) {
-            props.set(property.code ?? 0, property.value ?? '');
+            props.set(property.code ?? 0, property.value ?? new Uint8Array(0));
+        }
+
+        for (const property of additional.layer1.numberProperties ?? []) {
+            numbers.set(property.key ?? 0, property.value ?? 0);
         }
     }
 
-    return props;
+    return { props, numbers };
 }
 
 function mapFriend(raw: OidbFriend): FriendListPageEntry {
-    const props = friendProperties(raw);
+    const { props, numbers } = friendProperties(raw);
+    const profile = decodePublicProfile(props, numbers);
     return {
         categoryId: raw.customGroup ?? 0,
         friend: {
             uin: raw.uin ?? 0,
             uid: raw.uid ?? '',
-            nickname: props.get(20002) ?? String(raw.uin ?? 0),
-            remark: props.get(103) ?? '',
+            nickname: props.has(20002)
+                ? Buffer.from(props.get(20002)!).toString('utf8')
+                : String(raw.uin ?? 0),
+            remark: Buffer.from(props.get(103) ?? []).toString('utf8'),
+            categoryId: raw.customGroup ?? 0,
+            ...(Object.keys(profile).length ? { profile } : {}),
         },
     };
 }
@@ -80,7 +91,12 @@ export namespace FetchFriendListPage {
             field6: 1,
             field7: 0x7fffffff,
             body: [
-                { type: 1, number: { numbers: [103, 102, 20002, 27394] } },
+                {
+                    type: 1,
+                    number: {
+                        numbers: [...new Set([103, 102, 20002, 27394, ...PUBLIC_PROFILE_KEYS])],
+                    },
+                },
                 { type: 4, number: { numbers: [100, 101, 102] } },
             ],
             field10002: [13578, 13579, 13573, 13572, 13568],

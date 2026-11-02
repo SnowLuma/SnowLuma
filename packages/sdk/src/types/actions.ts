@@ -1,5 +1,6 @@
 import type { JsonArray, JsonObject, JsonValue } from './json.js';
 import type {
+    GetFriendListParams,
     CreateGroupFileFolderParams,
     DeleteFriendParams,
     DeleteGroupFileFolderParams,
@@ -149,6 +150,8 @@ import type {
     EmptyData,
     ForwardMessageResult,
     FriendCategoryResult,
+    FriendInfo,
+    StrangerInfo,
     FriendMessageHistory,
     GroupAdminSettings,
     GroupAdminPermissions,
@@ -230,8 +233,8 @@ export interface SnowLumaActionMap {
     send_group_msg: { params: SendGroupMsgParams; data: SendMessageResult };
     get_msg: { params: MessageIdParams; data: JsonObject };
     delete_msg: { params: MessageIdParams; data: EmptyData };
-    get_friend_list: { params: JsonObject; data: JsonObject[] };
-    get_stranger_info: { params: UserIdParams; data: JsonObject };
+    get_friend_list: { params: GetFriendListParams; data: FriendInfo[] };
+    get_stranger_info: { params: UserIdParams; data: StrangerInfo };
     delete_friend: { params: DeleteFriendParams; data: EmptyData };
     get_group_list: { params: GetGroupListParams; data: JsonObject[] };
     get_group_info: { params: GetGroupInfoParams; data: JsonObject };
@@ -330,7 +333,7 @@ export interface SnowLumaActionMap {
     fetch_super_face_id: { params: FetchFaceEntityParams; data: SuperFaceInfo };
     get_emoji_likes: { params: GetEmojiLikesParams; data: JsonObject };
     fetch_emoji_like: { params: FetchEmojiLikeParams; data: JsonObject };
-    get_friends_with_category: { params: JsonObject; data: FriendCategoryResult[] };
+    get_friends_with_category: { params: GetFriendListParams; data: FriendCategoryResult[] };
     set_friends_category: { params: SetFriendsCategoryParams; data: EmptyData };
     get_online_clients: { params: GetOnlineClientsParams; data: OnlineClientsInfo };
     _get_model_show: { params: JsonObject; data: { variants: JsonArray } };

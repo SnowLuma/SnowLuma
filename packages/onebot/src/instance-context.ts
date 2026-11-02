@@ -100,7 +100,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
         sendGroupMessage: (groupId, message, autoEscape) =>
             sendGroupMessage(ref, groupId, message, autoEscape),
         deleteMessage: (_messageId, meta) => deleteMessage(bridge, meta),
-        getFriendList: () => getFriendList(bridge),
+        getFriendList: (withProfile) => getFriendList(bridge, withProfile),
         getGroupList: (noCache) => getGroupList(bridge, noCache),
         getGroupInfo: (groupId, noCache) => getGroupInfo(bridge, groupId, noCache),
         getGroupMemberList: (groupId, noCache) => getGroupMemberList(bridge, groupId, noCache),

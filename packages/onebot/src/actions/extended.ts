@@ -21,6 +21,8 @@ import {
 } from '../types';
 import { defineAction, groupAction, groupUserAction, f, type Field } from '../action-kit';
 import { groupInfoReturnsSchema } from './group-info';
+import { friendResultSchema } from './contact-profile-schema';
+import { formatFriend } from '../modules/contact-profile';
 import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 import {
     messageIdSchema,
@@ -2647,7 +2649,8 @@ export const actions = [
         ],
         summary: '获取分组好友列表',
         readOnly: true,
-        returns: '好友分组数组；每组包含 categoryId、categoryName、categoryMbCount 和 buddyList。',
+        returns:
+            '好友分组数组；buddyList 与 get_friend_list 使用相同资料字段。默认只使用列表回包，with_profile=true 主动补查，失败会报错；未返回的资料省略。',
         returnsSchema: {
             type: 'array',
             description: '带分组的好友列表',
@@ -2660,33 +2663,30 @@ export const actions = [
                     buddyList: {
                         type: 'array',
                         description: '该分组内的好友',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                user_id: { type: 'integer', description: 'QQ 号' },
-                                nickname: { type: 'string', description: '昵称' },
-                                remark: { type: 'string', description: '好友备注' },
-                            },
-                            required: ['user_id', 'nickname', 'remark'],
-                        },
+                        items: friendResultSchema,
                     },
                 },
                 required: ['categoryId', 'categoryName', 'categoryMbCount', 'buddyList'],
             },
         },
-        params: {},
-        run: async (_p, ctx) => {
-            const categories = await ctx.bridge.apis.contacts.fetchFriendCategories();
+        params: {
+            with_profile: f
+                .bool()
+                .default(false)
+                .describe('主动补查好友公开资料，按账号缓存五分钟；大列表可能耗时较长'),
+        },
+        run: async (p, ctx) => {
+            const categories = await ctx.bridge.apis.contacts.fetchFriendCategories({
+                withProfile: p.with_profile,
+            });
             return okResponse(
                 categories.map((category) => ({
                     categoryId: category.categoryId,
                     categoryName: category.categoryName,
                     categoryMbCount: category.memberCount,
-                    buddyList: category.friends.map((friend) => ({
-                        user_id: friend.uin,
-                        nickname: friend.nickname,
-                        remark: friend.remark,
-                    })),
+                    buddyList: category.friends.map((friend) =>
+                        formatFriend(friend, category.categoryId),
+                    ),
                 })),
             );
         },

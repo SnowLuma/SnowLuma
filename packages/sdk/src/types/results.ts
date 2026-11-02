@@ -105,10 +105,58 @@ export interface GroupNoticeInfo {
     send_to_new_members: boolean;
 }
 
-export interface CategorizedFriend {
+export interface ProfilePrivilege extends JsonObject {
+    type?: number;
+    level?: number;
+    flag?: number;
+    is_big?: number;
+    jump_url?: string;
+    icon_url?: string;
+    deluxe_icon_url?: string;
+}
+
+/** Fields are present only when supplied by QQ; empty strings, false and zero are valid. */
+export interface PublicProfileFields extends JsonObject {
+    long_nick?: string;
+    sex?: 'male' | 'female' | 'unknown';
+    age?: number;
+    level?: number;
+    birthday_year?: number;
+    birthday_month?: number;
+    birthday_day?: number;
+    phone_num?: string;
+    email?: string;
+    country?: string;
+    province?: string;
+    city?: string;
+    college?: string;
+    is_qq_vip?: boolean;
+    is_vip?: boolean;
+    is_years_vip?: boolean;
+    vip_level?: number;
+    privilege_icons?: {
+        jump_url?: string;
+        open: ProfilePrivilege[];
+        closed: ProfilePrivilege[];
+    };
+}
+
+export interface FriendInfo extends PublicProfileFields {
     user_id: number;
     nickname: string;
     remark: string;
+    category_id?: number;
+}
+
+export interface CategorizedFriend extends FriendInfo {}
+
+export interface StrangerInfo extends PublicProfileFields {
+    user_id: number;
+    nickname: string;
+    remark: string;
+    sex: 'male' | 'female' | 'unknown';
+    age: number;
+    long_nick: string;
 }
 
 export interface FriendCategoryResult {

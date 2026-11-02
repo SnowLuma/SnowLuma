@@ -48,6 +48,18 @@ describe('toJsonObject', () => {
 });
 
 describe('SnowLumaApiClient.call', () => {
+    it('preserves friend-list request options while enabling public profile enrichment', async () => {
+        const client = okClient([]);
+        await client.getFriendList({ timeoutMs: 60000, withProfile: true });
+        expect(client.calls[0]).toMatchObject({
+            action: 'get_friend_list',
+            params: { with_profile: true },
+            options: { timeoutMs: 60000 },
+        });
+        await client.getFriendList({ timeoutMs: 1000 });
+        expect(client.calls[1]).toMatchObject({ params: {}, options: { timeoutMs: 1000 } });
+    });
+
     it('returns response data when status is ok and retcode is 0', async () => {
         const client = okClient({ user_id: 1787882683, nickname: 'luma' });
 

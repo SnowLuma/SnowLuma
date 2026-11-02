@@ -277,6 +277,26 @@ export interface OidbUserInfoResponseBody {
 export interface OidbUserInfoResponse {
     body?: pb<1, OidbUserInfoResponseBody>;
 }
+
+// Profile property 107 contains separate opened and closed privilege lists.
+// The two icon URLs are independent fields, not a oneof.
+export interface OidbProfilePrivilege {
+    type?: pb<1, int_32>;
+    level?: pb<4, int_32>;
+    flag?: pb<5, int_32>;
+    iconUrl?: pb<6, bytes>;
+    deluxeIconUrl?: pb<7, bytes>;
+    jumpUrl?: pb<8, bytes>;
+    isBig?: pb<9, int_32>;
+}
+export interface OidbProfilePrivilegeLists {
+    jumpUrl?: pb<2, bytes>;
+    open?: pb_repeated<3, OidbProfilePrivilege>;
+    closed?: pb_repeated<4, OidbProfilePrivilege>;
+}
+export interface OidbProfilePrivileges {
+    lists?: pb<3, OidbProfilePrivilegeLists>;
+}
 export interface AvatarInfo {
     url?: pb<5, string>;
 }
