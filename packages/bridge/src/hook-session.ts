@@ -23,6 +23,14 @@ const LOGIN_IDENTITY_OBSERVE_INTERVAL_MS = 30_000;
 const LOGIN_HINT_MAX_ATTEMPTS = 3;
 const LOGIN_HINT_RETRY_DELAYS_MS = [3000, 9000] as const;
 
+/** Bounds channel discovery and handshakes, not account login. */
+const INITIAL_CONNECTION_TIMEOUT_MS = 60_000;
+
+type InitialConnectionWatch = {
+    startedAt: number;
+    timer: ReturnType<typeof setTimeout>;
+};
+
 /** QQ emits this response periodically while its MSF receive path is healthy.
  *  Seeing it once arms the watchdog; before that, silence is UNKNOWN rather
  *  than unhealthy so QQ versions that do not expose this command cannot be
@@ -103,6 +111,11 @@ export class HookSession extends EventEmitter {
     private bound = false;
     private opChain: Promise<unknown> = Promise.resolve();
     private disposed = false;
+    private initialConnectionWatch: InitialConnectionWatch | null = null;
+    private initialConnectionError = '';
+    private hasConnected = false;
+    private cancelConnectAttempt: (() => void) | null = null;
+    private pipeUpPending = false;
     private loginReconcileTimer: ReturnType<typeof setInterval> | null = null;
     private detecting = false;
     private lastDetectFailure = '';
@@ -184,6 +197,7 @@ export class HookSession extends EventEmitter {
     }
 
     unload(): Promise<HookProcessInfo> {
+        this.cancelConnectAttempt?.();
         return this.traceCommand('unload', () => this.unloadInternal());
     }
 
@@ -197,19 +211,26 @@ export class HookSession extends EventEmitter {
      * attempts and adopts pre-existing hooks. Idempotent; safe to call on
      * every watcher tick where the pipe is live. */
     onPipeUp(): void {
-        if (this.disposed) {
+        if (this.disposed || this.pipeUpPending || this.cancelConnectAttempt) {
             return;
         }
 
+        // Watcher ticks must not queue a backlog of stalled handshakes ahead of
+        // user commands. The next tick can retry once this attempt has settled.
+        this.pipeUpPending = true;
         void this.serialize(async () => {
             if (this.disposed) {
                 return;
             }
 
             await this.reconcilePipeUp();
-        }).catch((err) =>
-            this.log.warn('onPipeUp failed: PID=%d err=%s', this.pid, errorMessage(err)),
-        );
+        })
+            .catch((err) =>
+                this.log.warn('onPipeUp failed: PID=%d err=%s', this.pid, errorMessage(err)),
+            )
+            .finally(() => {
+                this.pipeUpPending = false;
+            });
     }
 
     onPipeDown(): void {
@@ -235,6 +256,7 @@ export class HookSession extends EventEmitter {
             return;
         }
 
+        this.cancelConnectAttempt?.();
         void this.serialize(async () => {
             if (this.disposed) {
                 return;
@@ -248,6 +270,7 @@ export class HookSession extends EventEmitter {
                     this.pid,
                     renderParamsVerbose(this.toInfo()),
                 ]);
+                this.stopInitialConnectionWatch();
                 this.tearDownClient();
                 this.injected = false;
                 this.injectResult = null;
@@ -292,6 +315,7 @@ export class HookSession extends EventEmitter {
 
         const wasLoggedIn = this.loggedIn;
         this.disposed = true;
+        this.stopInitialConnectionWatch();
         this.tearDownClient();
 
         // Process shutdown must take the same PID-detach path as a live drop.
@@ -374,6 +398,10 @@ export class HookSession extends EventEmitter {
     // ─────────────── internal transitions ───────────────
 
     private async loadInternal(): Promise<HookProcessInfo> {
+        if (this.disposed) {
+            return this.toInfo();
+        }
+
         this._error = '';
         this.setStatus('loading', '');
 
@@ -407,6 +435,14 @@ export class HookSession extends EventEmitter {
                 }
             }
 
+            if (this.disposed) {
+                return this.toInfo();
+            }
+
+            // A retry reuses the loaded component and its unload handle. Only an
+            // expired deadline is restarted; repeated clicks cannot postpone it.
+            this.initialConnectionError = '';
+            this.startInitialConnectionWatch();
             this.applyStatus();
         } catch (error) {
             this._error = errorMessage(error);
@@ -429,6 +465,9 @@ export class HookSession extends EventEmitter {
 
     private async unloadInternal(): Promise<HookProcessInfo> {
         this._error = '';
+        this.stopInitialConnectionWatch();
+        this.initialConnectionError = '';
+        this.hasConnected = false;
 
         try {
             const wasLoggedIn = this.loggedIn;
@@ -506,6 +545,11 @@ export class HookSession extends EventEmitter {
             return;
         }
 
+        if (this.initialConnectionError) {
+            this.setStatus('error', this.initialConnectionError);
+            return;
+        }
+
         this.setStatus(
             statusFor({
                 injected: this.injected,
@@ -528,6 +572,8 @@ export class HookSession extends EventEmitter {
                 this._method = 'reconnect';
             }
         }
+
+        this.startInitialConnectionWatch();
 
         if (this.client?.isClosed) {
             this.tearDownClient();
@@ -627,15 +673,26 @@ export class HookSession extends EventEmitter {
             }
 
             const client = this.client;
+            const watch = this.initialConnectionWatch;
+            const timeoutMs = watch
+                ? Math.max(1, INITIAL_CONNECTION_TIMEOUT_MS - (Date.now() - watch.startedAt))
+                : INITIAL_CONNECTION_TIMEOUT_MS;
 
             try {
-                await client.connectAll({ recv: true });
+                await this.connectWithTimeout(client, timeoutMs);
+
+                if (this.disposed || this.client !== client) {
+                    return;
+                }
 
                 if (this.runtimeFailure) {
                     throw new Error(this.runtimeFailure);
                 }
 
                 this.connected = true;
+                this.hasConnected = true;
+                this.stopInitialConnectionWatch();
+                this.initialConnectionError = '';
                 const loginState = client.getLoginState();
 
                 // handleLoginState owns the connected+loggedIn → 'online' (+ login
@@ -659,11 +716,27 @@ export class HookSession extends EventEmitter {
                     Date.now() - startedAt,
                 ]);
             } catch (error) {
+                if (this.disposed || this.client !== client) {
+                    return;
+                }
+
                 this._error = errorMessage(error);
+                const wasLoggedIn = this.loggedIn;
                 // Drop the client so the next attempt builds a fresh socket pair.
-                // A failed connect was never logged in → 'connecting' (or 'available').
                 this.tearDownClient(true);
-                this.applyStatus(false, this._error);
+
+                if (watch && Date.now() - watch.startedAt >= INITIAL_CONNECTION_TIMEOUT_MS) {
+                    this.expireInitialConnection(watch, 'handshake');
+                }
+
+                this.applyStatus(wasLoggedIn, this._error);
+
+                // Login can arrive on one channel while the other is still
+                // handshaking. Revoke that binding if the full connection fails.
+                if (wasLoggedIn) {
+                    this.emit('disconnected', true);
+                }
+
                 this.log.trace(() => [
                     'hook_session_connect_terminal pid=%d outcome=failed reason=connect_failed error=%j state=%s elapsedMs=%d',
                     this.pid,
@@ -675,6 +748,94 @@ export class HookSession extends EventEmitter {
         });
     }
 
+    private startInitialConnectionWatch(): void {
+        if (
+            this.disposed ||
+            this.hasConnected ||
+            this.initialConnectionWatch ||
+            this.initialConnectionError
+        ) {
+            return;
+        }
+
+        const watch: InitialConnectionWatch = {
+            startedAt: Date.now(),
+            timer: setTimeout(() => {
+                void this.serialize(async () => this.expireInitialConnection(watch)).catch(
+                    (error) =>
+                        this.log.error(
+                            'initial connection timeout transition failed: PID=%d err=%s',
+                            this.pid,
+                            errorMessage(error),
+                        ),
+                );
+            }, INITIAL_CONNECTION_TIMEOUT_MS),
+        };
+        watch.timer.unref();
+        this.initialConnectionWatch = watch;
+        this.log.debug(
+            'initial connection started: PID=%d timeoutMs=%d',
+            this.pid,
+            INITIAL_CONNECTION_TIMEOUT_MS,
+        );
+    }
+
+    private stopInitialConnectionWatch(): void {
+        if (this.initialConnectionWatch) {
+            clearTimeout(this.initialConnectionWatch.timer);
+            this.initialConnectionWatch = null;
+        }
+    }
+
+    private expireInitialConnection(
+        watch: InitialConnectionWatch,
+        phase: 'waiting_channel' | 'handshake' = 'waiting_channel',
+    ): void {
+        if (this.disposed || this.connected || this.initialConnectionWatch !== watch) {
+            return;
+        }
+
+        const previousError = this._error;
+        this.stopInitialConnectionWatch();
+        this.initialConnectionError =
+            '首次连接超时（60 秒）：组件已加载，但通信通道尚未就绪，可重试连接或卸载组件';
+        this.log.error(
+            'initial connection timed out: PID=%d phase=%s timeoutMs=%d elapsedMs=%d previousError=%j',
+            this.pid,
+            phase,
+            INITIAL_CONNECTION_TIMEOUT_MS,
+            Date.now() - watch.startedAt,
+            previousError,
+        );
+        this.applyStatus();
+    }
+
+    private async connectWithTimeout(client: QqHookClient, timeoutMs: number): Promise<void> {
+        let cancel!: () => void;
+        let timer!: ReturnType<typeof setTimeout>;
+        const deadline = new Promise<never>((_, reject) => {
+            cancel = () => reject(new Error('Connection attempt cancelled'));
+            timer = setTimeout(
+                () => reject(new Error(`Connection handshake timed out after ${timeoutMs} ms`)),
+                timeoutMs,
+            );
+            timer.unref();
+        });
+        this.cancelConnectAttempt = cancel;
+
+        try {
+            // A stalled handshake must release the serialized operation queue so
+            // timeout handling and unload can run. Late completion has no effects.
+            await Promise.race([client.connectAll({ recv: true }), deadline]);
+        } finally {
+            clearTimeout(timer);
+
+            if (this.cancelConnectAttempt === cancel) {
+                this.cancelConnectAttempt = null;
+            }
+        }
+    }
+
     private bindClient(client: QqHookClient): void {
         client.on('runtimeError', (error) => {
             if (this.client !== client || this.disposed) {
@@ -683,6 +844,7 @@ export class HookSession extends EventEmitter {
 
             const wasLoggedIn = this.loggedIn;
             this.runtimeFailure = errorMessage(error);
+            this.stopInitialConnectionWatch();
             this.loggedIn = false;
             this.stopLoginReconcile();
             this.resetReceiveWatch();
@@ -697,7 +859,7 @@ export class HookSession extends EventEmitter {
         client.on('loginState', (state) => this.handleLoginState(state));
         client.on('error', (error) => {
             const msg = errorMessage(error);
-            this._error = this.runtimeFailure || msg;
+            this._error = this.runtimeFailure || this.initialConnectionError || msg;
             this.log.warn('pipe error: PID=%d err=%s', this.pid, msg);
         });
         client.on('close', () => {
@@ -728,6 +890,7 @@ export class HookSession extends EventEmitter {
     }
 
     private tearDownClient(preserveRuntimeFailure = false): void {
+        this.cancelConnectAttempt?.();
         this.stopLoginReconcile();
         this.resetReceiveWatch();
         const client = this.client;

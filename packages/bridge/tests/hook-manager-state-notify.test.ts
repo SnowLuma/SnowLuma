@@ -152,6 +152,43 @@ describe('HookManager.onSessionsChanged', () => {
         ctx.manager.dispose();
     });
 
+    it('publishes an initial timeout and automatically recovers when the channel arrives late', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const ctx = makeManager({ processes: [4242] });
+
+        try {
+            await ctx.manager.loadProcess(4242);
+            ctx.onSessionsChanged.mockClear();
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(ctx.onSessionsChanged).toHaveBeenCalled();
+            expect(await ctx.manager.listProcesses()).toEqual([
+                expect.objectContaining({
+                    pid: 4242,
+                    status: 'error',
+                    injected: true,
+                    error: expect.stringContaining('首次连接超时'),
+                }),
+            ]);
+
+            ctx.onSessionsChanged.mockClear();
+            ctx.setLivePipes([4242]);
+            await ctx.pipeWatcher.tickNow();
+            await flush();
+            expect(ctx.onSessionsChanged).toHaveBeenCalled();
+            expect(await ctx.manager.listProcesses()).toEqual([
+                expect.objectContaining({
+                    pid: 4242,
+                    status: 'loaded',
+                    connected: true,
+                    error: '',
+                }),
+            ]);
+        } finally {
+            ctx.manager.dispose();
+            vi.useRealTimers();
+        }
+    });
+
     it('survives a throwing onSessionsChanged callback — the watcher loop keeps running', async () => {
         const ctx = makeManager({ processes: [] });
         ctx.onSessionsChanged.mockImplementation(() => {

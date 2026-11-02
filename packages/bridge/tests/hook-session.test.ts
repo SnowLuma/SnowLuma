@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { HookSession } from '../src/hook-session';
 import type { ManualMapHandle } from '../src/injector';
@@ -112,6 +112,7 @@ function makeSession(
         detectLoginUin?: (pid: number) => Promise<string | null>;
         nativeReadyOnIdentityHint?: boolean;
         identityHintFailures?: number;
+        connectClient?: (client: FakeClient) => Promise<void>;
     } = {},
 ) {
     const pid = opts.pid ?? 1234;
@@ -137,6 +138,11 @@ function makeSession(
 
             c.nativeReadyOnIdentityHint = opts.nativeReadyOnIdentityHint ?? false;
             c.identityHintFailures = opts.identityHintFailures ?? 0;
+
+            if (opts.connectClient) {
+                c.connectAll = () => opts.connectClient!(c);
+            }
+
             clients.push(c);
             // Cast: FakeClient mirrors only the surface HookSession touches.
             return c as unknown as QqHookClient;
@@ -596,6 +602,322 @@ describe('HookSession — load', () => {
             error: '',
         });
         expect(injector.inject).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('HookSession — initial connection deadline', () => {
+    const timeoutMs = 60_000;
+    const sessions: HookSession[] = [];
+
+    function setup(opts: Parameters<typeof makeSession>[0] = {}) {
+        const ctx = makeSession(opts);
+        sessions.push(ctx.session);
+        return ctx;
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    });
+
+    afterEach(() => {
+        for (const session of sessions.splice(0)) {
+            session.dispose();
+        }
+
+        vi.useRealTimers();
+    });
+
+    it('reports a missing channel without losing the loaded component or clearing the error on refresh', async () => {
+        const { session } = setup();
+        const changed = vi.fn();
+        session.on('status-changed', changed);
+
+        await expect(session.load()).resolves.toMatchObject({ status: 'connecting' });
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+        expect(session.status).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(1);
+        expect(session.toInfo()).toMatchObject({
+            status: 'error',
+            injected: true,
+            connected: false,
+            error: expect.stringContaining('首次连接超时'),
+        });
+        const error = session.error;
+        expect(changed).toHaveBeenLastCalledWith('error', error);
+
+        session.onPipeDown();
+        await expect(session.refresh()).resolves.toMatchObject({ status: 'error', error });
+    });
+
+    it('unloads with the original handle after a timeout, including a failed unload retry', async () => {
+        const { session, injector } = setup();
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        expect(session.status).toBe('error');
+        injector.unload.mockRejectedValueOnce(new Error('unload rejected'));
+
+        await expect(session.unload()).resolves.toMatchObject({
+            status: 'error',
+            injected: true,
+            error: 'unload rejected',
+        });
+        await expect(session.unload()).resolves.toMatchObject({
+            status: 'available',
+            injected: false,
+            error: '',
+        });
+        expect(injector.unload).toHaveBeenNthCalledWith(1, session.pid, DUMMY_HANDLE);
+        expect(injector.unload).toHaveBeenNthCalledWith(2, session.pid, DUMMY_HANDLE);
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        expect(session.status).toBe('available');
+    });
+
+    it('retries the connection after timeout without loading the component twice', async () => {
+        const { session, injector, setPipeLive } = setup();
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        expect(session.status).toBe('error');
+
+        await expect(session.load()).resolves.toMatchObject({
+            status: 'connecting',
+            injected: true,
+            error: '',
+        });
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+        expect(session.status).toBe('connecting');
+        setPipeLive(true);
+        session.onPipeUp();
+        await flush();
+
+        expect(session.toInfo()).toMatchObject({ status: 'loaded', error: '', loggedIn: false });
+        expect(injector.inject).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(timeoutMs * 2);
+        expect(session.status).toBe('loaded');
+    });
+
+    it('can time out again after an explicit retry', async () => {
+        const { session, injector } = setup();
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        expect(session.status).toBe('error');
+        expect(session.error).toContain('首次连接超时');
+        expect(injector.inject).toHaveBeenCalledOnce();
+    });
+
+    it('accepts a late channel without a manual retry and retains the timeout across failed handshakes', async () => {
+        let failConnect = true;
+        const { session, injector, setPipeLive } = setup({
+            connectClient: async () => {
+                if (failConnect) {
+                    throw new Error('connect failed');
+                }
+            },
+        });
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        const error = session.error;
+        expect(error).toContain('首次连接超时');
+        setPipeLive(true);
+        session.onPipeUp();
+        await flush();
+        expect(session.toInfo()).toMatchObject({ status: 'error', error });
+
+        failConnect = false;
+        session.onPipeUp();
+        await flush();
+        expect(session.toInfo()).toMatchObject({ status: 'loaded', error: '', connected: true });
+        expect(injector.inject).toHaveBeenCalledOnce();
+    });
+
+    it('bounds a stalled handshake by the remaining initial budget and permits unload before it finishes', async () => {
+        let finishConnect!: () => void;
+        const { session, currentClient, injector, setPipeLive } = setup({
+            connectClient: () =>
+                new Promise<void>((resolve) => {
+                    finishConnect = resolve;
+                }),
+        });
+        const login = vi.fn();
+        const disconnected = vi.fn();
+        session.on('login', login);
+        session.on('disconnected', disconnected);
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1000);
+        setPipeLive(true);
+        session.onPipeUp();
+        await flush();
+        currentClient().fireLogin('10001');
+        // Login and packets can arrive together before connectAll settles.
+        // Preserve their ordering, but revoke this binding if the handshake fails.
+        expect(login).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(session.toInfo()).toMatchObject({
+            status: 'error',
+            connected: false,
+            loggedIn: false,
+        });
+        expect(session.error).toContain('首次连接超时');
+        expect(currentClient().isClosed).toBe(true);
+        expect(disconnected).toHaveBeenCalledExactlyOnceWith(true);
+        setPipeLive(false);
+        await expect(session.unload()).resolves.toMatchObject({
+            status: 'available',
+            injected: false,
+        });
+        expect(injector.unload).toHaveBeenCalledExactlyOnceWith(session.pid, DUMMY_HANDLE);
+
+        finishConnect();
+        await flush();
+        expect(session.toInfo()).toMatchObject({
+            status: 'available',
+            connected: false,
+            loggedIn: false,
+        });
+        expect(login).toHaveBeenCalledOnce();
+    });
+
+    it('coalesces watcher retries so they cannot queue ahead of unload after a stalled handshake', async () => {
+        const { session, injector, clients } = setup({
+            connectClient: () => new Promise<void>(() => {}),
+        });
+        await session.load();
+        session.onPipeUp();
+        await flush();
+
+        for (let tick = 0; tick < 40; tick++) {
+            session.onPipeUp();
+        }
+
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        let result: Awaited<ReturnType<HookSession['unload']>> | undefined;
+        const unloading = session.unload().then((info) => {
+            result = info;
+        });
+        await flush();
+        expect(result).toMatchObject({ status: 'available', injected: false });
+        expect(clients).toHaveLength(1);
+        expect(injector.unload).toHaveBeenCalledExactlyOnceWith(session.pid, DUMMY_HANDLE);
+        await unloading;
+    });
+
+    it('starts the deadline after loading completes and repeated load calls do not postpone it', async () => {
+        const { session, injector } = setup();
+        let finishLoading!: (value: {
+            method: 'loadModuleManual';
+            handle: ManualMapHandle;
+        }) => void;
+        injector.inject.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishLoading = resolve;
+            }),
+        );
+        const loading = session.load();
+        await flush();
+        await vi.advanceTimersByTimeAsync(timeoutMs * 2);
+        expect(session.status).toBe('loading');
+
+        finishLoading({ method: 'loadModuleManual', handle: DUMMY_HANDLE });
+        await loading;
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+        await session.load();
+        expect(session.status).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(1);
+        expect(session.status).toBe('error');
+        expect(injector.inject).toHaveBeenCalledOnce();
+    });
+
+    it('unloads immediately if a late connection attempt is still handshaking after timeout', async () => {
+        const { session, currentClient, injector } = setup({
+            connectClient: () => new Promise<void>(() => {}),
+        });
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        session.onPipeUp();
+        await flush();
+        let result: Awaited<ReturnType<HookSession['unload']>> | undefined;
+        const unloading = session.unload().then((info) => {
+            result = info;
+        });
+        await flush();
+        expect(result).toMatchObject({ status: 'available', injected: false });
+        expect(currentClient().isClosed).toBe(true);
+        expect(injector.unload).toHaveBeenCalledExactlyOnceWith(session.pid, DUMMY_HANDLE);
+        expect(vi.getTimerCount()).toBe(0);
+        await unloading;
+    });
+
+    it('cancels the deadline on unload and gives a new load a full budget', async () => {
+        const { session, injector } = setup();
+        await session.load();
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+        await session.unload();
+        await session.load();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(session.status).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+        expect(session.status).toBe('error');
+        expect(injector.inject).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['dispose', 'process-gone'] as const)(
+        'cancels a pending deadline on %s',
+        async (event) => {
+            const { session } = setup();
+            const changed = vi.fn();
+            await session.load();
+            session.on('status-changed', changed);
+
+            if (event === 'dispose') {
+                session.dispose();
+            } else {
+                session.notifyProcessGone();
+                await flush();
+            }
+
+            changed.mockClear();
+            await vi.advanceTimersByTimeAsync(timeoutMs * 2);
+            expect(changed).not.toHaveBeenCalled();
+            expect(session.error).toBe('');
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
+
+    it('does not let a disposed connection finish or retain its timer', async () => {
+        let finishConnect!: () => void;
+        const { session, currentClient } = setup({
+            pipeLive: true,
+            connectClient: () =>
+                new Promise<void>((resolve) => {
+                    finishConnect = resolve;
+                }),
+        });
+        await session.load();
+        session.onPipeUp();
+        await flush();
+        session.dispose();
+        await flush();
+        expect(currentClient().isClosed).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+        finishConnect();
+        await flush();
+        expect(session.toInfo()).toMatchObject({ connected: false, loggedIn: false });
+    });
+
+    it('does not use the initial deadline as a login or later disconnection timeout', async () => {
+        const { session, setPipeLive } = setup({ pipeLive: true });
+        session.onPipeUp();
+        await flush();
+        await vi.advanceTimersByTimeAsync(timeoutMs * 2);
+        expect(session.toInfo()).toMatchObject({ status: 'loaded', loggedIn: false, error: '' });
+
+        setPipeLive(false);
+        session.onPipeDown();
+        await flush();
+        await vi.advanceTimersByTimeAsync(timeoutMs * 2);
+        expect(session.toInfo()).toMatchObject({ status: 'connecting', error: '' });
     });
 });
 

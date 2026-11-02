@@ -13,6 +13,7 @@ import {
 } from '@snowluma/common/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CLIENT_MESSAGE_RECEIPT_CMD } from '@snowluma/common/protocol-types';
+import { HookSession } from '../src/hook-session';
 import {
     HEADER_SIZE,
     listLiveLinuxPipePids,
@@ -121,6 +122,73 @@ function traceMessages(entries: LogEntry[]): string[] {
         .filter((entry) => entry.level === 'trace' && entry.scope === 'QQHook.Packet')
         .map((entry) => entry.message);
 }
+
+describe('initial connection timeout cleanup', () => {
+    it.each(['socket', 'control-hello', 'recv-hello'] as const)(
+        'closes a stalled %s connection and allows unloading',
+        async (phase) => {
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+            const sockets: net.Socket[] = [];
+            const connection = vi.spyOn(net, 'createConnection').mockImplementation((() => {
+                const socket = new Duplex({
+                    read() {},
+                    write(_chunk, _encoding, callback) {
+                        callback();
+                    },
+                }) as net.Socket;
+                sockets.push(socket);
+                const control = sockets.length === 1;
+
+                if (phase !== 'socket') {
+                    queueMicrotask(() => {
+                        socket.emit('connect');
+
+                        if (control && phase === 'recv-hello') {
+                            queueMicrotask(() =>
+                                socket.emit('data', pipeFrame({ op: PipeOp.hello })),
+                            );
+                        }
+                    });
+                }
+
+                return socket;
+            }) as typeof net.createConnection);
+            const handle = { base: 0n, entry: 0n, exceptionTable: 0n, size: 0 };
+            const unload = vi.fn(async () => {});
+            const session = new HookSession(778905, {
+                injector: {
+                    inject: async () => ({ method: 'loadModuleManual', handle }),
+                    unload,
+                },
+                makeClient: (pid) => new QqHookClient(pid),
+                pipeWatcher: { isPipeLive: () => false },
+                detectLoginUin: async () => null,
+            });
+
+            try {
+                await session.load();
+                session.onPipeUp();
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                expect(sockets).toHaveLength(phase === 'recv-hello' ? 2 : 1);
+                await vi.advanceTimersByTimeAsync(60_000);
+                expect(session.toInfo()).toMatchObject({ status: 'error', injected: true });
+                expect(session.error).toContain('首次连接超时');
+                expect(sockets.every((socket) => socket.destroyed)).toBe(true);
+                await expect(session.unload()).resolves.toMatchObject({ status: 'available' });
+                expect(unload).toHaveBeenCalledExactlyOnceWith(session.pid, handle);
+            } finally {
+                session.dispose();
+
+                for (const socket of sockets) {
+                    socket.destroy();
+                }
+
+                connection.mockRestore();
+                vi.useRealTimers();
+            }
+        },
+    );
+});
 
 describe('runtime initialization failures', () => {
     const failureFrame = pipeFrame({

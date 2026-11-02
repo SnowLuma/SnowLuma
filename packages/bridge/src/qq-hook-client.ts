@@ -545,6 +545,7 @@ class FrameReader {
 }
 
 export class QqHookClient extends EventEmitter {
+    private readonly connectingSockets = new Set<net.Socket>();
     readonly pid: number;
     readonly runtimeDir: string;
     readonly defaultAckTimeoutMs: number;
@@ -975,6 +976,12 @@ export class QqHookClient extends EventEmitter {
         this.rejectRecvPending(new Error('qq_hook client closed'));
         this.rejectLoginWaiters(new Error('qq_hook client closed'));
 
+        for (const socket of this.connectingSockets) {
+            socket.destroy();
+        }
+
+        this.connectingSockets.clear();
+
         if (this.controlSocket) {
             this.controlSocket.destroy();
             this.controlSocket = null;
@@ -1194,10 +1201,19 @@ export class QqHookClient extends EventEmitter {
     ): Promise<net.Socket> {
         return new Promise((resolve, reject) => {
             const socket = net.createConnection(pipeName);
+            this.connectingSockets.add(socket);
             const reader = new FrameReader(onFrame);
             const onInitialError = (error: Error) => reject(error);
-            socket.once('error', onInitialError);
-            socket.once('connect', () => {
+
+            const onInitialClose = () => {
+                this.connectingSockets.delete(socket);
+                socket.off('connect', onConnect);
+                reject(new Error(`${kind} pipe closed before connecting`));
+            };
+
+            const onConnect = () => {
+                this.connectingSockets.delete(socket);
+                socket.off('close', onInitialClose);
                 socket.off('error', onInitialError);
                 socket.on('data', (chunk) => {
                     try {
@@ -1217,7 +1233,11 @@ export class QqHookClient extends EventEmitter {
                     });
                 });
                 resolve(socket);
-            });
+            };
+
+            socket.once('error', onInitialError);
+            socket.once('close', onInitialClose);
+            socket.once('connect', onConnect);
         });
     }
 
