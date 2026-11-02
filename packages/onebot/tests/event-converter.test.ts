@@ -673,10 +673,11 @@ describe('convertEvent — message elements', () => {
             PRIVATE_SENT_MESSAGE_EVENT,
             1234,
             [{ type: 'text', text: 'quoted text' }],
+            undefined,
         ]);
     });
 
-    it('reply: replySeq=0 -> id "0", no resolver call', async () => {
+    it('reply: replySeq=0 is omitted without calling the resolver', async () => {
         let resolverCalls = 0;
         const seg = await segment(
             { type: 'reply', replySeq: 0 },
@@ -687,7 +688,7 @@ describe('convertEvent — message elements', () => {
                 },
             },
         );
-        expect((seg.data as Record<string, unknown>).id).toBe('0');
+        expect(seg).toBeUndefined();
         expect(resolverCalls).toBe(0);
     });
 

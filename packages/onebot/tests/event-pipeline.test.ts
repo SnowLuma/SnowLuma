@@ -615,9 +615,10 @@ describe('registerEventPipeline', () => {
         const backfillGate = new Promise<void>((resolve) => {
             releaseBackfill = resolve;
         });
-        vi.mocked(backfillReplyTarget).mockImplementationOnce(async () => {
+        vi.mocked(backfillReplyTarget).mockImplementationOnce(async (_ref, event) => {
             markBackfillStarted();
             await backfillGate;
+            return event;
         });
         const isPrivateMessageRecalled = vi
             .fn()

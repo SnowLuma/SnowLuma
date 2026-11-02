@@ -5,49 +5,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { convertFriendMessage } from '../src/event-converter/to-message';
 import {
     hashMessageIdInt32,
-    PRIVATE_MESSAGE_EVENT,
     PRIVATE_NT_MESSAGE_EVENT,
     PRIVATE_SENT_MESSAGE_EVENT,
 } from '../src/message-id';
 import { MessageStore } from '../src/message-store';
+import { createMessageIdResolver as productionResolver } from '../src/message-id-resolver';
 import type { ConverterContext } from '../src/event-converter';
 import type { FriendMessage } from '@snowluma/protocol/events';
 
 const SELF_ID = 3961840894;
 const PEER_ID = 2705892349;
-
-function productionResolver(store: MessageStore): ConverterContext['messageIdResolver'] {
-    return async (isGroup, sessionId, sequence, eventName, timestamp, replyElements) => {
-        const resolvedEventName = eventName || (isGroup ? 'group_message' : PRIVATE_MESSAGE_EVENT);
-
-        if (
-            !isGroup &&
-            timestamp !== undefined &&
-            (resolvedEventName === PRIVATE_MESSAGE_EVENT ||
-                resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)
-        ) {
-            const storedId = await store.resolvePrivateReplyMessageId(
-                sessionId,
-                sequence,
-                resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
-                timestamp,
-                replyElements,
-            );
-
-            if (storedId !== null) {
-                return storedId;
-            }
-        }
-
-        return hashMessageIdInt32(
-            sequence,
-            sessionId,
-            resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
-                ? PRIVATE_NT_MESSAGE_EVENT
-                : resolvedEventName,
-        );
-    };
-}
 
 describe('private reply id matches send receipt (#417, #433)', () => {
     let dir: string;

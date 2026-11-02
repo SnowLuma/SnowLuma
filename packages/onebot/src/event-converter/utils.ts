@@ -1,6 +1,7 @@
 import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT } from '../message-id';
 import type { MessageIdResolver } from './index';
 import type { MessageElement } from '@snowluma/protocol/events';
+import type { PrivateQuoteSource } from '../private-quote';
 
 export function isSameActor(
     leftUin: number,
@@ -43,6 +44,7 @@ export async function resolveReplyId(
     eventName = isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT,
     timestamp?: number,
     replyElements?: readonly MessageElement[],
+    excludedMessage?: PrivateQuoteSource,
 ): Promise<number> {
     const seq = Math.trunc(sequence);
 
@@ -58,11 +60,14 @@ export async function resolveReplyId(
             eventName,
             timestamp,
             replyElements,
+            excludedMessage,
         );
 
-        if (Number.isInteger(resolved) && resolved !== 0) {
+        if (Number.isInteger(resolved)) {
             return resolved;
         }
+
+        throw new Error('reply resolver returned an invalid message id');
     }
 
     return seq;

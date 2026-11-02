@@ -1,8 +1,14 @@
-import { SqliteDatabase, type SqliteStatement } from '@snowluma/sqlite';
+import { SqliteDatabase, type SqliteRow, type SqliteStatement } from '@snowluma/sqlite';
 import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, MessageMeta } from './types';
 import type { MessageElement } from '@snowluma/protocol/events';
-import { cqUnescape } from './helper/cq';
+import {
+    cachedQuotePreview,
+    isUsableQuoteTime,
+    PRIVATE_QUOTE_MAX_DRIFT_SECONDS,
+    selectPrivateQuote,
+    type PrivateQuoteSource,
+} from './private-quote';
 import { openSqliteDb } from './sqlite-open';
 import {
     mergeMessageMedia,
@@ -49,9 +55,8 @@ export class MessageStore {
     private stmtFindLatestPersistedAuthoritativeSequence!: SqliteStatement;
     private stmtListIncomingC2CSessions!: SqliteStatement;
     private stmtFindPrivateRecall!: SqliteStatement;
-    private stmtFindPrivateMessageAtTime!: SqliteStatement;
-    private stmtFindPrivateMessageBySequence!: SqliteStatement;
-    private stmtFindPrivateOutgoingNearTime!: SqliteStatement;
+    private stmtFindPrivateReplyBySequence!: SqliteStatement;
+    private stmtFindPrivateReplyByTime!: SqliteStatement;
     private stmtFindPrivateRecallTombstone!: SqliteStatement;
     private stmtUpsertPrivateRecallTombstone!: SqliteStatement;
     private stmtDeleteMessage!: SqliteStatement;
@@ -205,27 +210,22 @@ export class MessageStore {
          LIMIT 1`,
             );
 
-            this.stmtFindPrivateMessageAtTime = this.db.prepare(
-                `SELECT message_hash, data
-         FROM messages
-         WHERE is_group = 0 AND session_id = ? AND private_direction = ? AND timestamp = ?`,
+            this.stmtFindPrivateReplyBySequence = this.db.prepare(
+                `SELECT message_hash, sequence, sequence_authoritative, client_sequence, timestamp, data
+                 FROM messages
+                 WHERE is_group = 0 AND session_id = ? AND private_direction = ?
+                   AND client_sequence = ? AND timestamp BETWEEN ? AND ?
+                 UNION
+                 SELECT message_hash, sequence, sequence_authoritative, client_sequence, timestamp, data
+                 FROM messages
+                 WHERE is_group = 0 AND session_id = ? AND private_direction = ?
+                   AND sequence = ? AND sequence_authoritative = 1 AND timestamp BETWEEN ? AND ?`,
             );
-
-            this.stmtFindPrivateMessageBySequence = this.db.prepare(
-                `SELECT message_hash
-         FROM messages
-         WHERE is_group = 0 AND session_id = ? AND sequence = ?
-           AND private_direction = ? AND sequence_authoritative = 1
-         LIMIT 1`,
-            );
-
-            this.stmtFindPrivateOutgoingNearTime = this.db.prepare(
-                `SELECT message_hash
-         FROM messages
-         WHERE is_group = 0 AND session_id = ? AND private_direction = ?
-           AND timestamp BETWEEN ? AND ?
-         ORDER BY ABS(timestamp - ?) ASC, sequence DESC
-         LIMIT 2`,
+            this.stmtFindPrivateReplyByTime = this.db.prepare(
+                `SELECT message_hash, sequence, sequence_authoritative, client_sequence, timestamp, data
+                 FROM messages
+                 WHERE is_group = 0 AND session_id = ? AND private_direction = ?
+                   AND timestamp BETWEEN ? AND ?`,
             );
 
             this.stmtFindPrivateRecallTombstone = this.db.prepare(
@@ -618,217 +618,66 @@ export class MessageStore {
         });
     }
 
-    /**
-     * Resolve a private quote to a stored OneBot id. Prefer the quoted
-     * sender-local sequence, then the conversation sequence. For a
-     * self-sent target, also match the send receipt by time because QQ's
-     * quote sequence is often neither of those stored values, and the
-     * quote time can drift a few seconds from the send receipt.
-     */
+    /** Resolve quotes independently of recall lookup: a reused sequence is not an identity. */
     async resolvePrivateReplyMessageId(
         sessionId: number,
         replySequence: number,
         sentBySelf: boolean,
         timestamp?: number,
         replyElements?: readonly MessageElement[],
+        excludedMessage?: PrivateQuoteSource,
     ): Promise<number | null> {
         return this.db.serial(async () => {
             await this.initialization;
-
-            if (Number.isSafeInteger(replySequence) && replySequence > 0) {
-                const byClientSequence = await this.findPrivateMessageId(
-                    sessionId,
-                    replySequence,
-                    sentBySelf,
-                    timestamp,
-                );
-
-                if (byClientSequence !== null) {
-                    return byClientSequence;
-                }
-
-                const byConversationSequence = await this.findPrivateMessageIdBySequence(
-                    sessionId,
-                    replySequence,
-                    sentBySelf,
-                );
-
-                if (byConversationSequence !== null) {
-                    return byConversationSequence;
-                }
-            }
-
-            if (!sentBySelf) {
-                return null;
-            }
-
-            const byExactTime = await this.findPrivateMessageIdAtTime(
-                sessionId,
-                true,
+            const hasTime = isUsableQuoteTime(timestamp);
+            const lower = hasTime ? timestamp - PRIVATE_QUOTE_MAX_DRIFT_SECONDS : 0;
+            const upper = hasTime
+                ? timestamp + PRIVATE_QUOTE_MAX_DRIFT_SECONDS
+                : Number.MAX_SAFE_INTEGER;
+            const key = {
+                sequence: replySequence,
+                sentBySelf,
                 timestamp,
-                replyElements,
-            );
-
-            if (byExactTime !== null) {
-                return byExactTime;
-            }
-
-            const byNearbyTime = await this.findUniquePrivateOutgoingNearTime(sessionId, timestamp);
-
-            if (byNearbyTime !== null) {
-                return byNearbyTime;
-            }
-
-            return null;
-        });
-    }
-
-    async findPrivateMessageIdAtTime(
-        sessionId: number,
-        sentBySelf: boolean,
-        timestamp?: number,
-        replyElements?: readonly MessageElement[],
-    ): Promise<number | null> {
-        return this.db.serial(async () => {
-            await this.initialization;
-
-            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-                return null;
-            }
-
-            if (!isUsablePrivateQuoteTime(timestamp)) {
-                return null;
-            }
-
-            const rows = (await this.stmtFindPrivateMessageAtTime.all(
-                sessionId,
-                sentBySelf ? 1 : 0,
-                timestamp,
-            )) as { message_hash: number; data: string | null }[];
-
-            if (rows.length === 0) {
-                return null;
-            }
-
-            let matches = rows;
-
-            if (rows.length > 1) {
-                const text =
-                    replyElements?.length && replyElements.every((e) => e.type === 'text')
-                        ? replyElements.map((e) => e.text ?? '').join('')
-                        : null;
-                const candidates = text
-                    ? rows
-                          .map((row) => ({ row, preview: cachedQuoteText(row.data) }))
-                          .filter(
-                              ({ preview }) => preview === null || preview.text.startsWith(text),
-                          )
+                elements: replyElements,
+                exclude: excludedMessage,
+            };
+            const rows =
+                Number.isSafeInteger(replySequence) && replySequence > 0
+                    ? ((await this.stmtFindPrivateReplyBySequence.all(
+                          sessionId,
+                          sentBySelf ? 1 : 0,
+                          replySequence,
+                          lower,
+                          upper,
+                          sessionId,
+                          sentBySelf ? 1 : 0,
+                          replySequence,
+                          lower,
+                          upper,
+                      )) as PrivateReplyRow[])
                     : [];
-                matches =
-                    candidates.length === 1 &&
-                    candidates[0]!.preview?.plain &&
-                    candidates[0]!.preview.text === text
-                        ? [candidates[0]!.row]
-                        : [];
+            let selected = selectPrivateQuote(rows.map(privateReplyCandidate), key);
 
-                if (matches.length !== 1) {
-                    log.debug(
-                        'private quote time is ambiguous: peer=%d time=%d candidates=%d contentMatches=%d',
-                        sessionId,
-                        timestamp,
-                        rows.length,
-                        matches.length,
-                    );
-                    return null;
-                }
-            }
-
-            const row = matches[0]!;
-
-            if (!isValidMessageId(row.message_hash)) {
-                throw new Error(
-                    `private message lookup matched invalid message id ${String(row.message_hash)}`,
-                );
-            }
-
-            return row.message_hash;
-        });
-    }
-
-    async findPrivateMessageIdBySequence(
-        sessionId: number,
-        sequence: number,
-        sentBySelf: boolean,
-    ): Promise<number | null> {
-        return this.db.serial(async () => {
-            await this.initialization;
-
-            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-                return null;
-            }
-
-            if (!Number.isSafeInteger(sequence) || sequence <= 0) {
-                return null;
-            }
-
-            const row = (await this.stmtFindPrivateMessageBySequence.get(
-                sessionId,
-                sequence,
-                sentBySelf ? 1 : 0,
-            )) as { message_hash: number } | undefined;
-
-            if (!row) {
-                return null;
-            }
-
-            if (!isValidMessageId(row.message_hash)) {
-                throw new Error(
-                    `private message lookup matched invalid message id ${String(row.message_hash)}`,
-                );
-            }
-
-            return row.message_hash;
-        });
-    }
-
-    async findUniquePrivateOutgoingNearTime(
-        sessionId: number,
-        timestamp?: number,
-    ): Promise<number | null> {
-        return this.db.serial(async () => {
-            await this.initialization;
-
-            if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
-                return null;
-            }
-
-            if (!isUsablePrivateQuoteTime(timestamp)) {
-                return null;
-            }
-
-            for (const windowSeconds of PRIVATE_REPLY_TIME_WINDOWS_SECONDS) {
-                const rows = (await this.stmtFindPrivateOutgoingNearTime.all(
+            if (!selected.candidate && selected.reason !== 'ambiguous' && sentBySelf && hasTime) {
+                const nearby = (await this.stmtFindPrivateReplyByTime.all(
                     sessionId,
                     1,
-                    timestamp - windowSeconds,
-                    timestamp + windowSeconds,
-                    timestamp,
-                )) as Array<{ message_hash: number }>;
-
-                if (rows.length !== 1) {
-                    continue;
-                }
-
-                if (!isValidMessageId(rows[0].message_hash)) {
-                    throw new Error(
-                        `private message lookup matched invalid message id ${String(rows[0].message_hash)}`,
-                    );
-                }
-
-                return rows[0].message_hash;
+                    lower,
+                    upper,
+                )) as PrivateReplyRow[];
+                selected = selectPrivateQuote(nearby.map(privateReplyCandidate), key);
             }
 
-            return null;
+            log.trace(
+                'private quote lookup: peer=%d seq=%d outgoing=%s time=%s result=%s messageId=%s',
+                sessionId,
+                replySequence,
+                sentBySelf,
+                timestamp,
+                selected.reason,
+                selected.candidate?.id ?? 'unknown',
+            );
+            return selected.candidate?.id ?? null;
         });
     }
 
@@ -1148,64 +997,27 @@ function eventPrivateDirection(isGroup: boolean, event: JsonObject): number {
     return -1;
 }
 
-const PRIVATE_REPLY_TIME_WINDOWS_SECONDS = [5, 30] as const;
-
-/** Unknown, truncated, and media previews remain possible competing matches. */
-function cachedQuoteText(data: string | null): { text: string; plain: boolean } | null {
-    if (!data) {
-        return null;
-    }
-
-    const event = JSON.parse(data) as JsonObject;
-
-    if (typeof event.message === 'string') {
-        return event.message.includes('[CQ:')
-            ? null
-            : { text: cqUnescape(event.message), plain: true };
-    }
-
-    if (!Array.isArray(event.message) || event.message.length === 0) {
-        return null;
-    }
-
-    const segments = event.message as JsonObject[];
-    const labels: Record<string, string> = {
-        image: '[图片]',
-        record: '[语音]',
-        video: '[视频]',
-        file: '[文件]',
-        face: '[表情]',
-        mface: '[表情]',
-        forward: '[聊天记录]',
-        json: '[卡片]',
-        xml: '[卡片]',
-    };
-    const parts: string[] = [];
-    let plain = true;
-
-    for (const segment of segments) {
-        const body = segment?.data as JsonObject | undefined;
-
-        if (segment?.type === 'text' && typeof body?.text === 'string') {
-            parts.push(body.text);
-        } else if (typeof segment?.type === 'string' && labels[segment.type]) {
-            parts.push(typeof body?.summary === 'string' ? body.summary : labels[segment.type]!);
-            plain = false;
-        } else {
-            return null;
-        }
-    }
-
-    return { text: parts.join(''), plain };
+interface PrivateReplyRow extends SqliteRow {
+    message_hash: number;
+    sequence: number;
+    sequence_authoritative: number;
+    client_sequence: number;
+    timestamp: number;
+    data: string | null;
 }
 
-function isUsablePrivateQuoteTime(timestamp: number | undefined): timestamp is number {
-    return (
-        timestamp !== undefined &&
-        Number.isSafeInteger(timestamp) &&
-        timestamp > 0 &&
-        timestamp < Number.MAX_SAFE_INTEGER
-    );
+function privateReplyCandidate(row: PrivateReplyRow) {
+    if (!isValidMessageId(row.message_hash)) {
+        throw new Error(`private quote matched invalid message id ${String(row.message_hash)}`);
+    }
+
+    return {
+        id: row.message_hash,
+        sequence: row.sequence_authoritative === 1 ? row.sequence : 0,
+        clientSequence: row.client_sequence,
+        timestamp: row.timestamp,
+        preview: cachedQuotePreview(row.data),
+    };
 }
 
 function validatePrivateRecallKey(

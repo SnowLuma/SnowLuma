@@ -176,10 +176,38 @@ async function convertAndDispatch(
     state: EventTraceState,
     messageIdOverride?: number,
 ): Promise<void> {
+    let preparedEvent = event;
+
+    if (event.kind === 'friend_message' && (await isFriendMessageRecalled(ctx, log, event))) {
+        traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_before_backfill');
+        return;
+    }
+
+    // If this message quotes one we don't have, fetch + persist it first (gated +
+    // throttled) so a consumer's get_msg on the quote resolves. No-op for the
+    // common case (no reply, or the quoted message is already stored). Never let a
+    // back-fill failure block delivery of the live message.
+    try {
+        preparedEvent = await backfillReplyTarget(ctx, event);
+    } catch (error) {
+        // Best-effort — dispatch the live event regardless, but keep the failure
+        // attributable so a repeated store/server miss is diagnosable.
+        log.warn(
+            'reply backfill failed kind=%s: %s',
+            event.kind,
+            error instanceof Error ? (error.stack ?? error.message) : String(error),
+        );
+        log.trace(() => [
+            'event_branch kind=%s reason=reply_backfill_failed error=%s',
+            event.kind,
+            error instanceof Error ? (error.stack ?? error.message) : String(error),
+        ]);
+    }
+
     let converted;
 
     try {
-        converted = await convertEvent(ctx.converterCtx, event);
+        converted = await convertEvent(ctx.converterCtx, preparedEvent);
     } catch (error) {
         traceEventTerminal(log, event.kind, state, 'failed', 'converter_threw', error);
         throw error;
@@ -199,32 +227,6 @@ async function convertAndDispatch(
         event.kind,
         renderParamsVerbose(converted),
     ]);
-
-    if (event.kind === 'friend_message' && (await isFriendMessageRecalled(ctx, log, event))) {
-        traceEventTerminal(log, event.kind, state, 'dropped', 'recalled_before_backfill');
-        return;
-    }
-
-    // If this message quotes one we don't have, fetch + persist it first (gated +
-    // throttled) so a consumer's get_msg on the quote resolves. No-op for the
-    // common case (no reply, or the quoted message is already stored). Never let a
-    // back-fill failure block delivery of the live message.
-    try {
-        await backfillReplyTarget(ctx, event);
-    } catch (error) {
-        // Best-effort — dispatch the live event regardless, but keep the failure
-        // attributable so a repeated store/server miss is diagnosable.
-        log.warn(
-            'reply backfill failed kind=%s: %s',
-            event.kind,
-            error instanceof Error ? (error.stack ?? error.message) : String(error),
-        );
-        log.trace(() => [
-            'event_branch kind=%s reason=reply_backfill_failed error=%s',
-            event.kind,
-            error instanceof Error ? (error.stack ?? error.message) : String(error),
-        ]);
-    }
 
     // Backfill can await several network/media operations. Re-check immediately
     // before dispatch so a recall that arrived during that gap wins the race.

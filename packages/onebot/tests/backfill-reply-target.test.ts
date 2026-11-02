@@ -8,10 +8,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { backfillReplyTarget } from '../src/modules/message-actions';
 import {
     GROUP_MESSAGE_EVENT,
-    PRIVATE_MESSAGE_EVENT,
-    PRIVATE_SENT_MESSAGE_EVENT,
+    PRIVATE_NT_MESSAGE_EVENT,
     hashMessageIdInt32,
 } from '../src/message-id';
+import { createMessageIdResolver } from '../src/message-id-resolver';
 
 const SELF = 10001;
 
@@ -19,7 +19,7 @@ const converterCtx = {
     selfId: SELF,
     imageUrlResolver: null,
     mediaUrlResolver: null,
-    messageIdResolver: null,
+    messageIdResolver: createMessageIdResolver({ resolvePrivateReplyMessageId: async () => null }),
     mediaSegmentSink: null,
 } as any;
 
@@ -28,6 +28,9 @@ function fakeStore(has = false) {
         findEvent: vi.fn(() => (has ? ({ message_id: 1 } as any) : null)),
         storeMeta: vi.fn(),
         storeEvent: vi.fn(),
+        findMeta: vi.fn(async () => null),
+        resolvePrivateReplyMessageId: vi.fn(async () => null),
+        storeHistoryEvent: vi.fn(async () => true),
     };
 }
 
@@ -137,31 +140,29 @@ describe('backfillReplyTarget', () => {
 
         expect(resolveUserUid).toHaveBeenCalledWith(448671521);
         expect(getC2cLatestHistory).toHaveBeenCalledWith('u_friend', 20, SELF, 1700000101);
-        const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_MESSAGE_EVENT);
-        expect(store.storeMeta).toHaveBeenCalledWith(
-            targetId,
-            expect.objectContaining({
-                sequence: 1456,
-                clientSequence: 456,
-                privateDirection: 'incoming',
-                sequenceAuthoritative: true,
-            }),
-        );
-        expect(store.storeEvent).toHaveBeenCalledWith(
+        const targetId = hashMessageIdInt32(1456, 448671521, PRIVATE_NT_MESSAGE_EVENT);
+        expect(store.storeHistoryEvent).toHaveBeenCalledWith(
             targetId,
             false,
             448671521,
             1456,
-            PRIVATE_MESSAGE_EVENT,
+            PRIVATE_NT_MESSAGE_EVENT,
             expect.objectContaining({ message_id: targetId, message_type: 'private' }),
-            { sequenceAuthoritative: true },
+            {
+                sequenceAuthoritative: true,
+                meta: expect.objectContaining({
+                    sequence: 1456,
+                    clientSequence: 456,
+                    privateDirection: 'incoming',
+                    sequenceAuthoritative: true,
+                }),
+            },
         );
     });
 
     it('c2c: a bot self-sent quoted message is keyed under the peer (not self)', async () => {
         // The fetched message was sent by us (senderUin = self) — it converts with
-        // user_id=self, but must still be findable under hash(seq, peer, private),
-        // which is what the incoming reply resolves to.
+        // user_id=self, but its canonical id still belongs to the peer conversation.
         const store = fakeStore(false);
         const getC2cLatestHistory = vi.fn(async () => [fetchedFriendMessage(456, SELF)]);
         const ref = {
@@ -186,15 +187,18 @@ describe('backfillReplyTarget', () => {
 
         await backfillReplyTarget(ref, event);
 
-        const targetId = hashMessageIdInt32(456, 448671521, PRIVATE_SENT_MESSAGE_EVENT);
-        expect(store.storeEvent).toHaveBeenCalledWith(
+        const targetId = hashMessageIdInt32(1456, 448671521, PRIVATE_NT_MESSAGE_EVENT);
+        expect(store.storeHistoryEvent).toHaveBeenCalledWith(
             targetId,
             false,
             448671521,
             1456,
-            PRIVATE_SENT_MESSAGE_EVENT,
+            PRIVATE_NT_MESSAGE_EVENT,
             expect.objectContaining({ message_id: targetId }),
-            { sequenceAuthoritative: true },
+            {
+                sequenceAuthoritative: true,
+                meta: expect.objectContaining({ privateDirection: 'outgoing' }),
+            },
         );
     });
 
@@ -225,15 +229,18 @@ describe('backfillReplyTarget', () => {
 
         await backfillReplyTarget(ref, event);
 
-        const targetId = hashMessageIdInt32(456, peerUin, PRIVATE_MESSAGE_EVENT);
-        expect(store.storeEvent).toHaveBeenCalledWith(
+        const targetId = hashMessageIdInt32(1456, peerUin, PRIVATE_NT_MESSAGE_EVENT);
+        expect(store.storeHistoryEvent).toHaveBeenCalledWith(
             targetId,
             false,
             peerUin,
             1456,
-            PRIVATE_MESSAGE_EVENT,
+            PRIVATE_NT_MESSAGE_EVENT,
             expect.objectContaining({ message_id: targetId, message_type: 'private' }),
-            { sequenceAuthoritative: true },
+            {
+                sequenceAuthoritative: true,
+                meta: expect.objectContaining({ privateDirection: 'incoming' }),
+            },
         );
     });
 

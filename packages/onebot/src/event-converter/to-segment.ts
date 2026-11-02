@@ -5,6 +5,7 @@ import { getElementCodec } from './element-codecs';
 import { createLogger } from '@snowluma/common/logger';
 import type { ConverterContext } from './index';
 import { attachMessageMedia } from '../message-media';
+import type { PrivateQuoteSource } from '../private-quote';
 
 const log = createLogger('OneBot');
 
@@ -13,9 +14,15 @@ export async function elementsToOneBotSegments(
     elements: MessageElement[],
     isGroup: boolean,
     sessionId: number,
-    options: { includeReplyContent?: boolean } = {},
+    options: { includeReplyContent?: boolean; currentMessage?: PrivateQuoteSource } = {},
 ): Promise<JsonArray> {
-    const segmentCtx: ToSegmentContext = { ...ctx, isGroup, sessionId, mediaSegmentSink: null };
+    const segmentCtx: ToSegmentContext = {
+        ...ctx,
+        isGroup,
+        sessionId,
+        mediaSegmentSink: null,
+        currentMessage: options.currentMessage,
+    };
     const result: JsonArray = [];
 
     for (const element of elements) {
@@ -30,6 +37,21 @@ export async function elementsToOneBotSegments(
                 'segment convert skipped type=%s (%s)',
                 element.type,
                 err instanceof Error ? err.message : String(err),
+            );
+            continue;
+        }
+
+        if (
+            element.type === 'reply' &&
+            (segment.data as JsonObject).id === '0' &&
+            !options.includeReplyContent
+        ) {
+            log.warn(
+                'quote target unresolved: group=%s session=%d seq=%d time=%s; omitting reply id',
+                isGroup,
+                sessionId,
+                element.replySeq,
+                element.replyTime,
             );
             continue;
         }

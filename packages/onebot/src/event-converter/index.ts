@@ -1,5 +1,6 @@
 import type { MessageElement, QQEventVariant } from '@snowluma/protocol/events';
 import type { JsonObject } from '../types';
+import type { PrivateQuoteSource } from '../private-quote';
 import { convertFriendMessage, convertGroupMessage, convertTempMessage } from './to-message';
 import {
     convertBotOffline,
@@ -40,6 +41,7 @@ export type MessageIdResolver = (
     eventName: string,
     timestamp?: number,
     replyElements?: readonly MessageElement[],
+    excludedMessage?: PrivateQuoteSource,
 ) => number | Promise<number>;
 
 export type MediaSegmentSink = (

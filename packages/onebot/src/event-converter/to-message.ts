@@ -53,7 +53,16 @@ async function convertPrivateMessage(
         messageIdSequence,
         eventName,
     );
-    const segments = await toSegments(ctx, event.elements, false, sessionId);
+    const segments = await elementsToOneBotSegments(ctx, event.elements, false, sessionId, {
+        currentMessage: {
+            id: messageId,
+            sequence: hasCanonicalNtSequence ? ntSequence : 0,
+            clientSequence:
+                event.kind === 'friend_message' ? (event.clientSeq ?? event.msgSeq) : event.msgSeq,
+            timestamp: event.time,
+            sentBySelf: isSelf,
+        },
+    });
     const sender: JsonObject = {
         user_id: event.senderUin,
         nickname: event.senderNick,

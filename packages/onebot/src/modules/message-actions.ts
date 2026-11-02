@@ -15,6 +15,7 @@ import { getVideoSourceSize, MAX_VIDEO_SIZE } from '@snowluma/protocol/highway/v
 import { guessFileNameFromUrl } from '@snowluma/protocol/highway/utils';
 import type { MessageSendResult } from '../api-handler';
 import { convertEvent, elementsToOneBotSegments, type ConverterContext } from '../event-converter';
+import { applyMessageIdResolver } from '../event-converter/utils';
 import { segmentsToRawMessage } from '../helper/cq';
 import { persistHistoryEvent, toHistoryInt } from '../history-persistence';
 import type { OneBotInstanceContext } from '../instance-context';
@@ -28,6 +29,12 @@ import {
 import type { MessageStore } from '../message-store';
 import { sameSelfSentMessage } from '../self-sent-event';
 import { replyPreviewElements } from '../reply-preview';
+import {
+    isUsableQuoteTime,
+    messageQuotePreview,
+    PRIVATE_QUOTE_MAX_DRIFT_SECONDS,
+    selectPrivateQuote,
+} from '../private-quote';
 import {
     hasAuthoritativeSequence,
     type JsonArray,
@@ -424,225 +431,296 @@ export async function getFriendHistory(
     return out;
 }
 
-/**
- * Back-fill the message a freshly-received reply points to, when the local store
- * doesn't have the full event (e.g. a message from before SnowLuma was running,
- * or one it never observed). Fetches the quoted message from the server —
- * group via `SsoGetGroupMsg`, C2C via timestamp roaming, both through the shared
- * history throttle gate — and persists it under the SAME id the reply resolves
- * to, so a subsequent `get_msg` (or quote lookup) hits. Private replies carry
- * the quoted sender's local sequence, so they are matched through a timestamp
- * roam page rather than incorrectly used as an NT-sequence range anchor.
- *
- * No-op when: the event isn't a group/friend message, has no reply, the target
- * is already stored, the uid can't be resolved, the fetch returns nothing, or
- * it errors. Meant to be awaited before dispatch so the consumer's get_msg —
- * which an approval bot fires right after seeing the reply — sees the message.
- */
-export async function backfillReplyTarget(ref: HistoryRef, event: QQEventVariant): Promise<void> {
-    let isGroup: boolean;
-    let session: number;
-
-    if (event.kind === 'group_message') {
-        isGroup = true;
-        session = event.groupId;
-    } else if (event.kind === 'friend_message') {
-        isGroup = false;
-        session = event.peerUin ?? event.senderUin;
-    } else {
-        return;
+/** Resolve and prepare quotes before conversion, without changing the protocol event. */
+export async function backfillReplyTarget(
+    ref: HistoryRef,
+    event: QQEventVariant,
+): Promise<QQEventVariant> {
+    if (event.kind !== 'group_message' && event.kind !== 'friend_message') {
+        return event;
     }
+
+    const session =
+        event.kind === 'group_message' ? event.groupId : (event.peerUin ?? event.senderUin);
 
     if (!Number.isInteger(session) || session <= 0) {
-        return;
+        return event;
     }
 
-    const reply = event.elements.find(
-        (e: MessageElement) =>
-            e.type === 'reply' && Number.isInteger(e.replySeq) && (e.replySeq ?? 0) > 0,
-    );
-    const replySeq = reply?.replySeq ?? 0;
+    const elements: MessageElement[] = [];
+    let changed = false;
 
-    if (replySeq <= 0) {
-        return;
+    for (const element of event.elements) {
+        if (
+            element.type !== 'reply' ||
+            !Number.isSafeInteger(element.replySeq) ||
+            element.replySeq <= 0
+        ) {
+            elements.push(element);
+            continue;
+        }
+
+        const messageId =
+            event.kind === 'group_message'
+                ? await backfillGroupReply(ref, session, element)
+                : await backfillPrivateReply(ref, session, event, element);
+        elements.push({ ...element, replyMessageId: messageId });
+        changed = true;
     }
 
-    const quotedSender = reply?.replySenderUin ?? (isGroup ? 0 : session);
-    const eventName = isGroup
-        ? GROUP_MESSAGE_EVENT
-        : privateMessageEventName(quotedSender === ref.selfId, false);
-    const resolvedId = await ref.converterCtx.messageIdResolver?.(
-        isGroup,
+    return changed ? { ...event, elements } : event;
+}
+
+async function backfillPrivateReply(
+    ref: HistoryRef,
+    session: number,
+    event: FriendMessage,
+    reply: MessageElementOf<'reply'>,
+): Promise<number> {
+    const sender = reply.replySenderUin ?? session;
+    const sentBySelf = sender === ref.selfId;
+    const hasNtSequence = (event.ntMsgSeq ?? 0) > 0 && event.sequenceAuthoritative !== false;
+    const currentId = await applyMessageIdResolver(
+        ref.converterCtx.messageIdResolver,
+        false,
         session,
-        replySeq,
-        eventName,
-        reply?.replyTime && reply.replyTime > 0 ? reply.replyTime : Number.MAX_SAFE_INTEGER,
+        hasNtSequence ? event.ntMsgSeq! : event.msgSeq,
+        privateMessageEventName(event.senderUin === ref.selfId, hasNtSequence),
+    );
+    const exclude = {
+        id: currentId,
+        sequence: hasNtSequence ? event.ntMsgSeq! : 0,
+        clientSequence: event.clientSeq ?? event.msgSeq,
+        timestamp: event.time,
+        sentBySelf: event.senderUin === ref.selfId,
+    };
+    const storedId = await ref.messageStore.resolvePrivateReplyMessageId(
+        session,
+        reply.replySeq,
+        sentBySelf,
+        reply.replyTime,
+        reply.replyElements,
+        exclude,
+    );
+
+    if (storedId !== null && (await ref.messageStore.findEvent(storedId))) {
+        return storedId;
+    }
+
+    let history: FriendMessage[] = [];
+
+    try {
+        const uid = await ref.bridge.resolveUserUid(session);
+
+        if (uid) {
+            const time = isUsableQuoteTime(reply.replyTime) ? reply.replyTime : event.time;
+            history = await ref.bridge.apis.message.getC2cLatestHistory(
+                uid,
+                20,
+                ref.selfId,
+                Math.min(0xffff_ffff, Math.max(1, time + 1)),
+            );
+        }
+    } catch (error) {
+        log.warn(
+            'private quote history failed: peer=%d seq=%d error=%s',
+            session,
+            reply.replySeq,
+            error instanceof Error ? error.message : String(error),
+        );
+    }
+
+    const selection = selectPrivateQuote(
+        history
+            .filter(
+                (candidate) =>
+                    candidate.senderUin === sender &&
+                    candidate.selfUin === ref.selfId &&
+                    (candidate.peerUin ??
+                        (candidate.senderUin === ref.selfId ? session : candidate.senderUin)) ===
+                        session,
+            )
+            .map((source) => ({
+                source: { ...source, peerUin: session },
+                sequence: source.sequenceAuthoritative !== false ? (source.ntMsgSeq ?? 0) : 0,
+                clientSequence: source.clientSeq ?? source.msgSeq,
+                timestamp: source.time,
+                preview: messageQuotePreview(source.elements),
+            })),
+        {
+            sequence: reply.replySeq,
+            sentBySelf,
+            timestamp: reply.replyTime,
+            elements: reply.replyElements,
+            exclude,
+        },
+    );
+    const fetched = selection.candidate?.source;
+    const knownMeta = storedId !== null ? await ref.messageStore.findMeta(storedId) : null;
+
+    if (fetched) {
+        const json = await convertEvent(ref.converterCtx, fetched);
+
+        if (!json) {
+            throw new Error('private quote history could not be converted');
+        }
+
+        // Preserve an existing legacy id only when the fetched message confirms
+        // the same stored identity, rather than assigning a quote-sequence hash.
+        if (
+            storedId !== null &&
+            knownMeta &&
+            Math.abs(knownMeta.timestamp - fetched.time) <= PRIVATE_QUOTE_MAX_DRIFT_SECONDS &&
+            (knownMeta.sequenceAuthoritative !== false &&
+            knownMeta.sequence > 0 &&
+            fetched.sequenceAuthoritative !== false &&
+            (fetched.ntMsgSeq ?? 0) > 0
+                ? knownMeta.sequence === fetched.ntMsgSeq
+                : knownMeta.clientSequence > 0 &&
+                  knownMeta.clientSequence === (fetched.clientSeq ?? fetched.msgSeq))
+        ) {
+            json.message_id = storedId;
+        }
+
+        const persisted = await persistHistoryEvent(ref.messageStore, json, session, fetched);
+        const id = persisted ? toHistoryInt(json.message_id) : 0;
+        log.trace(
+            'private quote history resolved: peer=%d seq=%d result=%s messageId=%d',
+            session,
+            reply.replySeq,
+            persisted ? selection.reason : 'recalled',
+            id,
+        );
+        return id;
+    }
+
+    // Embedded text may fill the body of a verified existing identity. It cannot
+    // create a new private-message identity or overwrite an unrelated record.
+    if (storedId !== null && knownMeta && reply.replyElements?.length) {
+        const segments = await elementsToOneBotSegments(
+            ref.converterCtx,
+            reply.replyElements.filter((element) => element.type !== 'reply'),
+            false,
+            session,
+        );
+        const json = buildBackfillEvent(
+            storedId,
+            knownMeta.clientSequence || knownMeta.sequence,
+            sender,
+            knownMeta.timestamp,
+            segments,
+            ref.selfId,
+            false,
+            session,
+        );
+        const persisted = await ref.messageStore.storeHistoryEvent(
+            storedId,
+            false,
+            session,
+            knownMeta.sequence,
+            knownMeta.eventName,
+            json,
+            { sequenceAuthoritative: knownMeta.sequenceAuthoritative, meta: knownMeta },
+        );
+        return persisted ? storedId : 0;
+    }
+
+    log.trace(
+        'private quote unresolved: peer=%d seq=%d time=%s result=%s knownId=%s',
+        session,
+        reply.replySeq,
+        reply.replyTime,
+        selection.reason,
+        storedId ?? 'unknown',
+    );
+    return storedId ?? 0;
+}
+
+async function backfillGroupReply(
+    ref: HistoryRef,
+    session: number,
+    reply: MessageElementOf<'reply'>,
+): Promise<number> {
+    const resolvedId = await ref.converterCtx.messageIdResolver?.(
+        true,
+        session,
+        reply.replySeq,
+        GROUP_MESSAGE_EVENT,
+        reply.replyTime && reply.replyTime > 0 ? reply.replyTime : Number.MAX_SAFE_INTEGER,
+        reply.replyElements,
     );
     const targetId =
         Number.isInteger(resolvedId) && resolvedId !== 0
             ? (resolvedId as number)
-            : hashMessageIdInt32(replySeq, session, eventName);
+            : hashMessageIdInt32(reply.replySeq, session, GROUP_MESSAGE_EVENT);
 
     if (await ref.messageStore.findEvent(targetId)) {
-        return;
-    } // Tier 0: already have the full event
+        return targetId;
+    }
 
-    // Tier 1: fetch the quoted message from the server, keyed under the exact id
-    // the reply resolves to. Groups can query `replySeq` directly. C2C replies
-    // carry a sender-local client sequence, while SsoGetC2cMsg ranges use the
-    // conversation-wide NT sequence; use the quote time as a roam cursor and
-    // match both direction and client sequence instead.
+    let fetched: GroupMessage | null = null;
+
     try {
-        let fetched: GroupMessage | FriendMessage | null = null;
-
-        if (isGroup) {
-            fetched = await ref.bridge.apis.message.getGroupMessageBySeq(
-                session,
-                replySeq,
-                ref.selfId,
-            );
-        } else {
-            const friendUid = await ref.bridge.resolveUserUid(session);
-
-            if (friendUid) {
-                const quoteTime =
-                    reply?.replyTime && reply.replyTime > 0 ? reply.replyTime : event.time;
-                const beforeTime = Math.min(0xffff_ffff, Math.max(1, quoteTime + 1));
-                const candidates = await ref.bridge.apis.message.getC2cLatestHistory(
-                    friendUid,
-                    20,
-                    ref.selfId,
-                    beforeTime,
-                );
-                const quotedSentBySelf = quotedSender === ref.selfId;
-                fetched =
-                    [...candidates]
-                        .reverse()
-                        .find(
-                            (candidate) =>
-                                (candidate.clientSeq ?? candidate.msgSeq) === replySeq &&
-                                (candidate.senderUin === ref.selfId) === quotedSentBySelf &&
-                                (!reply?.replyTime || candidate.time <= reply.replyTime),
-                        ) ?? null;
-            }
-        }
-
-        if (fetched) {
-            const json = await convertEvent(ref.converterCtx, fetched);
-
-            if (json) {
-                json.message_id = targetId;
-
-                if (fetched.kind === 'group_message') {
-                    await ref.messageStore.storeEvent(
-                        targetId,
-                        true,
-                        session,
-                        replySeq,
-                        eventName,
-                        json,
-                    );
-                } else {
-                    const serverSequence = fetched.ntMsgSeq ?? 0;
-                    const sequenceAuthoritative =
-                        fetched.sequenceAuthoritative !== false && serverSequence > 0;
-                    await ref.messageStore.storeMeta(targetId, {
-                        isGroup: false,
-                        targetId: session,
-                        sequence: serverSequence,
-                        sequenceAuthoritative,
-                        eventName,
-                        clientSequence: fetched.clientSeq ?? fetched.msgSeq,
-                        privateDirection:
-                            fetched.senderUin === ref.selfId ? 'outgoing' : 'incoming',
-                        random: fetched.msgId,
-                        timestamp: fetched.time,
-                    });
-                    await ref.messageStore.storeEvent(
-                        targetId,
-                        false,
-                        session,
-                        serverSequence,
-                        eventName,
-                        json,
-                        { sequenceAuthoritative },
-                    );
-                }
-
-                return;
-            }
-        }
-    } catch (err) {
+        fetched = await ref.bridge.apis.message.getGroupMessageBySeq(
+            session,
+            reply.replySeq,
+            ref.selfId,
+        );
+    } catch (error) {
         log.warn(
             'reply-target backfill tier-1 failed (%s)',
-            err instanceof Error ? err.message : String(err),
+            error instanceof Error ? error.message : String(error),
         );
     }
 
-    // Tier 2: reconstruct from the quoted message's own elements, which the push
-    // embeds in SrcMsg.elems — no server round-trip. Covers messages the server
-    // won't return (expired, self-c2c, file-only) but whose content rode along.
-    if (reply?.replyElements?.length) {
-        try {
-            const segments = (await elementsToOneBotSegments(
-                ref.converterCtx,
-                reply.replyElements,
-                isGroup,
-                session,
-            )) as JsonArray;
-            const fallback = buildBackfillEvent(
-                targetId,
-                replySeq,
-                quotedSender,
-                reply.replyTime ?? 0,
-                segments,
-                ref.selfId,
-                isGroup,
-                session,
-            );
-            // Inline quote metadata proves what was displayed, but not that replySeq
-            // still names a server-backed roam message. Keep it queryable via
-            // get_msg without letting it become a history/recall/reply anchor.
+    if (fetched) {
+        const json = await convertEvent(ref.converterCtx, fetched);
+
+        if (json) {
+            json.message_id = targetId;
             await ref.messageStore.storeEvent(
                 targetId,
-                isGroup,
+                true,
                 session,
-                replySeq,
-                eventName,
-                fallback,
-                { sequenceAuthoritative: false },
+                reply.replySeq,
+                GROUP_MESSAGE_EVENT,
+                json,
             );
-            return;
-        } catch (err) {
-            log.warn(
-                'reply-target backfill tier-2 failed (%s)',
-                err instanceof Error ? err.message : String(err),
-            );
+            return targetId;
         }
     }
 
-    // Tier 3: minimal `[引用消息]` placeholder so get_msg(reply_id) never returns
-    // "message not found" — an approval bot that fires get_msg right after seeing
-    // the reply gets a well-formed (if sparse) event instead of an error.
-    const placeholder = buildBackfillEvent(
+    let segments: JsonArray = [{ type: 'text', data: { text: '[引用消息]' } }];
+
+    if (reply.replyElements?.length) {
+        segments = await elementsToOneBotSegments(
+            ref.converterCtx,
+            reply.replyElements,
+            true,
+            session,
+        );
+    }
+
+    const fallback = buildBackfillEvent(
         targetId,
-        replySeq,
-        quotedSender,
-        reply?.replyTime ?? 0,
-        [{ type: 'text', data: { text: '[引用消息]' } }],
+        reply.replySeq,
+        reply.replySenderUin ?? 0,
+        reply.replyTime ?? 0,
+        segments,
         ref.selfId,
-        isGroup,
+        true,
         session,
     );
     await ref.messageStore.storeEvent(
         targetId,
-        isGroup,
+        true,
         session,
-        replySeq,
-        eventName,
-        placeholder,
+        reply.replySeq,
+        GROUP_MESSAGE_EVENT,
+        fallback,
         { sequenceAuthoritative: false },
     );
+    return targetId;
 }
 
 // Build a stored-message event for a backfilled reply target (Tier 2/3).

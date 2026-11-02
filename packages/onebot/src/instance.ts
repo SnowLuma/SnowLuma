@@ -18,15 +18,9 @@ import type { GlobalSettings } from './global-config';
 import { MediaIndexer } from './media-indexer';
 import { MediaStore } from './media-store';
 import { MediaUrlResolver } from './media-url-resolver';
-import {
-    GROUP_MESSAGE_EVENT,
-    PRIVATE_MESSAGE_EVENT,
-    PRIVATE_NT_MESSAGE_EVENT,
-    PRIVATE_SENT_MESSAGE_EVENT,
-    hashMessageIdInt32,
-    privateMessageEventName,
-} from './message-id';
+import { GROUP_MESSAGE_EVENT, PRIVATE_MESSAGE_EVENT, privateMessageEventName } from './message-id';
 import { MessageStore } from './message-store';
+import { createMessageIdResolver } from './message-id-resolver';
 import { sendGroupMessage, sendPrivateMessage } from './modules/message-actions';
 import {
     buildStatusText,
@@ -159,44 +153,7 @@ export class OneBotInstance {
                 this.rkeyCache.resolveImageUrl(this.bridge, element, isGroup),
             mediaUrlResolver: (element, isGroup, sessionId) =>
                 mediaUrlResolver.resolve(element, isGroup, sessionId),
-            messageIdResolver: async (
-                isGroup,
-                sessionId,
-                sequence,
-                eventName,
-                timestamp,
-                replyElements,
-            ) => {
-                const resolvedEventName =
-                    eventName || (isGroup ? GROUP_MESSAGE_EVENT : PRIVATE_MESSAGE_EVENT);
-
-                if (
-                    !isGroup &&
-                    timestamp !== undefined &&
-                    (resolvedEventName === PRIVATE_MESSAGE_EVENT ||
-                        resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT)
-                ) {
-                    const storedId = await this.messageStore.resolvePrivateReplyMessageId(
-                        sessionId,
-                        sequence,
-                        resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT,
-                        timestamp,
-                        replyElements,
-                    );
-
-                    if (storedId !== null) {
-                        return storedId;
-                    }
-                }
-
-                return hashMessageIdInt32(
-                    sequence,
-                    sessionId,
-                    resolvedEventName === PRIVATE_SENT_MESSAGE_EVENT
-                        ? PRIVATE_NT_MESSAGE_EVENT
-                        : resolvedEventName,
-                );
-            },
+            messageIdResolver: createMessageIdResolver(this.messageStore),
             mediaSegmentSink: async (mediaType, element, data, isGroup, sessionId) =>
                 await mediaIndexer.remember(mediaType, element, data, isGroup, sessionId),
         };

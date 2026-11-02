@@ -15,6 +15,7 @@ import type {
 } from './index';
 import { GROUP_MESSAGE_EVENT, privateMessageEventName } from '../message-id';
 import { resolveReplyId } from './utils';
+import type { PrivateQuoteSource } from '../private-quote';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 消息元素 codec 表（onebot 侧）—— 把「同一种元素」的两个 onebot 方向并到一处：
@@ -42,6 +43,7 @@ export interface ToSegmentContext {
     mediaUrlResolver?: MediaUrlResolver | null;
     messageIdResolver?: MessageIdResolver | null;
     mediaSegmentSink?: MediaSegmentSink | null;
+    currentMessage?: PrivateQuoteSource;
 }
 
 // The image segment is the one intentional triangular mapping: an image with
@@ -295,17 +297,20 @@ export const ELEMENT_CODECS = {
             const eventName = ctx.isGroup
                 ? GROUP_MESSAGE_EVENT
                 : privateMessageEventName(sentBySelf, false);
-            const id = await resolveReplyId(
-                ctx.isGroup,
-                ctx.sessionId,
-                element.replySeq ?? 0,
-                ctx.messageIdResolver,
-                eventName,
-                element.replyTime && element.replyTime > 0
-                    ? element.replyTime
-                    : Number.MAX_SAFE_INTEGER,
-                element.replyElements,
-            );
+            const id =
+                element.replyMessageId ??
+                (await resolveReplyId(
+                    ctx.isGroup,
+                    ctx.sessionId,
+                    element.replySeq ?? 0,
+                    ctx.messageIdResolver,
+                    eventName,
+                    element.replyTime && element.replyTime > 0
+                        ? element.replyTime
+                        : Number.MAX_SAFE_INTEGER,
+                    element.replyElements,
+                    ctx.currentMessage,
+                ));
             return { type: 'reply', data: { id: String(id) } };
         },
         async fromSegment(data, options) {
