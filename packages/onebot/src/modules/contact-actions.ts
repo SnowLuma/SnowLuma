@@ -311,7 +311,7 @@ export async function getGroupMemberInfo(
 ): Promise<JsonObject | null> {
     const cached = bridge.identity.findGroupMember(groupId, userId);
 
-    if (noCache || !cached || cached.isRobot === undefined) {
+    if (noCache || !cached || cached.isRobot === undefined || cached.card === undefined) {
         await fetchSingleGroupMembers(bridge, groupId, noCache === true);
     }
 
@@ -725,6 +725,10 @@ function formatGroupMember(
         throw new Error(
             `group member robot classification unavailable: group=${groupId} member=${member.uin}`,
         );
+    }
+
+    if (member.card === undefined) {
+        throw new Error(`group member card unavailable: group=${groupId} member=${member.uin}`);
     }
 
     const qage = accountAge(profile?.regTime);

@@ -28,7 +28,7 @@ function message(...elems: Elem[]): PushMsgBody {
         responseHead: {
             fromUin: 20002,
             fromUid: 'sender-uid',
-            grp: { groupUin: 12345, memberCard: 'alice' },
+            grp: { groupUin: 12345, memberCard: Buffer.from('alice') },
         },
         contentHead: { msgType: 82, sequence: 10, timestamp: 1700000000 },
         body: { richText: { elems } },
@@ -163,7 +163,7 @@ describe('get_forward_msg / cache lifetime', () => {
 
     it('keeps an inner result attached to its outer result after sender enrichment', async () => {
         const nameless = message({ text: { str: 'unnamed sender' } });
-        nameless.responseHead!.grp!.memberCard = '';
+        nameless.responseHead!.grp!.memberCard = new Uint8Array();
         const downloads = new Map([
             ['enrich-outer', nestedResult('enrich-inner', 'enrich-key', nameless)],
         ]);
@@ -220,7 +220,7 @@ describe('get_forward_msg / cache lifetime', () => {
 
     it('does not resurrect evicted nested results when enrichment finishes late', async () => {
         const nameless = message({ text: { str: 'late sender' } });
-        nameless.responseHead!.grp!.memberCard = '';
+        nameless.responseHead!.grp!.memberCard = new Uint8Array();
         const downloads = new Map([
             ['late-outer', nestedResult('late-inner', 'late-key', nameless)],
         ]);

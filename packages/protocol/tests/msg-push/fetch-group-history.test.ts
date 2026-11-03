@@ -117,7 +117,7 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
                     {
                         responseHead: {
                             fromUin: 222,
-                            grp: { groupUin: 9999, memberCard: 'FreshCard' },
+                            grp: { groupUin: 9999, memberCard: Buffer.from('FreshCard') },
                         }, // field2 empty, field4 = fresh card
                         contentHead: {
                             msgType: 82,
@@ -170,7 +170,7 @@ describe('fetchGroupMessageRange / SsoGetGroupMsg', () => {
                     {
                         responseHead: {
                             fromUin: 222,
-                            grp: { groupUin: 9999, memberCard: 'BaseNick' },
+                            grp: { groupUin: 9999, memberCard: Buffer.from('BaseNick') },
                         }, // field4 == base nick → not a card
                         contentHead: {
                             msgType: 82,

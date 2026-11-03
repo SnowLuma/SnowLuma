@@ -190,7 +190,7 @@ describe('actions/forward', () => {
             responseHead: {
                 fromUin: 1787882683,
                 fromUid: 'u_x',
-                grp: { groupUin: 284840486, memberCard: '墨梓柒' },
+                grp: { groupUin: 284840486, memberCard: Buffer.from('墨梓柒') },
             },
             contentHead: { msgType: 82, sequence: 1, timestamp: 100 }, // 82 = PkgType.GroupMessage
             body: { richText: { elems: [{ text: { str: 'hi' } }] } },

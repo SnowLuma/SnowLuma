@@ -343,7 +343,11 @@ describe('registerEventPipeline', () => {
                 message: {
                     responseHead: {
                         fromUin: SELF_ID,
-                        grp: { groupUin: GROUP_ID, memberCard: 'self', groupName: 'test group' },
+                        grp: {
+                            groupUin: GROUP_ID,
+                            memberCard: Buffer.from('self'),
+                            groupName: 'test group',
+                        },
                     },
                     contentHead: {
                         msgType: 82,

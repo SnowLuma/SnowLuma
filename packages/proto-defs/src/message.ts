@@ -1,6 +1,15 @@
 import type { pb, pb_repeated, int_32, uint_32, uint_64, bytes } from '@snowluma/proton';
 import type { Elem } from './element';
 
+export interface GroupCardPart {
+    control?: pb<1, bytes>;
+    text?: pb<2, bytes>;
+}
+
+export interface RichGroupCard {
+    parts?: pb_repeated<1, GroupCardPart>;
+}
+
 // ResponseHead.Grp
 export interface ResponseGrp {
     groupUin?: pb<1, uint_32>;
@@ -13,7 +22,9 @@ export interface ResponseGrp {
      *  message shows "星屿"/"墨梓柒111" (the card) here while field 2 is empty, and
      *  forward nodes carry per-node sender names here. Lagrange labels this
      *  `MemberName`; we keep `memberName` for the field-2 group-history slot. */
-    memberCard?: pb<4, string>;
+    memberCard?: pb<4, bytes>;
+    /** Type 2 carries the literal sender nickname. Other values may carry a RichGroupCard. */
+    memberCardType?: pb<5, uint_32>;
     /** The real group name (Lagrange: GroupName). "测试123" on-target. */
     groupName?: pb<7, string>;
 }

@@ -2,6 +2,7 @@ import { SqliteDatabase } from '@snowluma/sqlite';
 import path from 'path';
 
 import { createLogger, type Logger } from '@snowluma/common/logger';
+import { isBinaryCardText } from './group-member-card';
 import type {
     FriendInfo,
     GroupMemberInfo,
@@ -1307,7 +1308,8 @@ export class IdentityService {
         }
 
         const select = this.db!.prepare(
-            `SELECT group_id, uid, uin, nickname, card, role, level, title,
+            `SELECT group_id, uid, uin, nickname,
+              CASE WHEN instr(card, char(0)) = 0 THEN card END AS card, role, level, title,
               join_time, last_sent_time, shut_up_time, is_robot
        FROM group_members
        WHERE group_id = ? AND active = 1`,
@@ -1319,7 +1321,7 @@ export class IdentityService {
                 uid: string | null;
                 uin: number | null;
                 nickname: string;
-                card: string;
+                card: string | null;
                 role: string;
                 level: number;
                 title: string;
@@ -1329,6 +1331,16 @@ export class IdentityService {
                 is_robot: number | null;
             }>;
             const members = rows.map(rowToMemberInfo);
+            const staleCards = members.filter((member) => member.card === undefined).length;
+
+            if (staleCards > 0) {
+                this.log.warn(
+                    'cached member cards require refresh: group=%d count=%d',
+                    groupId,
+                    staleCards,
+                );
+            }
+
             this.setGroupMembersInMemory(groupId, members);
 
             for (const m of members) {
@@ -1459,7 +1471,6 @@ export class IdentityService {
             uid: uid || primary?.uid || null,
             uin: uin ?? primary?.uin ?? null,
             nickname: mergeOptionalText(input.nickname, primary?.nickname ?? ''),
-            card: mergeOptionalText(input.card, primary?.card ?? ''),
             role: mergeOptionalText(input.role, primary?.role ?? 'member'),
             level: normalizeNonNegative(input.level, primary?.level ?? 0),
             title: mergeOptionalText(input.title, primary?.title ?? ''),
@@ -1479,14 +1490,14 @@ export class IdentityService {
 
             await this.db!.prepare(
                 `UPDATE group_members
-         SET uid = ?, uin = ?, nickname = ?, card = ?, role = ?, level = ?, title = ?,
+         SET uid = ?, uin = ?, nickname = ?, card = COALESCE(?, card), role = ?, level = ?, title = ?,
              join_time = ?, last_sent_time = ?, shut_up_time = ?, is_robot = ?, active = ?, updated_at = ?
          WHERE id = ?`,
             ).run(
                 merged.uid,
                 merged.uin,
                 merged.nickname,
-                merged.card,
+                input.card ?? null,
                 merged.role,
                 merged.level,
                 merged.title,
@@ -1511,7 +1522,7 @@ export class IdentityService {
             merged.uid,
             merged.uin,
             merged.nickname,
-            merged.card,
+            input.card ?? '',
             merged.role,
             merged.level,
             merged.title,
@@ -1879,7 +1890,7 @@ function rowToMemberInfo(row: {
     uid: string | null;
     uin: number | null;
     nickname: string;
-    card: string;
+    card: string | null;
     role: string;
     level: number;
     title: string;
@@ -1892,7 +1903,7 @@ function rowToMemberInfo(row: {
         uid: row.uid ?? '',
         uin: row.uin ?? 0,
         nickname: row.nickname,
-        card: row.card,
+        card: row.card !== null && !isBinaryCardText(row.card) ? row.card : undefined,
         role: row.role || 'member',
         level: row.level,
         title: row.title,

@@ -85,7 +85,7 @@ describe('FetchGroupMemberListPage namespace', () => {
                         uin: { uid: 'u_admin', uin: 22222 },
                         memberName: 'Ada',
                         specialTitle: 't',
-                        memberCard: { memberCard: 'card' },
+                        memberCard: { memberCard: Buffer.from('card') },
                         level: { level: 12 },
                         joinTimestamp: 1,
                         lastMsgTimestamp: 2,

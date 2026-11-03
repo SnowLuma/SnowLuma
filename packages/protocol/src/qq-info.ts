@@ -99,7 +99,8 @@ export interface GroupMemberInfo {
     uin: number;
     uid: string;
     nickname: string;
-    card: string;
+    /** Empty when unset; undefined until an unreadable card is refreshed. */
+    card?: string;
     /** Undefined until QQ's server-provided robot ranges classify this member. */
     isRobot?: boolean;
     role: string; // 'owner' | 'admin' | 'member'

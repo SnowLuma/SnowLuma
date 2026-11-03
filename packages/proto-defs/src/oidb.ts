@@ -156,7 +156,8 @@ export interface OidbSvcTrpcTcp0xFE7_3Uin {
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Card {
-    memberCard?: pb<2, string>;
+    /** Plain UTF-8 or a serialized RichGroupCard. */
+    memberCard?: pb<2, bytes>;
 }
 
 export interface OidbSvcTrpcTcp0xFE7_3Level {

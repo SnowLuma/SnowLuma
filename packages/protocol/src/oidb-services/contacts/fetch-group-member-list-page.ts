@@ -9,6 +9,7 @@
 import type { OidbBase, OidbSvcTrpcTcp0xFE7_3Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupMemberListRequest } from '@snowluma/proto-defs/oidb-actions/base';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
+import { decodeGroupMemberCard } from '../../group-member-card';
 import type { GroupMemberInfo } from '../../qq-info';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
@@ -84,7 +85,7 @@ export namespace FetchGroupMemberListPage {
             uin: raw.uin?.uin ?? 0,
             uid: raw.uin?.uid ?? '',
             nickname: raw.memberName ?? '',
-            card: raw.memberCard?.memberCard ?? '',
+            card: decodeGroupMemberCard(raw.memberCard?.memberCard),
             isRobot: false,
             role: permissionToRole(raw.permission ?? 0),
             level: raw.level?.level ?? 0,

@@ -890,7 +890,7 @@ export class ForwardApi {
         }
 
         for (const [groupId, groupNodes] of byGroup) {
-            let byUin: Map<number, { nickname: string; card: string }>;
+            let byUin: Map<number, { nickname: string; card?: string }>;
 
             try {
                 const members = await this.ctx.apis.contacts.fetchGroupMemberList(groupId);

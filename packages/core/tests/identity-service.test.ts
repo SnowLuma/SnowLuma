@@ -141,6 +141,73 @@ describe('IdentityService', () => {
         }
     });
 
+    it('retains legacy member identities and refreshes only damaged cards across restarts', async () => {
+        const dbPath = tempDbPath('legacy-card');
+        const member = makeMember(33333, 'u_member', 'placeholder');
+        const other = makeMember(44444, 'u_other', 'ordinary');
+        const seed = new IdentityService(SELF_UIN, dbPath);
+        seed.rememberGroups([makeGroup()]);
+        seed.rememberGroupMembers(GROUP_ID, [member, other]);
+        await seed.close();
+        // Persisted bytes from #646 after the old text normalization stripped the envelope prefix.
+        const damaged = Buffer.concat([
+            Buffer.from('1209', 'hex'),
+            Buffer.from('三字名'),
+            Buffer.from('0a090a0724c3bfc48011221000', 'hex'),
+        ]);
+        const sql = new DatabaseSync(dbPath);
+
+        try {
+            sql.prepare('UPDATE group_members SET card = CAST(? AS TEXT) WHERE uin = ?').run(
+                damaged,
+                member.uin,
+            );
+        } finally {
+            sql.close();
+        }
+
+        const stale = new IdentityService(SELF_UIN, dbPath);
+
+        try {
+            await stale.initialization;
+            const cached = stale.findGroupMember(GROUP_ID, member.uin)!;
+            expect(cached).toMatchObject({ card: undefined, uid: member.uid, isRobot: false });
+            expect(stale.findGroupMember(GROUP_ID, other.uin)?.card).toBe('ordinary');
+            stale.updateGroupMember(GROUP_ID, { ...cached, role: 'admin' });
+        } finally {
+            await stale.close();
+        }
+
+        const refreshed = new IdentityService(SELF_UIN, dbPath);
+
+        try {
+            await refreshed.initialization;
+            expect(refreshed.findGroupMember(GROUP_ID, member.uin)).toMatchObject({
+                card: undefined,
+                role: 'admin',
+            });
+            refreshed.rememberGroupMembers(GROUP_ID, [
+                { ...member, role: 'admin', card: ' 三字名 ' },
+                other,
+            ]);
+        } finally {
+            await refreshed.close();
+        }
+
+        const restored = new IdentityService(SELF_UIN, dbPath);
+
+        try {
+            await restored.initialization;
+            expect(restored.findGroupMember(GROUP_ID, member.uin)).toMatchObject({
+                card: ' 三字名 ',
+                role: 'admin',
+            });
+            expect(restored.findGroupMember(GROUP_ID, other.uin)?.card).toBe('ordinary');
+        } finally {
+            await restored.close();
+        }
+    });
+
     it('persists group member robot classification across restarts', async () => {
         const dbPath = tempDbPath('persist-robot');
 

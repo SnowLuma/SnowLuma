@@ -708,6 +708,29 @@ describe('onebot/contact-actions / getGroupMemberInfo', () => {
         expect(out).toMatchObject({ user_id: 55, nickname: 'eve' });
     });
 
+    it('retries a failed legacy card refresh and then reuses the confirmed empty card', async () => {
+        const fresh = makeMember(66, 'legacy', '');
+        let member: GroupMemberInfo = { ...fresh, card: undefined };
+        const fetchGroupMemberList = vi
+            .fn(async () => {
+                member = fresh;
+                return [fresh];
+            })
+            .mockRejectedValueOnce(new Error('roster offline'));
+        const bridge = fakeBridge({
+            fetchGroupMemberList,
+            identity: fakeIdentity({ findGroupMember: () => member }),
+        });
+        await expect(getGroupMemberInfo(bridge, 1200, 66)).rejects.toThrow('roster offline');
+        expect(await getGroupMemberInfo(bridge, 1200, 66)).toMatchObject({
+            nickname: 'legacy',
+            card: '',
+        });
+        expect(await getGroupMemberInfo(bridge, 1200, 66)).toMatchObject({ card: '' });
+        expect(fetchGroupMemberList).toHaveBeenCalledTimes(2);
+        expect(fetchGroupMemberList).toHaveBeenCalledWith(1200, { force: false });
+    });
+
     it('refreshes a persisted member whose robot classification is unknown', async () => {
         let member: GroupMemberInfo = { ...makeMember(66, 'legacy'), isRobot: undefined };
         const fetchGroupMemberList = vi.fn(async () => {

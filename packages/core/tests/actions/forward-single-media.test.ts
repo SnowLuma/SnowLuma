@@ -71,7 +71,7 @@ function setup(id: string) {
         responseHead: {
             fromUin: 20002,
             fromUid: 'sender-uid',
-            grp: { groupUin: 12345, memberCard: 'alice' },
+            grp: { groupUin: 12345, memberCard: Buffer.from('alice') },
         },
         contentHead: { msgType: 82, sequence: 10, timestamp: 1700000000 },
         body: {

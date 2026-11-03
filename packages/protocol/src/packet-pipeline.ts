@@ -733,7 +733,7 @@ export class IncomingPacketPipeline {
                 // an actual change, not on every message.
                 const cached = this.deps.identity.findGroupMember(event.groupId, event.senderUin);
 
-                if (cached && event.senderCard && event.senderCard !== cached.card) {
+                if (cached && event.senderCard !== (cached.card ?? '')) {
                     this.deps.identity.updateGroupMember(event.groupId, {
                         ...cached,
                         card: event.senderCard,
