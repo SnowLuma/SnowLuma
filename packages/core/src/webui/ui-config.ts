@@ -44,7 +44,7 @@ export type SidebarStyle = 'follow' | 'panel' | 'accent';
 export type BackgroundType = 'none' | 'solid' | 'gradient' | 'image';
 export type Density = 'cozy' | 'compact';
 export type TimeFormat = '12h' | '24h';
-/** Full color scheme. 'default' keeps the sky theme (driven by `mode`); the
+/** Full color scheme. 'default' keeps the lavender theme (driven by `mode`); the
  *  Catppuccin flavors are complete palettes that also fix light/dark. */
 export type Palette =
     | 'default'
@@ -85,7 +85,7 @@ export interface UiAppearance {
     accentCustom: string;
     accentScope: AccentScope;
     darkIntensity: DarkIntensity;
-    /** Full color scheme; 'default' = the built-in sky theme. */
+    /** Full color scheme; 'default' = the built-in lavender theme. */
     palette: Palette;
     sidebarStyle: SidebarStyle;
     background: UiBackground;
@@ -203,12 +203,12 @@ export interface UiConfig {
 }
 
 // ─── Defaults ────────────────────────────────────────────────────────────
-// Mirror the pre-existing ThemeContext defaults so an upgrade is a no-op
-// visually until the operator changes something.
+// Keep these defaults aligned with ThemeContext. Saved appearance choices
+// are normalized independently and remain the operator's preference.
 
 const DEFAULT_BACKGROUND: UiBackground = {
     type: 'none',
-    color: '#0ea5e9',
+    color: '#b99ae6',
     gradient: 'none',
     imageOpacity: 0.15,
     imageBlur: 0,
@@ -220,8 +220,8 @@ const DEFAULT_BACKGROUND: UiBackground = {
 const DEFAULT_APPEARANCE: UiAppearance = {
     mode: 'system',
     accentMode: 'preset',
-    accentPreset: 'sky',
-    accentCustom: '#38bdf8',
+    accentPreset: 'lavender',
+    accentCustom: '#8561bd',
     accentScope: 'global',
     darkIntensity: 'soft',
     palette: 'default',

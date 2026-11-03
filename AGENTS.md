@@ -121,6 +121,8 @@ After changing an action name, parameter, result description/schema, example or 
 
 SDK breaking changes also update [CHANGELOG.md](packages/sdk/CHANGELOG.md) and [VERSIONING.md](packages/sdk/VERSIONING.md). WebUI changes follow its [interaction conventions](packages/webui/README.md). Keep user-facing documentation aligned with behavior.
 
+Standalone WebUI branding uses the [SnowLuma mascot](assets/readme/mascot.png) and a lavender default accent. Keep server defaults, frontend presets and pre-mount CSS aligned as described in [WebUI default appearance](packages/webui/README.md#default-appearance), while preserving saved user choices and host appearance overlays.
+
 The root [README.md](README.md) presents the project's purpose, overall capabilities, quick start and documentation entry points. Update it only when those overview details change; adding or fixing an individual feature does not justify adding a dedicated section there. Put feature-specific API usage, configuration, limitations and troubleshooting in the relevant package README or topic document, preferring existing documentation.
 
 Edit sources rather than `dist` outputs. Native artifacts in `packages/runtime/native` are supplied build inputs; do not substitute arbitrary local binaries to make a build pass. Packaging changes must preserve the checks in [Core's build configuration](packages/core/vite.config.ts) and [the release layout validator](tools/check-release-layout.mjs).

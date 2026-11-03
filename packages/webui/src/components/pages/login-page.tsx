@@ -319,7 +319,7 @@ function LoginBrand({ subtitle }: { subtitle: string }) {
     return (
         <div className="flex flex-col items-center gap-3 text-center">
             <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 shadow-sm ring-1 ring-primary/20">
-                <img src="/logo.png" alt="SnowLuma" className="size-10 object-contain" />
+                <img src="/logo.png" alt="SnowLuma" className="size-10 rounded-xl object-cover" />
             </div>
             <div>
                 <div className="flex items-center justify-center gap-2">

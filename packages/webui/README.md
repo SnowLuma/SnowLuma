@@ -3,6 +3,23 @@
 SnowLuma's browser console is a Vite + React application for managing runtime
 status, OneBot configuration, logs, storage, and server settings.
 
+## Default appearance
+
+New installations and appearance resets use the mascot's lavender accent.
+The light variant uses a deeper purple for readable button labels; dark mode
+uses a softer lavender. Existing saved accents and custom colors are preserved.
+The original sky-blue accent remains available in Settings.
+
+Keep the server defaults in `packages/core/src/webui/ui-config.ts`, the frontend
+defaults and preset in `src/contexts/ThemeContext.tsx`, and the pre-mount tokens
+in `src/index.css` aligned when changing the default accent.
+
+The browser favicon, home-screen icon and in-app logo share the mascot avatar
+in [`assets/brand/mascot-avatar.png`](../../assets/brand/mascot-avatar.png).
+Its exported sizes live in `public/`: `logo.png` (512 px), `favicon.png` (64 px),
+and `apple-touch-icon.png` (180 px). Export from the master without redrawing
+individual sizes.
+
 ## Host appearance integration
 
 `SNOWLUMA_WEBUI_TARGET=maibot` opts a deployment into a reversible millennium

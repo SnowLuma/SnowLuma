@@ -46,7 +46,8 @@ export type AppearancePatch = Partial<Omit<UiAppearance, 'background'>> & {
 
 // ─── Frontend catalogues (the server stores only ids; the visuals live here) ───
 
-export type AccentColor = 'sky' | 'blue' | 'violet' | 'rose' | 'emerald' | 'amber' | 'orange';
+export type AccentColor =
+    'lavender' | 'sky' | 'blue' | 'violet' | 'rose' | 'emerald' | 'amber' | 'orange';
 
 export interface AccentSpec {
     id: AccentColor;
@@ -57,6 +58,13 @@ export interface AccentSpec {
 }
 
 export const ACCENTS: AccentSpec[] = [
+    {
+        id: 'lavender',
+        label: '薰衣草',
+        swatch: '#8561bd',
+        light: { primary: 'oklch(57% 0.14 300)', ring: 'oklch(57% 0.14 300)' },
+        dark: { primary: 'oklch(78% 0.115 300)', ring: 'oklch(78% 0.115 300)' },
+    },
     {
         id: 'sky',
         label: '天蓝',
@@ -198,15 +206,15 @@ export const UI_SCALE = { min: 0.9, max: 1.2, step: 0.05 } as const;
 export const DEFAULT_APPEARANCE: UiAppearance = {
     mode: 'system',
     accentMode: 'preset',
-    accentPreset: 'sky',
-    accentCustom: '#38bdf8',
+    accentPreset: 'lavender',
+    accentCustom: '#8561bd',
     accentScope: 'global',
     darkIntensity: 'soft',
     palette: 'default',
     sidebarStyle: 'follow',
     background: {
         type: 'none',
-        color: '#0ea5e9',
+        color: '#b99ae6',
         gradient: 'none',
         imageOpacity: 0.15,
         imageBlur: 0,
@@ -327,7 +335,7 @@ function accentVarsCss(a: UiAppearance): string {
     const surf = a.palette === 'default';
 
     if (a.accentMode === 'custom') {
-        const hex = safeHex(a.accentCustom, '#38bdf8');
+        const hex = safeHex(a.accentCustom, DEFAULT_APPEARANCE.accentCustom);
         const lightFg = readableForeground(hex);
         // Dark mode: lighten the accent for contrast on dark surfaces, and pick
         // the foreground from the *lightened* colour (a light accent needs dark text).
@@ -590,7 +598,7 @@ export const PALETTE_OPTIONS: PaletteSpec[] = [
     {
         id: 'default',
         label: '默认',
-        preview: { bg: '#f1f5f9', surface: '#ffffff', dots: ['#0ea5e9', '#10b981', '#f43f5e'] },
+        preview: { bg: '#f1f5f9', surface: '#ffffff', dots: ['#8561bd', '#10b981', '#f43f5e'] },
     },
     {
         id: 'catppuccin-latte',

@@ -2078,7 +2078,7 @@ function AboutPanel() {
                             <img
                                 src="/logo.png"
                                 alt="SnowLuma"
-                                className="size-20 object-contain drop-shadow-sm"
+                                className="size-20 rounded-2xl object-cover drop-shadow-sm"
                             />
                         </div>
                         <div className="flex items-center gap-2">
