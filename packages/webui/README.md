@@ -10,6 +10,12 @@ The light variant uses a deeper purple for readable button labels; dark mode
 uses a softer lavender. Existing saved accents and custom colors are preserved.
 The original sky-blue accent remains available in Settings.
 
+With the default palette, page, card, input, popover and sidebar surfaces mix a
+small amount of the active accent into neutral light/dark backgrounds. Text stays
+neutral for readability. Sidebar-only accents tint only the sidebar; OLED keeps a
+true-black canvas. Named palettes, custom CSS variables and host appearance
+overlays retain control of their own surfaces.
+
 Keep the server defaults in `packages/core/src/webui/ui-config.ts`, the frontend
 defaults and preset in `src/contexts/ThemeContext.tsx`, and the pre-mount tokens
 in `src/index.css` aligned when changing the default accent.

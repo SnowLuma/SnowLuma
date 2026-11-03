@@ -792,13 +792,6 @@ function applyAppearance(
         a.reduceMotion || a.disableMotion || systemReduce ? '1' : '0',
     );
     root.setAttribute('data-no-motion', a.disableMotion ? '1' : '0');
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-
-    if (themeMeta) {
-        const canvas = getComputedStyle(root).getPropertyValue('--background').trim();
-        themeMeta.setAttribute('content', canvas || (resolved === 'dark' ? '#0a0f1a' : '#f4f7fb'));
-    }
-
     // Mode-independent vars go inline on :root.
     root.style.setProperty('--radius', `${a.radius}rem`);
     root.style.setProperty(
@@ -860,6 +853,14 @@ function applyAppearance(
         }
     } else if (cssEl) {
         cssEl.textContent = '';
+    }
+
+    // Read the rendered canvas after palette/accent/custom overrides are in
+    // place, so the browser chrome follows the current (not previous) theme.
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+
+    if (themeMeta) {
+        themeMeta.setAttribute('content', getComputedStyle(document.body).backgroundColor);
     }
 }
 

@@ -671,7 +671,11 @@ function AppearancePanel() {
                     </SettingRow>
                 </Group>
 
-                <Group title="强调色" icon={Palette} description="按钮、链接与高亮使用的主色调。">
+                <Group
+                    title="强调色"
+                    icon={Palette}
+                    description="按钮、链接与高亮使用的主色调；默认配色下，界面底色也会轻微跟随。"
+                >
                     <SettingRow label="预设色" layout="stack">
                         <div className="flex flex-wrap items-center gap-2">
                             {ACCENTS.map((spec) => {
@@ -739,7 +743,7 @@ function AppearancePanel() {
                     </SettingRow>
                     <SettingRow
                         label="应用范围"
-                        hint="“仅侧栏”时，按钮等全局元素保持默认蓝，强调色只染侧栏选中项。"
+                        hint="“仅侧栏”时，主区域保持默认色，仅调整侧栏的底色与高亮。"
                     >
                         <Segmented
                             value={a.accentScope}

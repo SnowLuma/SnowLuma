@@ -121,7 +121,7 @@ After changing an action name, parameter, result description/schema, example or 
 
 SDK breaking changes also update [CHANGELOG.md](packages/sdk/CHANGELOG.md) and [VERSIONING.md](packages/sdk/VERSIONING.md). WebUI changes follow its [interaction conventions](packages/webui/README.md). Keep user-facing documentation aligned with behavior.
 
-Standalone WebUI branding uses the [SnowLuma mascot](assets/readme/mascot.png) and a lavender default accent. Keep server defaults, frontend presets and pre-mount CSS aligned as described in [WebUI default appearance](packages/webui/README.md#default-appearance), while preserving saved user choices and host appearance overlays.
+Standalone WebUI branding uses the [SnowLuma mascot](assets/readme/mascot.png) and a lavender default accent. The default palette lightly tints neutral surfaces with the active accent, respecting sidebar-only scope and OLED black. Keep server defaults, frontend presets and pre-mount CSS aligned as described in [WebUI default appearance](packages/webui/README.md#default-appearance), while preserving saved user choices, named palettes and host appearance overlays.
 
 The root [README.md](README.md) presents the project's purpose, overall capabilities, quick start and documentation entry points. Update it only when those overview details change; adding or fixing an individual feature does not justify adding a dedicated section there. Put feature-specific API usage, configuration, limitations and troubleshooting in the relevant package README or topic document, preferring existing documentation.
 

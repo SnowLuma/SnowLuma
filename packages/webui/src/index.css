@@ -9,24 +9,27 @@
 :root {
   --radius: 0.75rem;
 
-  --background: oklch(99% 0.004 240);
-  --foreground: oklch(20% 0.03 250);
+  /* Neutral surfaces carry a small amount of the active accent. Keep text
+     neutral and use sidebar-primary separately to respect sidebar-only scope.
+     Named palettes and host overlays still replace these semantic tokens. */
+  --background: color-mix(in oklab, var(--primary) 3%, oklch(100% 0 0));
+  --foreground: oklch(20% 0 0);
 
-  --card: oklch(100% 0 0);
-  --card-foreground: oklch(20% 0.03 250);
+  --card: color-mix(in oklab, var(--primary) 1%, oklch(100% 0 0));
+  --card-foreground: oklch(20% 0 0);
 
-  --popover: oklch(100% 0 0);
-  --popover-foreground: oklch(20% 0.03 250);
+  --popover: color-mix(in oklab, var(--primary) 1%, oklch(100% 0 0));
+  --popover-foreground: oklch(20% 0 0);
 
   /* A deeper lavender keeps light-mode button labels readable. */
   --primary: oklch(57% 0.14 300);
-  --primary-foreground: oklch(99% 0.005 240);
+  --primary-foreground: oklch(99% 0 0);
 
-  --secondary: oklch(96% 0.012 240);
-  --secondary-foreground: oklch(25% 0.03 250);
+  --secondary: color-mix(in oklab, var(--primary) 4%, oklch(97% 0 0));
+  --secondary-foreground: oklch(25% 0 0);
 
-  --muted: oklch(96% 0.012 240);
-  --muted-foreground: oklch(50% 0.02 250);
+  --muted: color-mix(in oklab, var(--primary) 4%, oklch(97% 0 0));
+  --muted-foreground: oklch(50% 0 0);
 
   --accent: oklch(94% 0.03 300);
   --accent-foreground: oklch(35% 0.07 300);
@@ -47,17 +50,17 @@
   --log-warn: oklch(52% 0.16 80);
   --log-error: oklch(55% 0.22 27);
 
-  --border: oklch(92% 0.01 240);
-  --input: oklch(94% 0.012 240);
+  --border: color-mix(in oklab, var(--primary) 5%, oklch(94% 0 0));
+  --input: color-mix(in oklab, var(--primary) 4%, oklch(96% 0 0));
   --ring: oklch(57% 0.14 300);
 
-  --sidebar: oklch(94% 0.008 240);
-  --sidebar-foreground: oklch(25% 0.03 250);
+  --sidebar: color-mix(in oklab, var(--sidebar-primary) 5%, oklch(96% 0 0));
+  --sidebar-foreground: oklch(25% 0 0);
   --sidebar-primary: oklch(57% 0.14 300);
-  --sidebar-primary-foreground: oklch(99% 0.005 240);
+  --sidebar-primary-foreground: oklch(99% 0 0);
   --sidebar-accent: oklch(90% 0.025 300);
   --sidebar-accent-foreground: oklch(35% 0.08 300);
-  --sidebar-border: oklch(92% 0.01 240);
+  --sidebar-border: color-mix(in oklab, var(--sidebar-primary) 5%, oklch(94% 0 0));
   --sidebar-ring: oklch(57% 0.14 300);
   --media-outline: oklch(0% 0 0 / 0.1);
 
@@ -65,28 +68,28 @@
      The short shadow separates the edge; the long, faint shadow establishes
      elevation without looking like a floating modal. */
   --shadow-card:
-    0 1px 2px oklch(20% 0.03 250 / 0.05),
-    0 12px 32px -22px oklch(20% 0.03 250 / 0.28);
+    0 1px 2px oklch(20% 0 0 / 0.05),
+    0 12px 32px -22px oklch(20% 0 0 / 0.28);
 }
 
 .dark {
-  --background: oklch(16% 0.02 250);
-  --foreground: oklch(96% 0.01 240);
+  --background: color-mix(in oklab, var(--primary) 7%, oklch(16% 0 0));
+  --foreground: oklch(96% 0 0);
 
-  --card: oklch(20% 0.025 250);
-  --card-foreground: oklch(96% 0.01 240);
+  --card: color-mix(in oklab, var(--primary) 8%, oklch(20% 0 0));
+  --card-foreground: oklch(96% 0 0);
 
-  --popover: oklch(20% 0.025 250);
-  --popover-foreground: oklch(96% 0.01 240);
+  --popover: color-mix(in oklab, var(--primary) 8%, oklch(20% 0 0));
+  --popover-foreground: oklch(96% 0 0);
 
   --primary: oklch(78% 0.115 300);
-  --primary-foreground: oklch(15% 0.02 250);
+  --primary-foreground: oklch(15% 0 0);
 
-  --secondary: oklch(25% 0.025 250);
-  --secondary-foreground: oklch(96% 0.01 240);
+  --secondary: color-mix(in oklab, var(--primary) 7%, oklch(25% 0 0));
+  --secondary-foreground: oklch(96% 0 0);
 
-  --muted: oklch(24% 0.02 250);
-  --muted-foreground: oklch(68% 0.02 240);
+  --muted: color-mix(in oklab, var(--primary) 7%, oklch(24% 0 0));
+  --muted-foreground: oklch(68% 0 0);
 
   --accent: oklch(28% 0.05 300);
   --accent-foreground: oklch(85% 0.1 300);
@@ -104,17 +107,17 @@
   --log-warn: oklch(80% 0.16 80);
   --log-error: oklch(62% 0.2 27);
 
-  --border: oklch(28% 0.02 250);
-  --input: oklch(26% 0.02 250);
+  --border: color-mix(in oklab, var(--primary) 8%, oklch(28% 0 0));
+  --input: color-mix(in oklab, var(--primary) 7%, oklch(26% 0 0));
   --ring: oklch(78% 0.115 300);
 
-  --sidebar: oklch(12% 0.018 250);
-  --sidebar-foreground: oklch(92% 0.01 240);
+  --sidebar: color-mix(in oklab, var(--sidebar-primary) 6%, oklch(12% 0 0));
+  --sidebar-foreground: oklch(92% 0 0);
   --sidebar-primary: oklch(78% 0.115 300);
-  --sidebar-primary-foreground: oklch(15% 0.02 250);
+  --sidebar-primary-foreground: oklch(15% 0 0);
   --sidebar-accent: oklch(28% 0.05 300);
   --sidebar-accent-foreground: oklch(85% 0.1 300);
-  --sidebar-border: oklch(26% 0.02 250);
+  --sidebar-border: color-mix(in oklab, var(--sidebar-primary) 7%, oklch(26% 0 0));
   --sidebar-ring: oklch(78% 0.115 300);
   --media-outline: oklch(100% 0 0 / 0.12);
 
@@ -768,33 +771,33 @@ html[data-cursor-system="custom"] .adaptive-cursor[data-visible="true"] {
    OLED screens. Only meaningful in dark mode. */
 .dark[data-dark-intensity="black"] {
   --background: oklch(0% 0 0);
-  --foreground: oklch(97% 0.01 240);
-  --card: oklch(13% 0.008 250);
-  --card-foreground: oklch(96% 0.01 240);
-  --popover: oklch(13% 0.008 250);
-  --popover-foreground: oklch(96% 0.01 240);
-  --secondary: oklch(17% 0.012 250);
-  --muted: oklch(15% 0.01 250);
-  --muted-foreground: oklch(66% 0.02 240);
-  --border: oklch(22% 0.012 250);
-  --input: oklch(19% 0.012 250);
+  --foreground: oklch(97% 0 0);
+  --card: color-mix(in oklab, var(--primary) 4%, oklch(13% 0 0));
+  --card-foreground: oklch(96% 0 0);
+  --popover: color-mix(in oklab, var(--primary) 4%, oklch(13% 0 0));
+  --popover-foreground: oklch(96% 0 0);
+  --secondary: color-mix(in oklab, var(--primary) 5%, oklch(17% 0 0));
+  --muted: color-mix(in oklab, var(--primary) 4%, oklch(15% 0 0));
+  --muted-foreground: oklch(66% 0 0);
+  --border: color-mix(in oklab, var(--primary) 6%, oklch(22% 0 0));
+  --input: color-mix(in oklab, var(--primary) 5%, oklch(19% 0 0));
 }
 /* OLED's near-black sidebar applies only when the sidebar follows the canvas;
    scoping it to "follow" lets the panel/accent styles below win in OLED too
    (otherwise this higher-specificity block would override them). */
 .dark[data-dark-intensity="black"][data-sidebar-style="follow"] {
-  --sidebar: oklch(5% 0.006 250);
-  --sidebar-border: oklch(20% 0.012 250);
+  --sidebar: color-mix(in oklab, var(--sidebar-primary) 3%, oklch(5% 0 0));
+  --sidebar-border: color-mix(in oklab, var(--sidebar-primary) 6%, oklch(20% 0 0));
 }
 
 /* Sidebar style: how distinct the sidebar surface is from the main canvas. */
 html[data-sidebar-style="panel"] {
-  --sidebar: color-mix(in oklab, var(--card) 90%, var(--primary) 4%);
+  --sidebar: color-mix(in oklab, var(--card) 96%, var(--sidebar-primary) 4%);
 }
 html[data-sidebar-style="accent"] {
-  --sidebar: color-mix(in oklab, var(--background) 76%, var(--primary) 24%);
-  --sidebar-foreground: color-mix(in oklab, var(--foreground) 85%, var(--primary));
-  --sidebar-border: color-mix(in oklab, var(--border) 60%, var(--primary) 40%);
+  --sidebar: color-mix(in oklab, var(--background) 76%, var(--sidebar-primary) 24%);
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 85%, var(--sidebar-primary));
+  --sidebar-border: color-mix(in oklab, var(--border) 60%, var(--sidebar-primary) 40%);
 }
 
 /* High contrast: strengthen borders + dim-text contrast for legibility. */
