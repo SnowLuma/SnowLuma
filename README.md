@@ -1,8 +1,13 @@
-<p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="SnowLuma 将 QQ 原生会话桥接到 OneBot、WebUI 与自动化工具" />
-</p>
+<img align="right" src="./assets/readme/mascot.png" width="34%" alt="SnowLuma 看板娘：紫发金瞳，戴着星饰贝雷帽的少女" />
 
-<p align="center">
+# SnowLuma
+
+**让 QQ 原生会话，连接你的应用。**
+
+QQ 客户端的 TypeScript 互操作运行时。<br>
+OneBot v11 · WebUI · SDK · MCP
+
+<p>
   <a href="https://github.com/SnowLuma/SnowLuma/releases"><img alt="最新版本" src="https://img.shields.io/github/v/release/SnowLuma/SnowLuma?label=release&style=flat-square"></a>
   <a href="https://github.com/SnowLuma/SnowLuma/actions/workflows/dev-build.yml"><img alt="构建状态" src="https://img.shields.io/github/actions/workflow/status/SnowLuma/SnowLuma/dev-build.yml?branch=dev&style=flat-square&label=build"></a>
   <a href="https://www.npmjs.com/package/@snowluma/sdk"><img alt="SnowLuma SDK 版本" src="https://img.shields.io/npm/v/%40snowluma%2Fsdk?style=flat-square&label=sdk&color=287fb8"></a>
@@ -10,13 +15,16 @@
   <a href="https://github.com/SnowLuma/SnowLuma/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/SnowLuma/SnowLuma?style=flat-square"></a>
 </p>
 
-<p align="center">
-  <a href="#快速开始">快速开始</a> ·
-  <a href="https://snowluma.github.io/zh/docs/api">动作参考</a> ·
-  <a href="https://github.com/SnowLuma/SnowLuma/issues">问题反馈</a>
-</p>
+将 QQ 原生会话转换为 [OneBot v11](https://github.com/botuniverse/onebot-11) 动作与事件，通过 WebSocket、HTTP、WebUI、SDK 和 MCP 提供统一入口。
 
-SnowLuma 是面向 QQ 客户端的 TypeScript 互操作运行时，将 QQ 原生会话转换为 [OneBot v11](https://github.com/botuniverse/onebot-11) 动作与事件，并通过 WebSocket、HTTP、WebUI、SDK 和 MCP 提供统一入口。
+多账号会话、消息与媒体、连接配置和实时日志，在一个运行时中管理。
+
+**[下载发行版](https://github.com/SnowLuma/SnowLuma/releases)** · **[快速开始](#快速开始)**<br>
+[部署指南](https://snowluma.github.io/zh/docs/guide/deploy) · [动作参考](https://snowluma.github.io/zh/docs/api) · [问题反馈](https://github.com/SnowLuma/SnowLuma/issues)
+
+<sub>Windows x64 · Linux x64 / arm64</sub>
+
+<br clear="both" />
 
 > [!CAUTION]
 > SnowLuma 是独立的第三方项目，与腾讯 / QQ 无隶属或授权关系。项目仅供学习与技术研究，请遵守《QQ 用户协议》及适用法律；软件按“现状”提供，使用风险自负。详见 [`EULA.md`](EULA.md)。
