@@ -1,6 +1,4 @@
-<img align="right" src="./assets/readme/mascot.png" width="34%" alt="SnowLuma 看板娘：紫发金瞳，戴着星饰贝雷帽的少女" />
-
-# SnowLuma
+# SnowLuma<picture><img align="right" src="./assets/readme/mascot.png" width="34%" alt="" /></picture>
 
 **让 QQ 原生会话，连接你的应用。**
 
