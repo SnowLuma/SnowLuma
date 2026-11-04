@@ -82,34 +82,40 @@ function skipEscSequence(line: string, start: number): number {
  * invisible payload into persisted or downloaded logs.
  */
 export function sanitizeLogLine(line: string): string {
-    let plain = '';
+    const parts: string[] = [];
+    let start = 0;
 
     for (let i = 0; i < line.length;) {
         const code = line.charCodeAt(i);
+        let next: number;
 
         if (code === ESC) {
-            i = skipEscSequence(line, i + 1);
-            continue;
-        }
-
-        if (code === C1_CSI) {
-            i = skipCsi(line, i + 1);
-            continue;
-        }
-
-        if (code === C1_OSC || C1_STRING_STARTERS.has(code)) {
-            i = skipControlString(line, i + 1, code === C1_OSC);
-            continue;
-        }
-
-        if ((code < 0x20 && code !== 0x09 && code !== 0x0a) || (code >= 0x7f && code <= 0x9f)) {
+            next = skipEscSequence(line, i + 1);
+        } else if (code === C1_CSI) {
+            next = skipCsi(line, i + 1);
+        } else if (code === C1_OSC || C1_STRING_STARTERS.has(code)) {
+            next = skipControlString(line, i + 1, code === C1_OSC);
+        } else if (
+            (code < 0x20 && code !== 0x09 && code !== 0x0a) ||
+            (code >= 0x7f && code <= 0x9f)
+        ) {
+            next = i + 1;
+        } else {
             i += 1;
             continue;
         }
 
-        plain += line[i];
-        i += 1;
+        parts.push(line.slice(start, i));
+        start = next;
+        i = next;
     }
 
-    return plain;
+    if (start === 0) {
+        return line;
+    }
+
+    // Join contiguous spans once. Appending each character creates a retained
+    // V8 cons-string node per character in the in-memory log rings.
+    parts.push(line.slice(start));
+    return parts.join('');
 }
