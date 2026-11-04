@@ -195,6 +195,41 @@ describe('parseMsgPush group member increase', () => {
         expect(event.operatorUid).toBe(operator.uid);
     });
 
+    it('labels only direct invites as a join source', () => {
+        const member = makeGroupMember(22222, 'u_member');
+        const operator = makeGroupMember(33333, 'u_operator');
+        const identity = makeIdentity([member, operator]);
+        const [invite] = parseMsgPush(
+            makeGroupIncreasePacket(
+                member.uid,
+                operator.uid,
+                GROUP_ID,
+                Buffer.from(operator.uid),
+                131,
+            ),
+            identity,
+        ) as GroupMemberJoin[];
+        const [unknown] = parseMsgPush(
+            makeGroupIncreasePacket(
+                member.uid,
+                operator.uid,
+                GROUP_ID,
+                Buffer.from(operator.uid),
+                132,
+            ),
+            identity,
+        ) as GroupMemberJoin[];
+
+        expect(invite.joinExt).toMatchObject({
+            group_id: GROUP_ID,
+            user_id: member.uin,
+            change_type: 131,
+            operator_uin: operator.uin,
+        });
+        expect(invite.joinSource).toBe('invite');
+        expect(unknown.joinSource).toBeNull();
+    });
+
     it('derives approve vs invite from the member-change operation code (#237)', () => {
         const member = makeGroupMember(22222, 'u_member');
         const operator = makeGroupMember(33333, 'u_operator');

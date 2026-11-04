@@ -2,6 +2,7 @@ import { protobuf_decode } from '@snowluma/proton';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
 import type { GroupChange, SelfJoinInGroup } from '@snowluma/proto-defs/notify';
 import { decodeGroupChangeOperatorUid, decodeNestedOperatorUid, resolveUidToUin } from '../helpers';
+import { sourceForGroupIncrease, type GroupIncreaseExtension } from '../../group-join-metadata';
 import type { MsgPushDecoder } from '../registry';
 
 function joinTypeFromOperationType(raw: number): NonNullable<GroupMemberJoin['joinType']> {
@@ -26,16 +27,26 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
         change.operatorBytes ?? new Uint8Array(0),
         'group member increase',
     );
+    const userUin = resolveUidToUin(ctx.identity, groupId, userUid);
+    const operatorUin = resolveUidToUin(ctx.identity, groupId, operatorUid);
+    const joinExt: GroupIncreaseExtension = {
+        group_id: groupId,
+        user_id: userUin,
+        change_type: change.decreaseType ?? null,
+        operator_uin: operatorUin > 0 ? operatorUin : null,
+    };
     const ev: GroupMemberJoin = {
         kind: 'group_member_join',
         time: ctx.head.timestamp,
         selfUin: ctx.selfUin,
         groupId,
-        userUin: resolveUidToUin(ctx.identity, groupId, userUid),
-        operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid),
+        userUin,
+        operatorUin,
         userUid,
         operatorUid,
         joinType: joinTypeFromOperationType(change.decreaseType ?? 0),
+        joinExt,
+        joinSource: sourceForGroupIncrease(change.decreaseType ?? null),
     };
     return [ev];
 };

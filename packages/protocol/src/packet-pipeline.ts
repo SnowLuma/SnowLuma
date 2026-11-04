@@ -569,6 +569,8 @@ export class IncomingPacketPipeline {
         }
 
         event.message = request.comment;
+        event.joinExt = request.joinExtension;
+        event.joinSource = request.joinSource;
         event.flag = formatGroupRequestFlag(request);
         const requesterUin = event.subType === 'invite' ? request.invitorUin : request.targetUin;
         event.fromUin =

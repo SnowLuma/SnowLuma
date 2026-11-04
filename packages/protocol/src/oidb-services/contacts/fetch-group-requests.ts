@@ -18,6 +18,11 @@ import type {
 } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
+import {
+    makeGroupJoinRequestExtension,
+    sourceForJoinRequest,
+    type GroupJoinRequestExtension,
+} from '../../group-join-metadata';
 
 // Current QQ's EncodeOperateSysNotify maps the high-level list notification
 // type to the discriminator sent by 0x10C8. This table was read directly from
@@ -76,6 +81,8 @@ export interface DecodedGroupRequest {
     operatorUser?: DecodedGroupRequestUser;
     comment?: string;
     operateTransInfo?: Uint8Array;
+    joinExtension?: GroupJoinRequestExtension;
+    joinSource?: string | null;
 }
 
 export interface DecodedGroupRequestList {
@@ -103,6 +110,7 @@ function mergeRequestItem(
     byUid?: OidbSvcTrpcTcp0x10C0ResponseRequest,
 ): DecodedGroupRequest {
     const src = byUin ?? byUid;
+    const joinExtension = makeGroupJoinRequestExtension(src?.operateTransInfo);
     return {
         sequence: src?.sequence,
         eventType: src?.eventType,
@@ -113,6 +121,8 @@ function mergeRequestItem(
         operatorUser: mergeRequestUser(byUin?.operatorUser, byUid?.operatorUser),
         comment: src?.comment ?? '',
         operateTransInfo: src?.operateTransInfo,
+        joinExtension,
+        joinSource: sourceForJoinRequest(joinExtension),
     };
 }
 
@@ -205,15 +215,20 @@ export namespace FetchGroupRequestsByUid {
 
     export const deserialize = (
         _ctx: Deps,
-        body: OidbSvcTrpcTcp0x10C0Response,
-    ): OidbSvcTrpcTcp0x10C0Response => body;
+        body: DecodedGroupRequestList,
+    ): DecodedGroupRequestList => body;
 
     export const encode = (env: OidbBase<OidbGroupRequestList>): Uint8Array =>
         protobuf_encode<OidbBase<OidbGroupRequestList>>(env);
 
-    export const decode = (bytes: Uint8Array): OidbBase<OidbSvcTrpcTcp0x10C0Response> =>
-        protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>(bytes);
+    export const decode = (bytes: Uint8Array): OidbBase<DecodedGroupRequestList> => {
+        const response = protobuf_decode<OidbBase<OidbSvcTrpcTcp0x10C0Response>>(bytes);
+        return {
+            ...response,
+            body: mergeRequestList(undefined, response.body),
+        };
+    };
 
-    export const invoke = (deps: Deps, params: Params): Promise<OidbSvcTrpcTcp0x10C0Response> =>
+    export const invoke = (deps: Deps, params: Params): Promise<DecodedGroupRequestList> =>
         invokeOidb(deps, FetchGroupRequestsByUid, params);
 }
