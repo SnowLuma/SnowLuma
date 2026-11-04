@@ -1,7 +1,7 @@
 /** TTL caching and request deduplication to limit repeated upstream requests. */
 
 export interface SingleFlightCacheOptions<K, V> {
-    /** Freshness window in ms. A cached entry older than this is reloaded. */
+    /** Freshness window in ms. Expired values are released even while idle. */
     ttlMs: number;
     /** Load the value for a key. Rejections propagate and are never cached. */
     load: (key: K) => Promise<V>;
@@ -22,12 +22,18 @@ export class SingleFlightCache<K, V> {
     private readonly now: () => number;
     private readonly fresh = new Map<K, { at: number; value: V }>();
     private readonly inflight = new Map<K, Promise<V>>();
+    private expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(opts: SingleFlightCacheOptions<K, V>) {
         this.ttlMs = opts.ttlMs;
         this.load = opts.load;
         this.shouldCache = opts.shouldCache ?? (() => true);
         this.now = opts.now ?? Date.now;
+    }
+
+    /** Number of retained values; pending loads are not counted. */
+    get size(): number {
+        return this.fresh.size;
     }
 
     /**
@@ -41,10 +47,13 @@ export class SingleFlightCache<K, V> {
      *   rather than starting a second one.
      */
     get(key: K, opts: { force?: boolean } = {}): Promise<V> {
-        if (!opts.force) {
-            const hit = this.fresh.get(key);
+        const hit = this.fresh.get(key);
 
-            if (hit && this.now() - hit.at < this.ttlMs) {
+        if (hit) {
+            if (this.now() - hit.at >= this.ttlMs) {
+                this.fresh.delete(key);
+                this.cancelExpiryIfEmpty();
+            } else if (!opts.force) {
                 return Promise.resolve(hit.value);
             }
         }
@@ -58,8 +67,11 @@ export class SingleFlightCache<K, V> {
         const load = async (): Promise<V> => {
             const value = await this.load(key);
 
-            if (this.inflight.get(key) === task && this.shouldCache(value)) {
+            if (this.inflight.get(key) === task && this.ttlMs > 0 && this.shouldCache(value)) {
+                // Keep insertion order aligned with expiry, including refreshes.
+                this.fresh.delete(key);
                 this.fresh.set(key, { at: this.now(), value });
+                this.scheduleExpiry();
             }
 
             return value;
@@ -78,12 +90,52 @@ export class SingleFlightCache<K, V> {
     invalidate(key: K): void {
         this.fresh.delete(key);
         this.inflight.delete(key);
+        this.cancelExpiryIfEmpty();
     }
 
     /** Detach all entries and pending loads without aborting existing callers. */
     clear(): void {
         this.fresh.clear();
         this.inflight.clear();
+        this.cancelExpiryIfEmpty();
+    }
+
+    private cancelExpiryIfEmpty(): void {
+        if (this.fresh.size === 0 && this.expiryTimer !== undefined) {
+            clearTimeout(this.expiryTimer);
+            this.expiryTimer = undefined;
+        }
+    }
+
+    private scheduleExpiry(): void {
+        if (this.expiryTimer !== undefined || !Number.isFinite(this.ttlMs)) {
+            return;
+        }
+
+        const oldest = this.fresh.values().next().value;
+
+        if (!oldest) {
+            return;
+        }
+
+        // One unref'ed timer per cache, not one closure/timer per cached roster.
+        // Clamp long TTLs to Node's timer range rather than overflowing to 1ms.
+        const delay = Math.max(1, Math.min(2 ** 31 - 1, oldest.at + this.ttlMs - this.now()));
+        this.expiryTimer = setTimeout(() => {
+            this.expiryTimer = undefined;
+            const now = this.now();
+
+            for (const [key, entry] of this.fresh) {
+                if (now - entry.at < this.ttlMs) {
+                    break;
+                }
+
+                this.fresh.delete(key);
+            }
+
+            this.scheduleExpiry();
+        }, delay);
+        this.expiryTimer.unref();
     }
 }
 
