@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { sanitizeLogLine } from '../src/log-sanitize';
 
 describe('sanitizeLogLine', () => {
@@ -43,5 +44,44 @@ describe('sanitizeLogLine', () => {
         expect(sanitizeLogLine('\x00\x1b[31m\u009b0m\r\u007f')).toBe('');
         expect(sanitizeLogLine('a\x00\x1b[31m\u009b0m\r\u007fb')).toBe('ab');
         expect(sanitizeLogLine('')).toBe('');
+    });
+
+    it('preserves every visible UTF-16 code unit when removing a large hidden payload', () => {
+        const visible = 'visible 🌌 e\u0301\ud800x\udc00';
+        expect(sanitizeLogLine(`${visible}\x1b]${'hidden'.repeat(1000)}`)).toBe(visible);
+    });
+
+    it('does not retain discarded control-string payloads through a short visible span', () => {
+        const moduleUrl = new URL('../src/log-sanitize.ts', import.meta.url).href;
+        const output = execFileSync(
+            process.execPath,
+            [
+                '--expose-gc',
+                '--input-type=module',
+                '-e',
+                `
+                import { setImmediate } from 'node:timers/promises';
+                import { sanitizeLogLine } from ${JSON.stringify(moduleUrl)};
+                async function used() {
+                    await setImmediate();
+                    global.gc();
+                    global.gc();
+                    return process.memoryUsage().heapUsed;
+                }
+                function record(i) {
+                    return sanitizeLogLine('visible record ' + i + '\\x1b]' + 'x'.repeat(1024 * 1024));
+                }
+                const before = await used();
+                const records = Array.from({ length: 16 }, (_, i) => record(i));
+                const retained = (await used()) - before;
+                console.log(JSON.stringify({ retained, records }));
+            `,
+            ],
+            { encoding: 'utf8', timeout: 10_000 },
+        );
+        const result = JSON.parse(output);
+        expect(result.records).toEqual(Array.from({ length: 16 }, (_, i) => `visible record ${i}`));
+        // Leave ample GC/runtime overhead while rejecting retention of the 16 MiB input.
+        expect(result.retained).toBeLessThan(4 * 1024 * 1024);
     });
 });

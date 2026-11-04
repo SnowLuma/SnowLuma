@@ -26,6 +26,7 @@ const bridges: Bridge[] = [];
 afterEach(async () => {
     await Promise.all(bridges.splice(0).map((bridge) => bridge.dispose()));
     vi.restoreAllMocks();
+    vi.useRealTimers();
 });
 
 function friend(uin: number, name = 'Roster'): OidbFriend {
@@ -118,6 +119,40 @@ function setup(roster: () => OidbFriend[], load: (uin: number) => Promise<void> 
 }
 
 describe('explicit friend profile enrichment', () => {
+    it('releases profile cache timers when its Bridge is disposed', async () => {
+        vi.useFakeTimers();
+        const { api, bridge, profileCalls } = setup(() => [friend(10001)]);
+        await api.fetchFriendList({ withProfile: true });
+        expect(profileCalls).toEqual([10001]);
+        expect(vi.getTimerCount()).toBe(1);
+
+        await bridge.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('does not start profile cache loads when a roster response arrives after disposal', async () => {
+        vi.useFakeTimers();
+        const { api, bridge, send, profileCalls } = setup(() => [friend(10001)]);
+        const response = await send.getMockImplementation()!(
+            'OidbSvcTrpcTcp.0xfd4_1',
+            new Uint8Array(),
+        );
+        let resolve!: (value: typeof response) => void;
+        send.mockReturnValueOnce(
+            new Promise((yes) => {
+                resolve = yes;
+            }),
+        );
+        const pending = api.fetchFriendList({ withProfile: true });
+        const checked = expect(pending).rejects.toThrow('friend profile enrichment failed');
+        await bridge.dispose();
+
+        resolve(response);
+        await checked;
+        expect(profileCalls).toEqual([]);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
     it('does not fan out on a cold 160-friend ordinary or categorized list', async () => {
         const { api, profileCalls, send } = setup(() =>
             Array.from({ length: 160 }, (_, i) => friend(10000 + i)),

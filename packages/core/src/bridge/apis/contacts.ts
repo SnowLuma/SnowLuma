@@ -132,6 +132,12 @@ export class ContactsApi {
 
     constructor(private readonly ctx: BridgeContext) {}
 
+    dispose(): void {
+        // Late roster responses must not start new profile loads after shutdown.
+        this.memberListCache.dispose();
+        this.friendProfiles.dispose();
+    }
+
     private fetchRobotUinRanges(groupId: number): Promise<RobotUinRangeSnapshot> {
         if (this.robotUinRangesPromise_) {
             return this.robotUinRangesPromise_;

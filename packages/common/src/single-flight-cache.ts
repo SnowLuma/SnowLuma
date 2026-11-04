@@ -23,6 +23,7 @@ export class SingleFlightCache<K, V> {
     private readonly fresh = new Map<K, { at: number; value: V }>();
     private readonly inflight = new Map<K, Promise<V>>();
     private expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    private disposed = false;
 
     constructor(opts: SingleFlightCacheOptions<K, V>) {
         this.ttlMs = opts.ttlMs;
@@ -47,6 +48,10 @@ export class SingleFlightCache<K, V> {
      *   rather than starting a second one.
      */
     get(key: K, opts: { force?: boolean } = {}): Promise<V> {
+        if (this.disposed) {
+            return Promise.reject(new Error('SingleFlightCache is disposed'));
+        }
+
         const hit = this.fresh.get(key);
 
         if (hit) {
@@ -98,6 +103,12 @@ export class SingleFlightCache<K, V> {
         this.fresh.clear();
         this.inflight.clear();
         this.cancelExpiryIfEmpty();
+    }
+
+    /** Release this owner's cache permanently; pending callers still settle. */
+    dispose(): void {
+        this.disposed = true;
+        this.clear();
     }
 
     private cancelExpiryIfEmpty(): void {

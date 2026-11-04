@@ -117,5 +117,14 @@ export function sanitizeLogLine(line: string): string {
     // Join contiguous spans once. Appending each character creates a retained
     // V8 cons-string node per character in the in-memory log rings.
     parts.push(line.slice(start));
-    return parts.join('');
+    const plain = parts.join('');
+
+    // A single visible span can remain a slice of the original input after join.
+    // Copy when that would retain more discarded text than visible text. Splitting
+    // into UTF-16 code units preserves unpaired surrogates and works in browsers.
+    if (plain.length > 0 && plain.length < line.length / 2) {
+        return plain.split('').join('');
+    }
+
+    return plain;
 }

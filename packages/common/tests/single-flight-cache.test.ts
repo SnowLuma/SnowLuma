@@ -17,6 +17,48 @@ describe('SingleFlightCache', () => {
         vi.useRealTimers();
     });
 
+    it('disposes retained values and rejects new reads without restarting loads or timers', async () => {
+        vi.useFakeTimers();
+        const load = vi.fn(async (key: string) => ({ key }));
+        const cache = createSingleFlightCache({ ttlMs: 300_000, load });
+        await cache.get('first');
+        await cache.get('second');
+        expect(vi.getTimerCount()).toBe(1);
+
+        cache.dispose();
+        cache.dispose();
+        cache.clear();
+
+        expect(cache.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+        await expect(cache.get('first')).rejects.toThrow('disposed');
+        await expect(cache.get('new', { force: true })).rejects.toThrow('disposed');
+        expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['resolve', 'reject'] as const)(
+        'preserves a pending %s after disposal without retaining the result',
+        async (outcome) => {
+            vi.useFakeTimers();
+            const pending = deferred<string>();
+            const cache = createSingleFlightCache({ ttlMs: 300_000, load: () => pending.promise });
+            const first = cache.get('key');
+            expect(cache.get('key')).toBe(first);
+            cache.dispose();
+
+            if (outcome === 'resolve') {
+                pending.resolve('late value');
+                await expect(first).resolves.toBe('late value');
+            } else {
+                pending.reject(new Error('late failure'));
+                await expect(first).rejects.toThrow('late failure');
+            }
+
+            expect(cache.size).toBe(0);
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
+
     it('releases expired values while idle without expiring newer values early', async () => {
         vi.useFakeTimers();
         const load = vi.fn(async (key: string) => ({ key }));

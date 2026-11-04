@@ -102,6 +102,7 @@ export class Bridge implements BridgeInterface {
         this.disposePromise_ = (async () => {
             try {
                 await Promise.allSettled(this.pendingPackets_);
+                this.apis.contacts.dispose();
                 await this.identity.close();
             } finally {
                 this.events.clear();
