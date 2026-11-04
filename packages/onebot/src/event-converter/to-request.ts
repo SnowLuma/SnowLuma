@@ -25,5 +25,7 @@ export function convertGroupInvite(ctx: ConverterContext, event: GroupInvite): J
         ...(invitedId > 0 ? { invited_id: invitedId } : {}),
         comment: event.message,
         flag: event.flag,
+        ...(event.joinExt ? { join_ext: event.joinExt } : {}),
+        ...(event.joinSource !== undefined ? { join_source: event.joinSource } : {}),
     });
 }
