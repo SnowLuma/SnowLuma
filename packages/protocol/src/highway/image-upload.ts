@@ -3,6 +3,7 @@ import { protobuf_encode } from '@snowluma/proton';
 import type { NotOnlineImagePbReserve, PicExtBizInfo } from '@snowluma/proto-defs/element';
 import type { BridgeContext } from '../bridge-context';
 import type { MessageElement } from '../events';
+import { ntImageUrlFromFileId } from '../msg-push/helpers';
 import { GROUP_IMAGE_CMD_ID, PRIVATE_IMAGE_CMD_ID } from './highway-client';
 import {
     finalizeMediaMsgInfo,
@@ -208,6 +209,14 @@ export async function uploadImageMsgInfo(
     });
 
     const encoded = finalizeMediaMsgInfo(upload, pic);
+    const fileUuid = upload.msgInfo?.msgInfoBody?.[0]?.index?.fileUuid;
+
+    if (fileUuid) {
+        // Inline upload sources are stripped from history. Keep the remote URL
+        // without an rkey so readers can resolve fresh credentials after restart.
+        element.imageUrl = ntImageUrlFromFileId(fileUuid, isGroup);
+    }
+
     // Retain successful upload metadata for the caller's self-sent history.
     Object.assign(element, {
         md5Hex: image.md5Hex,

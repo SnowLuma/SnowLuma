@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { MessageElement } from '@snowluma/protocol/events';
+import type { BridgeContext } from '@snowluma/protocol/bridge-context';
+import { uploadImageMsgInfo } from '@snowluma/protocol/highway/image-upload';
+import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { NTV2UploadRichMediaResp } from '@snowluma/proto-defs/highway';
+import { protobuf_encode } from '@snowluma/proton';
 import { subscribeLogs, type LogEntry } from '@snowluma/common/logger';
 import { ApiHandler } from '../src/api-handler';
 import { elementsToOneBotSegments } from '../src/event-converter';
@@ -93,10 +99,90 @@ function fixture() {
         };
     }
 
-    return { open, groupFile, directory };
+    return { open, groupFile, directory, send };
 }
 
 describe('self-sent remote media', () => {
+    it.each([false, true])(
+        'retains uploaded img URLs for get_msg and get_image after restart, group=%s',
+        async (isGroup) => {
+            const { open, send } = fixture();
+            const source = 'base64://UklGRhwAAABXRUJQVlA4TA8AAAAvAUAAAAcQ0f/+ByKi/wEA';
+            const uploadBridge = {
+                identity: { uin: '10001' },
+                sendRawPacket: vi.fn(async () => ({
+                    success: true,
+                    gotResponse: true,
+                    errorCode: 0,
+                    responseData: protobuf_encode<OidbBase<NTV2UploadRichMediaResp>>({
+                        body: {
+                            upload: {
+                                msgInfo: {
+                                    msgInfoBody: [{ index: { fileUuid: 'uploaded-image' } }],
+                                },
+                            },
+                        },
+                    }),
+                })),
+            } as unknown as BridgeContext;
+            send.mockImplementationOnce(async (_target, elements) => {
+                for (const element of elements) {
+                    await uploadImageMsgInfo(
+                        uploadBridge,
+                        isGroup,
+                        isGroup ? 20002 : 'u_peer',
+                        element,
+                    );
+                }
+
+                return { sequence: 1, clientSequence: 1, random: 1, timestamp: 1700000000 };
+            });
+            let account = await open();
+            const sendMessage = isGroup ? sendGroupMessage : sendPrivateMessage;
+            const { messageId } = await sendMessage(
+                account.ref,
+                20002,
+                [{ type: 'image', data: { file: source } }],
+                false,
+            );
+            const file = `${createHash('md5')
+                .update(Buffer.from(source.slice(9), 'base64'))
+                .digest('hex')}.png`;
+            const imageUrl = `https://multimedia.nt.qq.com.cn/download?appid=${isGroup ? 1407 : 1406}&fileid=uploaded-image`;
+            expect(await account.ref.mediaStore.findImage(file)).toMatchObject({ imageUrl });
+            expect(
+                JSON.stringify(await account.ref.messageStore.findEvent(messageId)),
+            ).not.toContain('base64://');
+            expect(
+                JSON.stringify(await account.ref.messageStore.findMedia(messageId)),
+            ).not.toContain('base64://');
+            await account.close();
+            account = await open();
+
+            for (const key of ['first', 'refreshed']) {
+                const resolver = vi.fn(
+                    async (element: MessageElement) => `${element.imageUrl}&rkey=${key}`,
+                );
+                account.ref.converterCtx.imageUrlResolver = resolver;
+                const url = `${imageUrl}&rkey=${key}`;
+                expect(
+                    await account.handler.handle('get_msg', { message_id: messageId }),
+                ).toMatchObject({
+                    status: 'ok',
+                    data: { message: [{ type: 'image', data: { file, url } }] },
+                });
+                expect(await account.handler.handle('get_image', { file })).toMatchObject({
+                    status: 'ok',
+                    data: { file: url, url },
+                });
+                expect(resolver).toHaveBeenCalledWith(
+                    expect.objectContaining({ type: 'image', imageUrl }),
+                    isGroup,
+                );
+            }
+        },
+    );
+
     it.each([
         ['error', 'https://original.example/failed.jpg'],
         ['empty', 'https://original.example/failed.jpg'],

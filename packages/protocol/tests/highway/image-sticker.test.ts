@@ -64,6 +64,7 @@ describe('image sticker presentation (#468)', () => {
                 width: 1,
                 height: 1,
                 picFormat: 1001,
+                imageUrl: `https://multimedia.nt.qq.com.cn/download?appid=${isGroup ? 1407 : 1406}&fileid=cached-image`,
             });
             const sent = protobuf_decode<EncodableMediaMsgInfo>(bytes);
             expect(sendRawPacket).toHaveBeenCalledTimes(1);
