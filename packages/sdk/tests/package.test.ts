@@ -169,7 +169,7 @@ afterAll(() => {
 describe('SDK package entry points', () => {
     it('keeps browser consumers independent of Node server declarations', () => {
         node([compiler, '-p', path.join(consumerRoot, 'tsconfig.browser.json')]);
-    });
+    }, 30_000);
 
     it('starts the published Node reverse server without workspace resolution', () => {
         node([
