@@ -35,6 +35,8 @@ export function convertGroupMemberJoin(ctx: ConverterContext, event: GroupMember
         group_id: event.groupId,
         operator_id: event.operatorUin,
         user_id: event.userUin,
+        ...(event.joinExt ? { join_ext: event.joinExt } : {}),
+        ...(event.joinSource !== undefined ? { join_source: event.joinSource } : {}),
     });
 }
 

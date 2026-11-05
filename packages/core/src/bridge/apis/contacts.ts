@@ -603,6 +603,8 @@ export class ContactsApi {
                     raw.operateTransInfo && raw.operateTransInfo.length > 0
                         ? raw.operateTransInfo
                         : undefined,
+                joinExtension: raw.joinExtension,
+                joinSource: raw.joinSource,
             });
         }
 
@@ -670,6 +672,8 @@ export class ContactsApi {
                     raw.operateTransInfo && raw.operateTransInfo.length > 0
                         ? raw.operateTransInfo
                         : undefined,
+                joinExtension: raw.joinExtension,
+                joinSource: raw.joinSource,
             });
         }
 

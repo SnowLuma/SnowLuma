@@ -149,6 +149,34 @@ describe('convertEvent — message kinds', () => {
 });
 
 describe('convertEvent — notice kinds', () => {
+    it('group_member_join: exposes join_source and join_ext alongside the standard fields', async () => {
+        const out = await convertEvent(bareCtx(), {
+            kind: 'group_member_join',
+            time: 1,
+            selfUin: SELF_ID,
+            groupId: GROUP_ID,
+            userUin: PEER_UIN,
+            operatorUin: 33333,
+            joinType: 'invite',
+            joinSource: 'invite',
+            joinExt: {
+                group_id: GROUP_ID,
+                user_id: PEER_UIN,
+                change_type: 131,
+                operator_uin: 33333,
+            },
+        } as QQEventVariant);
+        expect(out).toMatchObject({
+            notice_type: 'group_increase',
+            sub_type: 'invite',
+            group_id: GROUP_ID,
+            operator_id: 33333,
+            user_id: PEER_UIN,
+            join_source: 'invite',
+            join_ext: { change_type: 131 },
+        });
+    });
+
     it('group_member_join: protocol admission type overrides actor identity (#237)', async () => {
         const approve = await convertEvent(bareCtx(), {
             kind: 'group_member_join',
@@ -465,6 +493,35 @@ describe('convertEvent — request kinds', () => {
             subType: 'add',
         } as QQEventVariant);
         expect(withSubType!.sub_type).toBe('add');
+    });
+
+    it('group_invite: exposes join_source and join_ext alongside the standard fields', async () => {
+        const out = await convertEvent(bareCtx(), {
+            kind: 'group_invite',
+            time: 1,
+            selfUin: SELF_ID,
+            groupId: GROUP_ID,
+            fromUin: PEER_UIN,
+            message: '邀请',
+            flag: 'gflag',
+            subType: 'invite',
+            joinSource: 'qrcode',
+            joinExt: {
+                source_code: 21,
+                platform_code: 2,
+                source_raw: 131093,
+            },
+        } as QQEventVariant);
+        expect(out).toMatchObject({
+            post_type: 'request',
+            request_type: 'group',
+            group_id: GROUP_ID,
+            user_id: PEER_UIN,
+            comment: '邀请',
+            flag: 'gflag',
+            join_source: 'qrcode',
+            join_ext: { source_code: 21 },
+        });
     });
 
     it('group_invite: reports the invitee without replacing user_id (#394)', async () => {

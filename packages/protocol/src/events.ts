@@ -1,3 +1,5 @@
+import type { GroupIncreaseExtension, GroupJoinRequestExtension } from './group-join-metadata';
+
 /** Re-upload metadata carried by received record/video elements. */
 export interface MediaNode {
     fileUuid?: string;
@@ -344,6 +346,10 @@ export interface GroupMemberJoin extends QQEvent {
     operatorUin: number;
     userUid?: string;
     operatorUid?: string;
+    /** Optional NapCat-compatible admission metadata. */
+    joinExt?: GroupIncreaseExtension;
+    /** Stable source label; null means the source code is unknown. */
+    joinSource?: string | null;
     /**
      * Admission mode derived from GroupChange field 4. This is deliberately
      * separate from QQ's nested invitation-source enum, which has different
@@ -422,6 +428,10 @@ export interface GroupInviteEvent extends QQEvent {
     subType: 'add' | 'invite';
     message: string;
     flag: string;
+    /** Optional NapCat-compatible request metadata. */
+    joinExt?: GroupJoinRequestExtension;
+    /** Stable source label; null means the source code is unknown. */
+    joinSource?: string | null;
 }
 
 export interface FriendPokeEvent extends QQEvent {

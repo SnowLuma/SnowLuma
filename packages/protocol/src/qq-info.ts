@@ -1,3 +1,5 @@
+import type { GroupJoinRequestExtension } from './group-join-metadata';
+
 export interface ProfilePrivilege {
     type?: number;
     level?: number;
@@ -159,6 +161,8 @@ export interface GroupRequestInfo {
     comment: string;
     filtered: boolean;
     operateTransInfo?: Uint8Array;
+    joinExtension?: GroupJoinRequestExtension;
+    joinSource?: string | null;
 }
 
 /** Invitations handled by the invited account, rather than a group administrator.

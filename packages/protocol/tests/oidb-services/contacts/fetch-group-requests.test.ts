@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { pb, pb_repeated, uint_32, uint_64 } from '@snowluma/proton';
+import type { pb, pb_repeated, bytes, uint_32, uint_64 } from '@snowluma/proton';
 import type { OidbBase, OidbSvcTrpcTcp0x10C0Response } from '@snowluma/proto-defs/oidb';
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import type { SendPacketResult } from '@snowluma/common/packet-sender';
@@ -10,6 +10,23 @@ import {
     FetchGroupRequestsByUid,
     groupRequestOperationType,
 } from '../../../src/oidb-services/contacts/fetch-group-requests';
+import {
+    makeGroupJoinRequestExtension,
+    sourceForJoinRequest,
+} from '../../../src/group-join-metadata';
+
+function sourceInfo(sourceCode: number): Uint8Array {
+    const bytes = [0x20];
+    let value = 2 * 65536 + sourceCode;
+
+    while (value >= 0x80) {
+        bytes.push((value & 0x7f) | 0x80);
+        value = Math.floor(value / 128);
+    }
+
+    bytes.push(value);
+    return Uint8Array.from(bytes);
+}
 
 interface ObservedGroupRequestUserByUin {
     uin?: pb<1, uint_32>;
@@ -30,6 +47,7 @@ interface ObservedGroupRequestByUin {
     invitor?: pb<6, ObservedGroupRequestUserByUin>;
     operatorUser?: pb<7, ObservedGroupRequestUserByUin>;
     comment?: pb<10, string>;
+    operateTransInfo?: pb<14, bytes>;
 }
 
 interface ObservedGroupRequestResponseByUin {
@@ -161,6 +179,84 @@ describe('FetchGroupRequests namespace', () => {
                 operatorUser: { uin: 3_456_789_012, uid: '', name: 'operator' },
             });
             expect(response.field2).toBe(1_785_406_628_779_279n);
+        });
+
+        it('decodes the join source from the native reply', async () => {
+            const sourceRaw = 2 * 65536 + 21;
+            const responseData = Buffer.from(
+                protobuf_encode<OidbBase<ObservedGroupRequestResponseByUin>>({
+                    body: {
+                        requests: [
+                            {
+                                sequence: 99n,
+                                eventType: 7,
+                                state: 1,
+                                group: { groupUin: 1001, groupName: 'group' },
+                                target: { uin: 2002, name: 'invitee' },
+                                comment: 'join us',
+                                operateTransInfo: Buffer.from([0x20, 0x95, 0x80, 0x08]),
+                            },
+                        ],
+                    },
+                }),
+            );
+            const sender = {
+                sendRawPacket: vi.fn(async () => ({
+                    success: true,
+                    gotResponse: true,
+                    errorCode: 0,
+                    errorMessage: '',
+                    responseData,
+                })),
+            };
+
+            const response = await FetchGroupRequests.invoke(sender, { filtered: false });
+            expect(response.requests?.[0]).toMatchObject({
+                joinSource: 'qrcode',
+                joinExtension: {
+                    source_code: 21,
+                    platform_code: 2,
+                    source_raw: sourceRaw,
+                },
+            });
+        });
+
+        it.each([
+            [0, 'none'],
+            [2, 'search'],
+            [21, 'qrcode'],
+            [1019, 'search'],
+            [1022, 'search'],
+            [4005, 'search'],
+            [10003, 'findgroup'],
+            [10204, 'findgroup'],
+            [40001, 'link'],
+        ])('labels source code %i as %s', (code, label) => {
+            expect(sourceForJoinRequest(makeGroupJoinRequestExtension(sourceInfo(code)))).toBe(
+                label,
+            );
+        });
+
+        it('keeps unknown and malformed sources non-semantic', async () => {
+            const responseData = Buffer.from(
+                protobuf_encode<OidbBase<ObservedGroupRequestResponseByUin>>({
+                    body: {
+                        requests: [{ operateTransInfo: Buffer.from([0x20, 0xff]) }],
+                    },
+                }),
+            );
+            const sender = {
+                sendRawPacket: vi.fn(async () => ({
+                    success: true,
+                    gotResponse: true,
+                    errorCode: 0,
+                    errorMessage: '',
+                    responseData,
+                })),
+            };
+            const response = await FetchGroupRequests.invoke(sender, { filtered: false });
+            expect(response.requests?.[0]?.joinSource).toBeNull();
+            expect(response.requests?.[0]?.joinExtension?.source_code).toBeNull();
         });
 
         it('keeps string account identifiers from the native reply', async () => {
