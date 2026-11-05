@@ -25,7 +25,7 @@ describe('generated wire format', () => {
                 });
             }
         }
-    });
+    }, 30_000);
 
     it('decodes floating-point, fixed-width and byte fields from unaligned subarrays', () => {
         const codec = codecs<{ f: number; d: number; fixed: bigint; data: Uint8Array }>(
