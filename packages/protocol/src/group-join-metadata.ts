@@ -24,6 +24,7 @@ export type GroupIncreaseExtension = {
 
 const JOIN_SOURCES: Readonly<Record<number, string>> = {
     0: 'none',
+    2: 'search',
     21: 'qrcode',
     1019: 'search',
     1020: 'search',

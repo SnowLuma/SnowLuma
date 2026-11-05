@@ -223,6 +223,7 @@ describe('FetchGroupRequests namespace', () => {
 
         it.each([
             [0, 'none'],
+            [2, 'search'],
             [21, 'qrcode'],
             [1019, 'search'],
             [1022, 'search'],
