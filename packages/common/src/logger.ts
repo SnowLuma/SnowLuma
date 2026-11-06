@@ -97,20 +97,13 @@ class RingBuffer<T> {
             this.start = (this.start + 1) % this.cap;
         } // full → overwrite oldest
     }
-    /** Most recent `n` items, oldest→newest. */
-    recent(n: number): T[] {
-        const take = Math.max(0, Math.min(Math.trunc(n), this.count));
-        const out: T[] = new Array<T>(take);
-        const first = this.start + (this.count - take);
-
-        for (let i = 0; i < take; i += 1) {
-            out[i] = this.buf[(first + i) % this.cap]!;
+    /** Read from newest to oldest without copying the retained buffer. */
+    newest(offset: number): T | undefined {
+        if (offset >= this.count) {
+            return undefined;
         }
 
-        return out;
-    }
-    toArray(): T[] {
-        return this.recent(this.count);
+        return this.buf[(this.start + this.count - 1 - offset) % this.cap];
     }
     get size(): number {
         return this.count;
@@ -282,18 +275,22 @@ function emit(level: LogLevel, options: LogOptions, args: unknown[]): void {
     const formattedMessage = format(...realArgs);
     const message = level === 'trace' ? formattedMessage : redactLogMessage(formattedMessage);
     const line = render(level, options, message, reqId);
-    const entry: LogEntry = {
-        id: nextLogId++,
-        time: new Date().toISOString(),
-        level,
-        scope: options.scope,
-        ...(options.uin !== undefined ? { uin: options.uin } : {}),
-        ...(reqId !== undefined ? { req: reqId } : {}),
-        message,
-        line: sanitizeLogLine(line),
-    };
+    const id = nextLogId++;
 
     if (passesConsole) {
+        // File-only records are sanitized by the transport and need no memory
+        // entry, ISO timestamp, or second sanitized copy of the rendered line.
+        const entry: LogEntry = {
+            id,
+            time: new Date().toISOString(),
+            level,
+            scope: options.scope,
+            ...(options.uin !== undefined ? { uin: options.uin } : {}),
+            ...(reqId !== undefined ? { req: reqId } : {}),
+            message,
+            line: sanitizeLogLine(line),
+        };
+
         // Trace gets its own ring so its volume never evicts the normal log buffer.
         (level === 'trace' ? traceRing : logRing).push(entry);
 
@@ -337,10 +334,28 @@ export function closeLogger(): Promise<void> {
     return getFileTransport().close();
 }
 
-function mergeLogRings(): LogEntry[] {
-    return traceRing.size > 0
-        ? [...logRing.toArray(), ...traceRing.toArray()].sort((a, b) => a.id - b.id)
-        : logRing.toArray();
+function mergeLogRings(limit = logRing.size + traceRing.size): LogEntry[] {
+    const take = Math.min(limit, logRing.size + traceRing.size);
+    const entries = new Array<LogEntry>(take);
+    let normalOffset = 0;
+    let traceOffset = 0;
+
+    // Both rings already follow increasing IDs. Merge backwards so a small
+    // WebUI request visits only the requested tail, even with a large TRACE ring.
+    for (let i = take - 1; i >= 0; i -= 1) {
+        const normal = logRing.newest(normalOffset);
+        const trace = traceRing.newest(traceOffset);
+
+        if (normal && (!trace || normal.id > trace.id)) {
+            entries[i] = normal;
+            normalOffset += 1;
+        } else {
+            entries[i] = trace!;
+            traceOffset += 1;
+        }
+    }
+
+    return entries;
 }
 
 export function getLogSnapshot(): LogEntry[] {
@@ -349,7 +364,8 @@ export function getLogSnapshot(): LogEntry[] {
 
 export function getRecentLogs(limit = 300): LogEntry[] {
     const n = Math.max(1, Math.trunc(limit));
-    return mergeLogRings().slice(-n);
+    // Array.slice(-NaN) previously returned the full snapshot.
+    return mergeLogRings(Number.isNaN(n) ? undefined : n);
 }
 
 export function subscribeLogs(callback: (entry: LogEntry) => void): () => void {
