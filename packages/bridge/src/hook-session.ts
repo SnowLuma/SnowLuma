@@ -117,6 +117,8 @@ export class HookSession extends EventEmitter {
     private cancelConnectAttempt: (() => void) | null = null;
     private pipeUpPending = false;
     private loginReconcileTimer: ReturnType<typeof setInterval> | null = null;
+    private loginIdentityEpoch = 0;
+    private invalidLoginStateReported = false;
     private detecting = false;
     private lastDetectFailure = '';
     private acceptedLoginHintUin = '';
@@ -693,20 +695,10 @@ export class HookSession extends EventEmitter {
                 this.hasConnected = true;
                 this.stopInitialConnectionWatch();
                 this.initialConnectionError = '';
-                const loginState = client.getLoginState();
-
-                // handleLoginState owns the connected+loggedIn → 'online' (+ login
-                // emit) transition; defer to it so the status is set once. Otherwise
-                // we're connected-but-not-logged-in → 'loaded'.
-                if (loginState.loggedIn) {
-                    this.handleLoginState(loginState);
-                } else {
-                    this.applyStatus();
-                    // The native hook only PUSHES a loginState frame on the login edge;
-                    // if QQ logged in before/around connect (Docker auto-login) that edge
-                    // is missed and we'd wait forever. Keep re-detecting until logged in.
-                    runWithoutRequestContext(() => this.startLoginReconcile());
-                }
+                this._error = '';
+                // Identity validation owns readiness and whether to keep checking.
+                // A reported login alone does not establish a usable account.
+                this.handleLoginState(client.getLoginState());
 
                 this.log.info('pipe connected: PID=%d', this.pid);
                 this.log.trace(() => [
@@ -915,19 +907,32 @@ export class HookSession extends EventEmitter {
         this.bound = false;
         this.connected = false;
         this.loggedIn = false;
+        this.invalidLoginStateReported = false;
         this._outboundHealthy = true;
         this.resetLoginHint();
     }
 
     private handleLoginState(state: QqHookLoginState): void {
-        if (this.runtimeFailure) {
+        if (this.disposed || this.runtimeFailure) {
             return;
         }
 
         const wasLoggedIn = this.loggedIn;
         const previousUin = this._uin;
-        this._uin = state.uin || state.uinNumber.toString();
-        this.loggedIn = state.loggedIn && isRealUin(this._uin);
+        const uin = state.uin || state.uinNumber.toString();
+        const validIdentity = isRealUin(uin);
+        const invalidLoginState = state.loggedIn && !validIdentity;
+
+        if (invalidLoginState && !this.invalidLoginStateReported) {
+            this.log.warn(
+                'Login readiness rejected: PID=%d reason=invalid_account_identity',
+                this.pid,
+            );
+        }
+
+        this.invalidLoginStateReported = invalidLoginState;
+        this._uin = validIdentity ? uin : '0';
+        this.loggedIn = state.loggedIn && validIdentity;
 
         // Login readiness has now been confirmed, so identity probing is done.
         if (this.loggedIn) {
@@ -942,19 +947,30 @@ export class HookSession extends EventEmitter {
         } else {
             this.resetReceiveWatch();
             this._outboundHealthy = true;
+
+            if (wasLoggedIn) {
+                this.resetLoginHint();
+            }
         }
 
         // Only the connected/logged-in states are ours to set here; when fully
         // down we leave the status the teardown path already settled.
-        // Load-bearing invariant: `loggedIn ⇒ connected` (login can only be
-        // observed on a live client, and teardown clears `loggedIn` before
-        // `connected`), so statusFor lands 'online' here rather than the
-        // disconnected/connecting branch.
+        // Login may arrive while another channel is still handshaking; the
+        // connection attempt revokes that binding if it fails to complete.
         if (this.connected || this.loggedIn) {
             this.applyStatus(wasLoggedIn, this.loggedIn ? '' : this._error);
         }
 
-        if (!this.loggedIn || !this.sender) {
+        if (!this.loggedIn) {
+            if (wasLoggedIn) {
+                this.emit('disconnected', true);
+            }
+
+            runWithoutRequestContext(() => this.startLoginReconcile());
+            return;
+        }
+
+        if (!this.sender) {
             return;
         }
 
@@ -1001,17 +1017,23 @@ export class HookSession extends EventEmitter {
     // reconciliation, but never synthesize online state from the detection.
 
     private startLoginReconcile(): void {
-        if (this.loginReconcileTimer || this.disposed || this.runtimeFailure) {
+        if (
+            this.loginReconcileTimer ||
+            this.disposed ||
+            this.runtimeFailure ||
+            !this.connected ||
+            this.loggedIn
+        ) {
             return;
         }
 
         this.log.info('awaiting login: PID=%d', this.pid);
-        void this.detectLoginOnce(); // immediate — catch already-logged-in fast
         this.loginReconcileTimer = setInterval(
             () => void this.detectLoginOnce(),
             LOGIN_RECONCILE_INTERVAL_MS,
         );
         this.loginReconcileTimer.unref();
+        void this.detectLoginOnce();
     }
 
     private stopLoginReconcile(): void {
@@ -1029,6 +1051,7 @@ export class HookSession extends EventEmitter {
         }
 
         const client = this.client;
+        const identityEpoch = this.loginIdentityEpoch;
 
         if (this.disposed || !client || !this.connected || this.loggedIn || this.runtimeFailure) {
             this.stopLoginReconcile();
@@ -1047,6 +1070,17 @@ export class HookSession extends EventEmitter {
             try {
                 uin = await this.detectLoginUin(this.pid);
             } catch (error) {
+                if (
+                    this.client !== client ||
+                    this.loginIdentityEpoch !== identityEpoch ||
+                    this.disposed ||
+                    !this.connected ||
+                    this.loggedIn ||
+                    this.runtimeFailure
+                ) {
+                    return;
+                }
+
                 const message = errorMessage(error);
 
                 if (this.lastDetectFailure !== message) {
@@ -1061,9 +1095,10 @@ export class HookSession extends EventEmitter {
                 return; // best-effort; the interval retries
             }
 
-            // A reconnect owns a new client; an older read cannot supply its identity.
+            // A connection or readiness change invalidates earlier identity work.
             if (
                 this.client !== client ||
+                this.loginIdentityEpoch !== identityEpoch ||
                 this.disposed ||
                 !this.connected ||
                 this.loggedIn ||
@@ -1107,6 +1142,7 @@ export class HookSession extends EventEmitter {
 
                     if (
                         this.client !== client ||
+                        this.loginIdentityEpoch !== identityEpoch ||
                         this.disposed ||
                         !this.connected ||
                         this.loggedIn ||
@@ -1119,7 +1155,14 @@ export class HookSession extends EventEmitter {
                     this.nextLoginIdentityObservationAt =
                         Date.now() + LOGIN_IDENTITY_OBSERVE_INTERVAL_MS;
                 } catch (error) {
-                    if (this.client !== client || this.disposed || this.runtimeFailure) {
+                    if (
+                        this.client !== client ||
+                        this.loginIdentityEpoch !== identityEpoch ||
+                        this.disposed ||
+                        !this.connected ||
+                        this.loggedIn ||
+                        this.runtimeFailure
+                    ) {
                         return;
                     }
 
@@ -1152,6 +1195,7 @@ export class HookSession extends EventEmitter {
     }
 
     private resetLoginHint(): void {
+        this.loginIdentityEpoch++;
         this.acceptedLoginHintUin = '';
         this.loginHintAttemptUin = '';
         this.loginHintAttempts = 0;

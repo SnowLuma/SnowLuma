@@ -1479,6 +1479,302 @@ describe('HookSession — packet forwarding', () => {
 });
 
 describe('HookSession — login reconcile (Docker auto-login safety net)', () => {
+    it.each([
+        { uin: '1700000000000', uinNumber: 1700000000000n },
+        { uin: 'not-an-account', uinNumber: 0n },
+        { uin: '0', uinNumber: 0n },
+        { uin: '', uinNumber: 1700000000000n },
+    ])(
+        'reconciles a rejected login identity received during connection: $uin',
+        async (identity) => {
+            vi.useFakeTimers();
+            setLogLevel('warn');
+            const entries: LogEntry[] = [];
+            const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+            const detectLoginUin = vi.fn(async () => '10001');
+            const onPacket = vi.fn<PacketSink>();
+            const state = { loggedIn: true, ...identity };
+            const ctx = makeSession({
+                pipeLive: true,
+                detectLoginUin,
+                onPacket,
+                connectClient: async (client) => client.reconcileLoginState(state),
+            });
+            const login = vi.fn();
+            ctx.session.on('login', login);
+
+            try {
+                await ctx.session.load();
+                ctx.session.onPipeUp();
+                await vi.advanceTimersByTimeAsync(0);
+                expect(ctx.currentClient().loginIdentityHints).toEqual(['10001']);
+                expect(ctx.session.toInfo()).toMatchObject({
+                    connected: true,
+                    loggedIn: false,
+                    status: 'loaded',
+                    uin: '0',
+                });
+                expect(login).not.toHaveBeenCalled();
+
+                const packet = {
+                    seq: 1,
+                    error: 0,
+                    cmd: 'Test.Message',
+                    uin: '10001',
+                    body: Buffer.alloc(0),
+                };
+                ctx.currentClient().firePacket(packet);
+                expect(onPacket).not.toHaveBeenCalled();
+                ctx.currentClient().reconcileLoginState(state);
+                await vi.advanceTimersByTimeAsync(9000);
+                expect(ctx.currentClient().loginIdentityHints).toEqual(['10001']);
+                expect(
+                    entries
+                        .filter((entry) => entry.scope === 'HookSession' && entry.level === 'warn')
+                        .map((entry) => entry.message),
+                ).toEqual(['Login readiness rejected: PID=1234 reason=invalid_account_identity']);
+
+                ctx.currentClient().fireLogin('10001');
+                ctx.currentClient().firePacket(packet);
+                expect(login).toHaveBeenCalledOnce();
+                expect(onPacket).toHaveBeenCalledOnce();
+                expect(ctx.session.toInfo()).toMatchObject({
+                    loggedIn: true,
+                    status: 'online',
+                    uin: '10001',
+                });
+                const detections = detectLoginUin.mock.calls.length;
+                await vi.advanceTimersByTimeAsync(30_000);
+                expect(detectLoginUin).toHaveBeenCalledTimes(detections);
+            } finally {
+                ctx.session.dispose();
+                unsubscribe();
+                vi.useRealTimers();
+            }
+        },
+    );
+
+    it('revokes a ready account and starts a fresh identity check when login readiness is lost', async () => {
+        vi.useFakeTimers();
+        const ctx = makeSession({ pipeLive: true, detectLoginUin: async () => '10001' });
+        const login = vi.fn();
+        const disconnected = vi.fn();
+        ctx.session.on('login', login);
+        ctx.session.on('disconnected', disconnected);
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['10001']);
+            ctx.currentClient().fireLogin('10001');
+            expect(login).toHaveBeenCalledOnce();
+
+            ctx.currentClient().fireLogin('1700000000000');
+            ctx.currentClient().fireLogin('1700000000001');
+            await vi.advanceTimersByTimeAsync(0);
+            expect(disconnected).toHaveBeenCalledExactlyOnceWith(true);
+            expect(ctx.session.toInfo()).toMatchObject({
+                status: 'loaded',
+                loggedIn: false,
+                uin: '0',
+            });
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['10001', '10001']);
+            expect(login).toHaveBeenCalledOnce();
+
+            ctx.currentClient().fireLogin('10001');
+            expect(login).toHaveBeenCalledTimes(2);
+            expect(ctx.session.status).toBe('online');
+        } finally {
+            ctx.session.dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not probe a rejected login identity before a stalled connection times out', async () => {
+        vi.useFakeTimers();
+        const handshake = Promise.withResolvers<void>();
+        const detectLoginUin = vi.fn(async () => '10001');
+        const ctx = makeSession({ detectLoginUin, connectClient: () => handshake.promise });
+        const login = vi.fn();
+        ctx.session.on('login', login);
+
+        try {
+            await ctx.session.load();
+            ctx.setPipeLive(true);
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            const previous = ctx.currentClient();
+            previous.fireLogin('1700000000000');
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(ctx.session.toInfo()).toMatchObject({
+                status: 'error',
+                connected: false,
+                loggedIn: false,
+            });
+            expect(detectLoginUin).not.toHaveBeenCalled();
+            expect(previous.isClosed).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+
+            previous.fireLogin('10001');
+            handshake.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(login).not.toHaveBeenCalled();
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(ctx.currentClient()).not.toBe(previous);
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['10001']);
+            expect(ctx.session.toInfo()).toMatchObject({
+                status: 'loaded',
+                connected: true,
+                loggedIn: false,
+            });
+        } finally {
+            handshake.resolve();
+            ctx.session.dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it('discards an identity acknowledgement from before login readiness was lost', async () => {
+        vi.useFakeTimers();
+        const hint = Promise.withResolvers<void>();
+        const ctx = makeSession({
+            pipeLive: true,
+            detectLoginUin: async () => '10001',
+            connectClient: async (client) => {
+                vi.spyOn(client, 'reconcileLoginIdentity').mockImplementationOnce(async (uin) => {
+                    client.loginIdentityHints.push(uin);
+                    await hint.promise;
+                });
+            },
+        });
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['10001']);
+            ctx.currentClient().fireLogin('10001');
+            ctx.currentClient().fireLogin('1700000000000');
+            hint.resolve();
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['10001', '10001']);
+            expect(ctx.session.toInfo()).toMatchObject({ status: 'loaded', loggedIn: false });
+        } finally {
+            hint.resolve();
+            ctx.session.dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it('discards an account observation from before login readiness was lost', async () => {
+        vi.useFakeTimers();
+        const observation = Promise.withResolvers<string | null>();
+        const detectLoginUin = vi.fn<() => Promise<string | null>>().mockResolvedValue('20002');
+        detectLoginUin.mockReturnValueOnce(observation.promise);
+        const ctx = makeSession({ pipeLive: true, detectLoginUin });
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            ctx.currentClient().fireLogin('10001');
+            ctx.currentClient().fireLogin('1700000000000');
+            observation.resolve('10001');
+            await vi.advanceTimersByTimeAsync(0);
+            expect(ctx.currentClient().loginIdentityHints).toEqual([]);
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(ctx.currentClient().loginIdentityHints).toEqual(['20002']);
+        } finally {
+            observation.resolve(null);
+            ctx.session.dispose();
+            vi.useRealTimers();
+        }
+    });
+
+    it.each(['observation', 'hint'] as const)(
+        'ignores a late %s failure after login readiness is confirmed',
+        async (phase) => {
+            vi.useFakeTimers();
+            setLogLevel('trace');
+            const entries: LogEntry[] = [];
+            const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+            const pending = Promise.withResolvers<void>();
+            const detectLoginUin = vi.fn(async () => {
+                if (phase === 'observation') {
+                    await pending.promise;
+                }
+
+                return '10001';
+            });
+            const ctx = makeSession({
+                pipeLive: true,
+                detectLoginUin,
+                connectClient: async (client) => {
+                    if (phase === 'hint') {
+                        vi.spyOn(client, 'reconcileLoginIdentity').mockImplementationOnce(
+                            async (uin) => {
+                                client.loginIdentityHints.push(uin);
+                                await pending.promise;
+                            },
+                        );
+                    }
+                },
+            });
+
+            try {
+                await ctx.session.load();
+                ctx.session.onPipeUp();
+                await vi.advanceTimersByTimeAsync(0);
+                expect(detectLoginUin).toHaveBeenCalledOnce();
+                expect(ctx.currentClient().loginIdentityHints).toEqual(
+                    phase === 'hint' ? ['10001'] : [],
+                );
+                ctx.currentClient().fireLogin('10001');
+                entries.length = 0;
+                pending.reject(new Error('expired identity request'));
+                await vi.advanceTimersByTimeAsync(30_000);
+                expect(
+                    entries.some((entry) => entry.message.includes('expired identity request')),
+                ).toBe(false);
+                expect(detectLoginUin).toHaveBeenCalledOnce();
+                expect(ctx.session.toInfo()).toMatchObject({
+                    status: 'online',
+                    loggedIn: true,
+                    uin: '10001',
+                });
+            } finally {
+                pending.resolve();
+                ctx.session.dispose();
+                unsubscribe();
+                vi.useRealTimers();
+            }
+        },
+    );
+
+    it('clears the login check timer when identity detection disposes the session synchronously', async () => {
+        vi.useFakeTimers();
+        const detectLoginUin = vi.fn<() => Promise<string | null>>();
+        const ctx = makeSession({ pipeLive: true, detectLoginUin });
+        detectLoginUin.mockImplementation(async () => {
+            ctx.session.dispose();
+            return null;
+        });
+
+        try {
+            await ctx.session.load();
+            ctx.session.onPipeUp();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(ctx.session.isDisposed).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            ctx.session.dispose();
+            vi.useRealTimers();
+        }
+    });
+
     it('discards an identity read started before a pipe reconnect', async () => {
         const detection = Promise.withResolvers<string | null>();
         const ctx = makeSession({ pipeLive: true, detectLoginUin: () => detection.promise });
