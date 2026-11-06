@@ -1,8 +1,16 @@
 import { protobuf_decode } from '@snowluma/proton';
+import { createLogger } from '@snowluma/common/logger';
 import type { GroupMemberJoin, GroupMemberLeave } from '../../events';
 import type { GroupChange, SelfJoinInGroup } from '@snowluma/proto-defs/notify';
-import { decodeGroupChangeOperatorUid, decodeNestedOperatorUid, resolveUidToUin } from '../helpers';
+import {
+    decodeGroupChangeOperatorUid,
+    decodeNestedOperatorUid,
+    decodeRawOperatorUid,
+    resolveUidToUin,
+} from '../helpers';
 import type { MsgPushDecoder } from '../registry';
+
+const log = createLogger('MsgPush.GroupJoin');
 
 function joinTypeFromOperationType(raw: number): NonNullable<GroupMemberJoin['joinType']> {
     // QQ uses bit 0x80 as a flag on the PkgType=33 operation code. Clear only
@@ -26,6 +34,22 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
         change.operatorBytes ?? new Uint8Array(0),
         'group member increase',
     );
+    const operation = (change.decreaseType ?? 0) - ((change.decreaseType ?? 0) & 0x80);
+    const origin = ctx.responseHead?.grp?.messageKey?.joinExtra?.origin;
+    // QQ consumes this independent origin only for operation 2. Type 1
+    // identifies a QR-code sharer; neither that person nor the approving
+    // operator is evidence of an invitation.
+    const invitorUid =
+        operation === 2 && origin?.type !== 1 && origin?.uid?.length
+            ? decodeRawOperatorUid(origin.uid, 'group member invitation origin')
+            : '';
+    log.trace(
+        'join identity: group=%d operation=%d originType=%s inviterProvided=%s',
+        groupId,
+        operation,
+        origin?.type === undefined ? 'absent' : String(origin.type),
+        Boolean(invitorUid),
+    );
     const ev: GroupMemberJoin = {
         kind: 'group_member_join',
         time: ctx.head.timestamp,
@@ -35,6 +59,9 @@ export const decodeGroupMemberJoin: MsgPushDecoder = (ctx) => {
         operatorUin: resolveUidToUin(ctx.identity, groupId, operatorUid),
         userUid,
         operatorUid,
+        ...(invitorUid
+            ? { invitorUid, invitorUin: resolveUidToUin(ctx.identity, groupId, invitorUid) }
+            : {}),
         joinType: joinTypeFromOperationType(change.decreaseType ?? 0),
     };
     return [ev];

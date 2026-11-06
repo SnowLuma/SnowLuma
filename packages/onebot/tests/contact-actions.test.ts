@@ -1056,6 +1056,98 @@ describe('onebot/contact-actions / getStrangerInfo', () => {
 });
 
 describe('onebot/contact-actions / getGroupSystemMessages', () => {
+    it('reports the invitee, inviter and reviewing operator independently (#643)', async () => {
+        const bridge = fakeBridge({
+            fetchGroupRequests: vi.fn(async (filtered: boolean) =>
+                filtered ? [] : [makeGroupRequest({ state: 2 })],
+            ),
+        });
+        expect(await getGroupSystemMessages(bridge)).toEqual([
+            expect.objectContaining({
+                requester_uin: 123,
+                target_uin: 123,
+                target_nick: 'target',
+                target_status: 'known',
+                invitor_uin: 456,
+                invitor_nick: 'inviter',
+                invitor_status: 'known',
+                operator_uin: 789,
+                operator_nick: 'operator',
+                operator_status: 'known',
+            }),
+        ]);
+    });
+
+    it('marks omitted actors unknown rather than claiming there was no inviter', async () => {
+        const bridge = fakeBridge({
+            fetchGroupRequests: vi.fn(async (filtered: boolean) =>
+                filtered
+                    ? []
+                    : [
+                          makeGroupRequest({
+                              invitorUid: '',
+                              invitorUin: 0,
+                              invitorName: '',
+                              operatorUid: '',
+                              operatorUin: 0,
+                              operatorName: '',
+                          }),
+                      ],
+            ),
+        });
+        expect(await getGroupSystemMessages(bridge)).toEqual([
+            expect.objectContaining({
+                invitor_uin: 0,
+                invitor_status: 'unknown',
+                operator_uin: 0,
+                operator_status: 'unknown',
+            }),
+        ]);
+    });
+
+    it('resolves UID-only inviters and operators as well as the requester', async () => {
+        const fetchUserProfileByUid = vi.fn(async (uid: string) =>
+            makeProfile(uid === 'u_inviter' ? 456 : 789, uid),
+        );
+        const bridge = fakeBridge({
+            fetchGroupRequests: vi.fn(async (filtered: boolean) =>
+                filtered ? [] : [makeGroupRequest({ invitorUin: 0, operatorUin: 0 })],
+            ),
+            fetchUserProfileByUid,
+            identity: fakeIdentity({ findUinByUid: () => null }),
+        });
+        expect(await getGroupSystemMessages(bridge)).toEqual([
+            expect.objectContaining({
+                invitor_uin: 456,
+                invitor_status: 'known',
+                operator_uin: 789,
+                operator_status: 'known',
+            }),
+        ]);
+        expect(fetchUserProfileByUid.mock.calls.map(([uid]) => uid).sort()).toEqual([
+            'u_inviter',
+            'u_operator',
+        ]);
+    });
+
+    it.each(['invitor', 'operator'] as const)(
+        'propagates %s lookup failures instead of reporting absence',
+        async (role) => {
+            const bridge = fakeBridge({
+                fetchGroupRequests: vi.fn(async (filtered: boolean) =>
+                    filtered ? [] : [makeGroupRequest({ [`${role}Uin`]: 0 })],
+                ),
+                fetchUserProfileByUid: vi.fn(async () => {
+                    throw new Error('profile offline');
+                }),
+                identity: fakeIdentity({ findUinByUid: () => null }),
+            });
+            await expect(getGroupSystemMessages(bridge)).rejects.toThrow(
+                `failed to resolve ${role} UIN`,
+            );
+        },
+    );
+
     it('reads both request inboxes with the requested per-inbox count', async () => {
         const fetchGroupRequests = vi.fn(async (filtered: boolean) =>
             filtered
@@ -1150,6 +1242,8 @@ describe('onebot/contact-actions / getGroupSystemMessages', () => {
             expect.objectContaining({
                 requester_uin: 45_678,
                 requester_nick: 'inviter',
+                target_uin: 10_001,
+                target_nick: 'bot',
                 invitor_uin: 45_678,
                 invitor_nick: 'inviter',
             }),

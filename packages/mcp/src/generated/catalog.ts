@@ -10006,7 +10006,7 @@ export const ACTIONS: CatalogAction[] = [
     "name": "get_group_system_msg",
     "aliases": [],
     "summary": "获取群系统消息",
-    "returns": "群系统消息数组，可按群号或未处理状态过滤。",
+    "returns": "群系统消息数组，分别提供入群者、邀请人和处理者，可按群号或未处理状态过滤。身份为 0 时须查看状态；未知不代表不存在邀请人。",
     "returnsSchema": {
       "type": "array",
       "items": {
@@ -10026,19 +10026,59 @@ export const ACTIONS: CatalogAction[] = [
           },
           "requester_uin": {
             "type": "integer",
-            "description": "申请人 QQ 号"
+            "description": "请求发起人 QQ 号；邀请登录账号入群时表示邀请人"
           },
           "requester_nick": {
             "type": "string",
-            "description": "申请人昵称"
+            "description": "请求发起人昵称"
+          },
+          "target_uin": {
+            "type": "integer",
+            "description": "申请或被邀请入群者 QQ 号，未知时为 0"
+          },
+          "target_nick": {
+            "type": "string",
+            "description": "入群者昵称"
+          },
+          "target_status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown"
+            ],
+            "description": "入群者 QQ 号是否已知"
           },
           "invitor_uin": {
             "type": "integer",
-            "description": "邀请人 QQ 号，无邀请时为 0"
+            "description": "邀请人 QQ 号，未知时为 0；不能据此认定没有邀请人"
           },
           "invitor_nick": {
             "type": "string",
             "description": "邀请人昵称"
+          },
+          "invitor_status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown"
+            ],
+            "description": "邀请人 QQ 号是否已知；缺失信息为 unknown"
+          },
+          "operator_uin": {
+            "type": "integer",
+            "description": "处理该申请的操作者 QQ 号，未知时为 0"
+          },
+          "operator_nick": {
+            "type": "string",
+            "description": "处理者昵称"
+          },
+          "operator_status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown"
+            ],
+            "description": "处理者 QQ 号是否已知；已知不代表审批通过"
           },
           "message": {
             "type": "string",
@@ -10059,8 +10099,15 @@ export const ACTIONS: CatalogAction[] = [
           "request_id",
           "requester_uin",
           "requester_nick",
+          "target_uin",
+          "target_nick",
+          "target_status",
           "invitor_uin",
           "invitor_nick",
+          "invitor_status",
+          "operator_uin",
+          "operator_nick",
+          "operator_status",
           "message",
           "checked",
           "flag"

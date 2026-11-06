@@ -1,6 +1,31 @@
 import type { OneBotPrivateMessageEvent } from './events.js';
 import type { JsonArray, JsonObject, JsonValue } from './json.js';
 
+/** Unknown includes missing information; it does not mean that no such person exists. */
+export type GroupIdentityStatus = 'known' | 'unknown';
+
+export interface GroupSystemMessage extends JsonObject {
+    group_id: number;
+    group_name: string;
+    request_id: number;
+    requester_uin: number;
+    requester_nick: string;
+    invitor_uin: number;
+    invitor_nick: string;
+    message: string;
+    checked: boolean;
+    flag: string;
+    /** Always the applicant or invitee; unlike requester_uin on self invitations. */
+    target_uin?: number;
+    target_nick?: string;
+    target_status?: GroupIdentityStatus;
+    invitor_status?: GroupIdentityStatus;
+    /** The person who handled the request, not necessarily the inviter. */
+    operator_uin?: number;
+    operator_nick?: string;
+    operator_status?: GroupIdentityStatus;
+}
+
 export interface QzoneCommentReply {
     uin: number;
     name: string;

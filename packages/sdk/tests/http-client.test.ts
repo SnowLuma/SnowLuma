@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import type { QzoneMsgDetailResult, QzoneProfileResult } from '../src';
+import type { GroupSystemMessage, QzoneMsgDetailResult, QzoneProfileResult } from '../src';
 import {
     SnowLumaAbortError,
     SnowLumaApiError,
@@ -9,6 +9,37 @@ import {
 } from '../src';
 
 describe('SnowLumaHttpClient', () => {
+    it('retains independent group request actors and supports old servers', async () => {
+        const legacy: GroupSystemMessage = {
+            group_id: 90001,
+            group_name: 'group',
+            request_id: 1,
+            requester_uin: 10002,
+            requester_nick: 'member',
+            invitor_uin: 10004,
+            invitor_nick: 'inviter',
+            message: '',
+            checked: true,
+            flag: 'request-1',
+        };
+        const current: GroupSystemMessage = {
+            ...legacy,
+            target_uin: 10002,
+            target_status: 'known',
+            operator_uin: 10003,
+            operator_status: 'known',
+            invitor_status: 'known',
+        };
+        const fetchImpl = vi.fn(
+            async () =>
+                new Response(JSON.stringify({ status: 'ok', retcode: 0, data: [current, legacy] })),
+        );
+        const client = new SnowLumaHttpClient({ fetch: fetchImpl });
+        const result = await client.getGroupSystemMessages({ groupId: 90001 });
+        expectTypeOf(result).toEqualTypeOf<GroupSystemMessage[]>();
+        expect(result).toEqual([current, legacy]);
+        expect(result[1]).not.toHaveProperty('invitor_status');
+    });
     it('reads typed space profiles for the current and an explicit account', async () => {
         const data: QzoneProfileResult = { name: 'Space', description: 'Description' };
         const fetchImpl = vi

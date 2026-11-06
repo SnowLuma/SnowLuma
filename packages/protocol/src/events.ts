@@ -346,6 +346,9 @@ export interface GroupMemberJoin extends QQEvent {
     operatorUin: number;
     userUid?: string;
     operatorUid?: string;
+    /** Independent invitation origin; never inferred from the operator. */
+    invitorUid?: string;
+    invitorUin?: number;
     /**
      * Admission mode derived from GroupChange field 4. This is deliberately
      * separate from QQ's nested invitation-source enum, which has different

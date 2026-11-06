@@ -3,7 +3,8 @@ import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
 import { IncomingPacketPipeline } from '@snowluma/protocol/packet-pipeline';
 import { BridgeEventBus } from '@snowluma/protocol/event-bus';
 import { IdentityService } from '@snowluma/protocol/identity-service';
-import type { GroupInviteEvent, QQEventVariant } from '@snowluma/protocol/events';
+import type { GroupInviteEvent, GroupMemberJoin, QQEventVariant } from '@snowluma/protocol/events';
+import { subscribeLogs } from '@snowluma/common/logger';
 import type {
     GroupMemberInfo,
     GroupRequestInfo,
@@ -110,6 +111,99 @@ async function receive(pipeline: IncomingPacketPipeline, event: GroupInviteEvent
     pipeline.registerCmd('test.cmd', () => [event]);
     await pipeline.process({ serviceCmd: 'test.cmd' } as PacketInfo);
 }
+
+describe('IncomingPacketPipeline / independent join inviter', () => {
+    function join(): GroupMemberJoin {
+        return {
+            kind: 'group_member_join',
+            time: 1,
+            selfUin: 10001,
+            groupId: 12345,
+            userUid: 'u_member',
+            userUin: 10002,
+            operatorUid: 'u_admin',
+            operatorUin: 10003,
+            invitorUid: 'u_inviter',
+            invitorUin: 0,
+            joinType: 'approve',
+        };
+    }
+
+    it('resolves an inviter even when the joining member is already known', async () => {
+        const fetchProfileByUid = vi.fn(async () => makeProfile(10004, 'u_inviter'));
+        const { pipeline, captured, resolveGroupJoinRequest } = makePipeline({ fetchProfileByUid });
+        await pipeline.processEvents({ serviceCmd: 'test.cmd' } as PacketInfo, [join()]);
+        expect(captured).toEqual([
+            expect.objectContaining({ userUin: 10002, operatorUin: 10003, invitorUin: 10004 }),
+        ]);
+        expect(fetchProfileByUid).toHaveBeenCalledExactlyOnceWith('u_inviter');
+        expect(resolveGroupJoinRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps the event observable when the inviter cannot be resolved', async () => {
+        const fetchProfileByUid = vi.fn(async () => {
+            throw new Error('profile unavailable');
+        });
+        const { pipeline, captured } = makePipeline({ fetchProfileByUid });
+        const warnings: string[] = [];
+        const unsubscribe = subscribeLogs((entry) => {
+            if (entry.level === 'warn') {
+                warnings.push(entry.message);
+            }
+        });
+
+        try {
+            await pipeline.processEvents({ serviceCmd: 'test.cmd' } as PacketInfo, [join()]);
+        } finally {
+            unsubscribe();
+        }
+
+        expect(captured).toEqual([expect.objectContaining({ invitorUin: 0, operatorUin: 10003 })]);
+        expect(
+            warnings.some((message) => message.includes('group join identity unavailable')),
+        ).toBe(true);
+    });
+
+    it('waits for both identities before dispatching a join', async () => {
+        let finishInviter!: (profile: UserProfileInfo) => void;
+        const fetchProfileByUid = vi.fn((uid: string) =>
+            uid === 'u_member'
+                ? Promise.resolve(makeProfile(10002, uid))
+                : new Promise<UserProfileInfo>((resolve) => {
+                      finishInviter = resolve;
+                  }),
+        );
+        const { pipeline, captured } = makePipeline({ fetchProfileByUid });
+        const pending = pipeline.processEvents({ serviceCmd: 'test.cmd' } as PacketInfo, [
+            { ...join(), userUin: 0 },
+        ]);
+        await vi.waitFor(() => expect(fetchProfileByUid).toHaveBeenCalledTimes(2));
+        expect(captured).toEqual([]);
+        finishInviter(makeProfile(10004, 'u_inviter'));
+        await pending;
+        expect(captured).toEqual([expect.objectContaining({ userUin: 10002, invitorUin: 10004 })]);
+    });
+
+    it('retains the original identity failure in the warning', async () => {
+        const { pipeline, identity, captured } = makePipeline();
+        vi.spyOn(identity, 'resolveUin').mockRejectedValueOnce(new Error('identity store closed'));
+        const warnings: string[] = [];
+        const unsubscribe = subscribeLogs((entry) => {
+            if (entry.level === 'warn') {
+                warnings.push(entry.message);
+            }
+        });
+
+        try {
+            await pipeline.processEvents({ serviceCmd: 'test.cmd' } as PacketInfo, [join()]);
+        } finally {
+            unsubscribe();
+        }
+
+        expect(captured).toHaveLength(1);
+        expect(warnings.some((message) => message.includes('identity store closed'))).toBe(true);
+    });
+});
 
 describe('IncomingPacketPipeline / group requests', () => {
     it('resolves an unknown requester before dispatch', async () => {

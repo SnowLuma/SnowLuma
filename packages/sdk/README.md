@@ -19,6 +19,8 @@ SnowLuma 的 TypeScript SDK，提供 OneBot HTTP / WebSocket 客户端、事件�
 - [项目结构](#项目结构)
 - [版本策略](#版本策略)
 
+群申请中的入群者、邀请人和审批人，以及入群通知的身份可用状态，见[群邀请与入群身份](../onebot/GROUP_REQUESTS.md)。
+
 ## 安装
 
 在本 monorepo 内直接通过 workspace 引用：

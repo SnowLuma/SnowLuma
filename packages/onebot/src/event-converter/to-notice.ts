@@ -35,6 +35,8 @@ export function convertGroupMemberJoin(ctx: ConverterContext, event: GroupMember
         group_id: event.groupId,
         operator_id: event.operatorUin,
         user_id: event.userUin,
+        invitor_id: event.invitorUin ?? 0,
+        invitor_status: (event.invitorUin ?? 0) > 0 ? 'known' : 'unknown',
     });
 }
 

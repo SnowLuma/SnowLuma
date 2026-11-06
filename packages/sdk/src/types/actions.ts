@@ -161,6 +161,7 @@ import type {
     GroupFileUrl,
     GroupMessageHistory,
     GroupNoticeInfo,
+    GroupSystemMessage,
     GroupTodoListItem,
     LoginInfo,
     MediaInfo,
@@ -242,7 +243,7 @@ export interface SnowLumaActionMap {
     get_group_member_list: { params: GetGroupMemberListParams; data: JsonObject[] };
     get_group_member_info: { params: GetGroupMemberInfoParams; data: JsonObject };
     get_group_honor_info: { params: GetGroupHonorInfoParams; data: JsonValue };
-    get_group_system_msg: { params: GetGroupSystemMsgParams; data: JsonObject[] };
+    get_group_system_msg: { params: GetGroupSystemMsgParams; data: GroupSystemMessage[] };
     set_group_kick: { params: SetGroupKickParams; data: EmptyData };
     set_group_kick_members: { params: SetGroupKickMembersParams; data: EmptyData };
     set_group_ban: { params: SetGroupBanParams; data: EmptyData };

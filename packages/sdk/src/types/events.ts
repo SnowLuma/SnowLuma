@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from './json.js';
+import type { GroupIdentityStatus } from './results.js';
 
 export interface OneBotBaseEvent extends JsonObject {
     time: number;
@@ -50,6 +51,17 @@ export type OneBotMessageEvent = OneBotPrivateMessageEvent | OneBotGroupMessageE
 export interface OneBotNoticeEvent extends OneBotBaseEvent {
     post_type: 'notice';
     notice_type: string;
+}
+
+export interface OneBotGroupIncreaseEvent extends OneBotNoticeEvent {
+    notice_type: 'group_increase';
+    sub_type: 'approve' | 'invite';
+    group_id: number;
+    user_id: number;
+    operator_id: number;
+    /** Independent inviter, when QQ supplies one. Zero does not prove absence. */
+    invitor_id?: number;
+    invitor_status?: GroupIdentityStatus;
 }
 
 export type BotStatusSubType = 'online' | 'offline';

@@ -464,8 +464,8 @@ export class IncomingPacketPipeline {
         return (
             event.kind === 'group_member_join' &&
             event.groupId > 0 &&
-            event.userUin <= 0 &&
-            Boolean(event.userUid)
+            ((event.userUin <= 0 && Boolean(event.userUid)) ||
+                ((event.invitorUin ?? 0) <= 0 && Boolean(event.invitorUid)))
         );
     }
 
@@ -601,17 +601,46 @@ export class IncomingPacketPipeline {
     ): Promise<void> {
         this.resolveMemberIdentityFromCache(event);
 
-        if (event.userUin > 0 || !event.userUid) {
-            return;
-        }
+        const results = await Promise.allSettled(
+            (
+                [
+                    ['userUid', 'userUin'],
+                    ['invitorUid', 'invitorUin'],
+                ] as const
+            ).map(async ([uidKey, uinKey]) => {
+                const uid = event[uidKey];
 
-        const uin = await this.deps.identity.resolveUin(event.userUid, event.groupId);
+                if (!uid || (event[uinKey] ?? 0) > 0) {
+                    return;
+                }
 
-        if (uin !== null) {
-            event.userUin = uin;
-        }
+                const uin = await this.deps.identity.resolveUin(uid, event.groupId);
+
+                if (uin !== null) {
+                    event[uinKey] = uin;
+                } else {
+                    this.log.warn(
+                        'group join identity unavailable: group=%d role=%s',
+                        event.groupId,
+                        uidKey,
+                    );
+                }
+            }),
+        );
 
         this.resolveMemberIdentityFromCache(event);
+        const failures = results.filter((result) => result.status === 'rejected');
+
+        if (failures.length) {
+            throw new AggregateError(
+                failures.map((result) => result.reason),
+                `group join identity lookup failed: ${failures
+                    .map(({ reason }) =>
+                        reason instanceof Error ? reason.message : String(reason),
+                    )
+                    .join('; ')}`,
+            );
+        }
     }
 
     private resolveMemberIdentityFromCache(event: GroupMemberIdentityEvent): void {
@@ -632,6 +661,18 @@ export class IncomingPacketPipeline {
 
             if (uin !== null) {
                 event.operatorUin = uin;
+            }
+        }
+
+        if (
+            event.kind === 'group_member_join' &&
+            (event.invitorUin ?? 0) <= 0 &&
+            event.invitorUid
+        ) {
+            const uin = this.deps.identity.findUinByUid(event.invitorUid, event.groupId);
+
+            if (uin !== null) {
+                event.invitorUin = uin;
             }
         }
     }
@@ -744,6 +785,15 @@ export class IncomingPacketPipeline {
             }
 
             case 'group_member_join':
+                if (event.invitorUid) {
+                    this.deps.identity.rememberRequestIdentity({
+                        groupId: event.groupId,
+                        uid: event.invitorUid,
+                        uin: event.invitorUin ?? 0,
+                        source: 'group_request',
+                    });
+                }
+
                 this.deps.identity.rememberGroupMemberIdentity(event.groupId, {
                     uid: event.userUid,
                     uin: event.userUin,

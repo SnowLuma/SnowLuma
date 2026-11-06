@@ -10,6 +10,21 @@ export interface RichGroupCard {
     parts?: pb_repeated<1, GroupCardPart>;
 }
 
+/** Join-origin metadata used by QQ's member-add notification handler. */
+export interface GroupJoinOrigin {
+    /** 1 names a QR-code sharer rather than an inviter. */
+    type?: pb<1, uint_32>;
+    uid?: pb<3, bytes>;
+}
+
+export interface GroupJoinExtra {
+    origin?: pb<1, GroupJoinOrigin>;
+}
+
+export interface GroupMessageKey {
+    joinExtra?: pb<4, GroupJoinExtra>;
+}
+
 // ResponseHead.Grp
 export interface ResponseGrp {
     groupUin?: pb<1, uint_32>;
@@ -27,6 +42,7 @@ export interface ResponseGrp {
     memberCardType?: pb<5, uint_32>;
     /** The real group name (Lagrange: GroupName). "测试123" on-target. */
     groupName?: pb<7, string>;
+    messageKey?: pb<8, GroupMessageKey>;
 }
 
 export interface ResponseForward {

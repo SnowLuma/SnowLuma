@@ -491,26 +491,46 @@ export async function getStrangerInfo(
     }
 }
 
-async function resolveRequesterUins(
+async function resolveGroupRequestUins(
     bridge: BridgeInterface,
     requests: readonly GroupRequestInfo[],
 ): Promise<Map<string, { uin: number; name: string }>> {
     const resolved = new Map<string, { uin: number; name: string }>();
     const unresolved = new Set<string>();
     const names = new Map<string, string>();
+    const roles = new Map<string, string>();
     const unresolvedUins = new Set<number>();
 
-    for (const request of requests) {
-        const actor = groupRequestActor(request);
+    const actors = requests.flatMap((request) =>
+        (['target', 'invitor', 'operator'] as const).map((role) => ({
+            ...groupRequestPerson(request, role),
+            groupId: request.groupId,
+            role,
+        })),
+    );
+
+    for (const actor of actors) {
         const uid = actor.uid;
+
+        if (uid) {
+            roles.set(uid, actor.role === 'target' ? 'requester' : actor.role);
+        }
 
         if (actor.name) {
             names.set(uid || `uin:${actor.uin}`, actor.name);
         }
 
-        if (uid && actor.uin > 0 && actor.name) {
-            resolved.set(uid, { uin: actor.uin, name: actor.name });
-            unresolved.delete(uid);
+        if (actor.uin > 0) {
+            resolved.set(uid || `uin:${actor.uin}`, { uin: actor.uin, name: actor.name });
+
+            if (uid) {
+                unresolved.delete(uid);
+            }
+
+            if (!actor.name) {
+                unresolvedUins.add(actor.uin);
+            }
+
             continue;
         }
 
@@ -520,20 +540,20 @@ async function resolveRequesterUins(
             }
 
             const cached =
-                bridge.identity.findUinByUid(uid, request.groupId) ??
+                bridge.identity.findUinByUid(uid, actor.groupId) ??
                 bridge.identity.findUinByUid(uid);
 
-            if (cached && cached > 0 && actor.name) {
+            if (cached && cached > 0) {
                 resolved.set(uid, { uin: cached, name: actor.name });
+
+                if (!actor.name) {
+                    unresolvedUins.add(cached);
+                }
             } else {
                 unresolved.add(uid);
             }
 
             continue;
-        }
-
-        if (actor.uin > 0 && !actor.name) {
-            unresolvedUins.add(actor.uin);
         }
     }
 
@@ -547,13 +567,16 @@ async function resolveRequesterUins(
                 profile = await bridge.apis.contacts.fetchUserProfileByUid(uid);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                throw new Error(`failed to resolve requester UIN for UID ${uid}: ${message}`, {
-                    cause: error,
-                });
+                throw new Error(
+                    `failed to resolve ${roles.get(uid)} UIN for UID ${uid}: ${message}`,
+                    {
+                        cause: error,
+                    },
+                );
             }
 
             if (!Number.isSafeInteger(profile.uin) || profile.uin <= 0) {
-                throw new Error(`failed to resolve requester UIN for UID ${uid}`);
+                throw new Error(`failed to resolve ${roles.get(uid)} UIN for UID ${uid}`);
             }
 
             return [uid, profile] as const;
@@ -573,7 +596,12 @@ async function resolveRequesterUins(
         async (uin) => {
             try {
                 return [uin, await bridge.apis.contacts.fetchUserProfile(uin)] as const;
-            } catch {
+            } catch (error) {
+                log.warn(
+                    'group request actor nickname unavailable: uin=%d error=%s',
+                    uin,
+                    error instanceof Error ? error.message : String(error),
+                );
                 return [uin, undefined] as const;
             }
         },
@@ -590,23 +618,18 @@ async function resolveRequesterUins(
     return resolved;
 }
 
-function groupRequestActor(request: GroupRequestInfo): {
+function groupRequestPerson(
+    request: GroupRequestInfo,
+    role: 'target' | 'invitor' | 'operator',
+): {
     uid: string;
     uin: number;
     name: string;
 } {
-    if (isSelfGroupInvitation(request)) {
-        return {
-            uid: request.invitorUid,
-            uin: request.invitorUin,
-            name: request.invitorName,
-        };
-    }
-
     return {
-        uid: request.targetUid,
-        uin: request.targetUin,
-        name: request.targetName,
+        uid: request[`${role}Uid`],
+        uin: request[`${role}Uin`],
+        name: request[`${role}Name`],
     };
 }
 
@@ -649,21 +672,47 @@ export async function getGroupSystemMessages(
 
         return true;
     });
-    const requesterUins = await resolveRequesterUins(bridge, requests);
+    log.debug(
+        'group request list: main=%d filtered=%d relevant=%d selected=%d group=%s onlyPending=%s',
+        main.length,
+        filtered.length,
+        unique.size,
+        requests.length,
+        query.groupId ?? 'all',
+        Boolean(query.onlyPending),
+    );
+    const actorUins = await resolveGroupRequestUins(bridge, requests);
 
     return requests.map((request) => {
-        const actor = groupRequestActor(request);
-        const resolved =
-            (actor.uid ? requesterUins.get(actor.uid) : undefined) ??
-            (actor.uin > 0 ? requesterUins.get(`uin:${actor.uin}`) : undefined);
+        const person = (role: 'target' | 'invitor' | 'operator') => {
+            const actor = groupRequestPerson(request, role);
+            const resolved =
+                (actor.uid ? actorUins.get(actor.uid) : undefined) ??
+                (actor.uin > 0 ? actorUins.get(`uin:${actor.uin}`) : undefined);
+            const uin = actor.uin || resolved?.uin || 0;
+            const name = actor.name || actorUins.get(`uin:${uin}`)?.name || resolved?.name || '';
+            return { uin, name, status: uin > 0 ? 'known' : 'unknown' };
+        };
+
+        const target = person('target');
+        const invitor = person('invitor');
+        const operator = person('operator');
+        const requester = isSelfGroupInvitation(request) ? invitor : target;
         return {
             group_id: request.groupId,
             group_name: request.groupName,
             request_id: request.sequence,
-            requester_uin: resolved?.uin ?? actor.uin,
-            requester_nick: resolved?.name || actor.name,
-            invitor_uin: request.invitorUin,
-            invitor_nick: request.invitorName,
+            requester_uin: requester.uin,
+            requester_nick: requester.name,
+            target_uin: target.uin,
+            target_nick: target.name,
+            target_status: target.status,
+            invitor_uin: invitor.uin,
+            invitor_nick: invitor.name,
+            invitor_status: invitor.status,
+            operator_uin: operator.uin,
+            operator_nick: operator.name,
+            operator_status: operator.status,
             message: request.comment,
             checked: request.state !== 1,
             flag: formatGroupRequestFlag(request),

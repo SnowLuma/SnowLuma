@@ -43,6 +43,12 @@ export type QuickAlias = AssertTrue<
 declare const http: SnowLumaHttpClient;
 declare const ws: SnowLumaWebSocketClient;
 
+const groupSystemMessages = await http.getGroupSystemMessages({ groupId: 10001 });
+export const invitationTarget: number | undefined = groupSystemMessages[0]?.target_uin;
+export const invitationOperator: number | undefined = groupSystemMessages[0]?.operator_uin;
+export const invitationIdentityStatus: 'known' | 'unknown' | undefined =
+    groupSystemMessages[0]?.invitor_status;
+
 const adminPermissions = await http.raw('get_group_admin_permissions', {
     group_id: 10001,
     user_id: 10002,
