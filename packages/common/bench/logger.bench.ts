@@ -3,6 +3,7 @@ import { bench, describe, vi } from 'vitest';
 
 vi.stubEnv('SNOWLUMA_LOG_LEVEL', 'trace');
 vi.stubEnv('SNOWLUMA_LOG_FILE', '0');
+vi.stubEnv('SNOWLUMA_LOG_FILE_LEVEL', 'debug');
 vi.stubEnv('SNOWLUMA_TRACE_BUFFER', '5000');
 const { createLogger, getLogSnapshot, getRecentLogs, setLogLevel } = await import('../src/logger');
 const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
