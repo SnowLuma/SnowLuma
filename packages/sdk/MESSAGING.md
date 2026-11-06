@@ -73,6 +73,8 @@ Old `SnowLumaEventContext` objects and explicitly typed handlers remain valid. S
 
 ## Wait for a future event
 
+Private messages marked by QQ as automatic replies carry `auto_reply: true` in live events and friend history. Check `event.auto_reply === true` to filter them. SnowLuma preserves the reply text, including any literal `[自动回复]` the sender typed. Older locally stored messages may lack the flag.
+
 `waitForEvent(predicate?, options?)` and `waitForMessage(predicate?, options?)` are available on the WebSocket client. Both also accept just the options object. Synchronous type-guard predicates narrow the resolved type; boolean predicates filter without claiming a narrower type.
 
 ```ts

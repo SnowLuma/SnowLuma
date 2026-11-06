@@ -6524,6 +6524,10 @@ export const ACTIONS: CatalogAction[] = [
                   }
                 },
                 "additionalProperties": true
+              },
+              "auto_reply": {
+                "const": true,
+                "description": "仅当 QQ 标记该私聊消息为自动回复时提供"
               }
             },
             "additionalProperties": true
@@ -10713,6 +10717,10 @@ export const ACTIONS: CatalogAction[] = [
                 }
               },
               "additionalProperties": true
+            },
+            "auto_reply": {
+              "const": true,
+              "description": "仅当 QQ 标记该私聊消息为自动回复时提供"
             }
           },
           "additionalProperties": true

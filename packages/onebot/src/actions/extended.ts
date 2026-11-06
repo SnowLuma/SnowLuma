@@ -27,6 +27,7 @@ import { GROUP_MESSAGE_EVENT, hashMessageIdInt32 } from '../message-id';
 import {
     messageIdSchema,
     messageDataSchema,
+    messageWithAutoReplySchema,
     forwardNodeSchema,
     messageSegmentSchema,
     mediaInfoSchema,
@@ -1039,7 +1040,7 @@ export const actions = [
                 messages: {
                     type: 'array',
                     description: '消息对象数组；去除 post_type/self_id，附带 real_id',
-                    items: messageDataSchema,
+                    items: messageWithAutoReplySchema,
                 },
             },
             required: ['messages'],

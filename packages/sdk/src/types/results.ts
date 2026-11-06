@@ -1,3 +1,4 @@
+import type { OneBotPrivateMessageEvent } from './events.js';
 import type { JsonArray, JsonObject, JsonValue } from './json.js';
 
 export interface QzoneCommentReply {
@@ -85,7 +86,7 @@ export interface GroupMessageHistory {
 }
 
 export interface FriendMessageHistory {
-    messages: JsonObject[];
+    messages: Array<JsonObject & Pick<OneBotPrivateMessageEvent, 'auto_reply'>>;
 }
 
 export interface GroupNoticeInfo {

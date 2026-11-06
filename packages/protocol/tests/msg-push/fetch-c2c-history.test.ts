@@ -18,12 +18,14 @@ import type { IdentityService } from '../../src/identity-service';
 import { buildContextFromMessage } from '../../src/msg-push/context';
 import { decodeFriendMessage } from '../../src/msg-push/decoders/friend-message';
 import {
+    MSG_PUSH_CMD,
     SSO_GET_C2C_MSG_CMD,
     SSO_GET_ROAM_MSG_CMD,
     fetchC2cMessageRange,
     fetchC2cRoamMessagePage,
+    parseMsgPushOrThrow,
 } from '../../src/msg-push';
-import { s, v } from '../oidb-services/_pb-oracle';
+import { m, s, v } from '../oidb-services/_pb-oracle';
 
 const identity = { findFriend: () => undefined } as unknown as IdentityService;
 const previousLogLevel = getLogLevel();
@@ -35,6 +37,52 @@ afterEach(() => {
 function okResult(data: Uint8Array): SendPacketResult {
     return { success: true, gotResponse: true, responseData: data } as SendPacketResult;
 }
+
+describe('private auto replies', () => {
+    it.each([
+        { name: 'missing flag', flag: [], text: '稍后联系', expected: undefined },
+        { name: 'explicit zero', flag: v(10, 0), text: '[自动回复] 稍后联系', expected: undefined },
+        { name: 'set flag', flag: v(10, 1), text: '稍后联系', expected: true },
+        { name: 'other nonzero flag', flag: v(10, 2), text: '[自动回复] 稍后联系', expected: true },
+    ])(
+        'decodes $name from a live push and both history responses',
+        async ({ flag, text, expected }) => {
+            const head = [...v(1, 166), ...v(5, 7), ...flag, ...v(11, 42)];
+            const textElement = m(1, s(1, text));
+            const wireMessage = [
+                ...m(1, v(1, 222)),
+                ...m(2, head),
+                ...m(3, m(1, m(2, textElement))),
+            ];
+            const live = parseMsgPushOrThrow(
+                {
+                    pid: 0,
+                    uin: '10001',
+                    serviceCmd: MSG_PUSH_CMD,
+                    seqId: 1,
+                    retCode: 0,
+                    fromClient: false,
+                    body: Buffer.from(m(1, wireMessage)),
+                },
+                identity,
+            );
+            // Both history endpoints carry repeated messages in field 7.
+            const sender = { sendRawPacket: async () => okResult(Buffer.from(m(7, wireMessage))) };
+            const range = await fetchC2cMessageRange(sender, identity, 10001, 'u_friend', 42, 42);
+            const roam = await fetchC2cRoamMessagePage(sender, identity, 10001, 'u_friend', 100, 1);
+
+            for (const messages of [live, range, roam.messages]) {
+                expect(messages).toHaveLength(1);
+                expect(messages[0]).toMatchObject({
+                    kind: 'friend_message',
+                    elements: [{ type: 'text', text }],
+                });
+                const [event] = messages;
+                expect(event.kind === 'friend_message' && event.autoReply).toBe(expected);
+            }
+        },
+    );
+});
 
 function inviteCardMessage(sequence: number): PushMsgBody {
     const json = JSON.stringify({

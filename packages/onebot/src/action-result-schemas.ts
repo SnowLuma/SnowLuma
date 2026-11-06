@@ -62,6 +62,14 @@ export const messageDataSchema = {
     additionalProperties: true,
 } satisfies JsonSchema;
 
+export const messageWithAutoReplySchema = {
+    ...messageDataSchema,
+    properties: {
+        ...messageDataSchema.properties,
+        auto_reply: { const: true, description: '仅当 QQ 标记该私聊消息为自动回复时提供' },
+    },
+} satisfies JsonSchema;
+
 // Forward nodes carry their original identifiers, not locally hashed message IDs.
 export const forwardNodeSchema: JsonSchema = {
     ...messageDataSchema,

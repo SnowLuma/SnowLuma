@@ -283,6 +283,7 @@ export interface QQEvent {
 
 export interface FriendMessage extends QQEvent {
     kind: 'friend_message';
+    autoReply?: true;
     senderUin: number;
     /** The other participant in this private conversation. Differs from
      *  senderUin for messages sent by the logged-in account. */
@@ -326,6 +327,7 @@ export interface GroupMessage extends QQEvent {
 
 export interface TempMessage extends QQEvent {
     kind: 'temp_message';
+    autoReply?: true;
     senderUin: number;
     /** Source group of the temp session (from responseHead.forward), or 0. */
     groupId: number;

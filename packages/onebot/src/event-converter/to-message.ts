@@ -89,6 +89,10 @@ async function convertPrivateMessage(
         sender,
     };
 
+    if (event.autoReply) {
+        fields.auto_reply = true;
+    }
+
     if (isSelf && sessionId > 0 && sessionId !== ctx.selfId) {
         fields.target_id = sessionId;
     }

@@ -6,6 +6,7 @@ export const decodeTempMessage: MsgPushDecoder = (ctx) => {
     const sequenceAuthoritative = ctx.head.ntMsgSeq > 0;
     const ev: TempMessage = {
         kind: 'temp_message',
+        autoReply: ctx.head.autoReply,
         time: ctx.head.timestamp,
         selfUin: ctx.selfUin,
         senderUin: ctx.fromUin,

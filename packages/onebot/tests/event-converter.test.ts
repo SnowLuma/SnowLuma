@@ -112,6 +112,28 @@ describe('convertEvent — message kinds', () => {
         expect(out!.message_id).toBe(PEER_UIN + 1);
     });
 
+    it.each([makeFriendMessage(PEER_UIN), makeTempMessage(PEER_UIN)])(
+        'exposes only QQ-marked auto replies in $kind',
+        async (event) => {
+            const manual = await convertEvent(bareCtx(), {
+                ...event,
+                elements: [{ type: 'text', text: '[自动回复] 稍后联系' }],
+            });
+            const automatic = await convertEvent(bareCtx(), { ...event, autoReply: true });
+
+            expect(manual).toMatchObject({
+                message: [{ type: 'text', data: { text: '[自动回复] 稍后联系' } }],
+                raw_message: '&#91;自动回复&#93; 稍后联系',
+            });
+            expect(manual).not.toHaveProperty('auto_reply');
+            expect(automatic).toMatchObject({
+                auto_reply: true,
+                message: [{ type: 'text', data: { text: 'hi' } }],
+                raw_message: 'hi',
+            });
+        },
+    );
+
     it('group_message peer → post_type "message", sub_type "normal", group_id set', async () => {
         const out = await convertEvent(bareCtx(), makeGroupMessage(PEER_UIN));
         expect(out!.post_type).toBe('message');

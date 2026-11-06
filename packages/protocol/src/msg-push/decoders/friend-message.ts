@@ -80,6 +80,7 @@ export const decodeFriendMessage: MsgPushDecoder = (ctx) => {
 
     const ev: FriendMessage = {
         kind: 'friend_message',
+        autoReply: ctx.head.autoReply,
         time: ctx.head.timestamp,
         selfUin: ctx.selfUin,
         senderUin: ctx.fromUin,

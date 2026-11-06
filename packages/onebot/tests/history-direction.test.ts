@@ -137,7 +137,7 @@ describe('history direction plumbing', () => {
     it('uses C2C roaming for an unanchored latest page and ignores a stale local sequence', async () => {
         const fetchRangeHistory = vi.fn(async () => [friendMessage(99999, FRIEND_ID)]);
         const fetchLatestHistory = vi.fn(async () => [
-            friendMessage(63213, FRIEND_ID, 32742),
+            { ...friendMessage(63213, FRIEND_ID, 32742), autoReply: true },
             friendMessage(63214, SELF_ID, 32743),
         ]);
         await messageStore.storeMeta(-222222222, {
@@ -169,6 +169,12 @@ describe('history direction plumbing', () => {
 
         expect(fetchLatestHistory).toHaveBeenCalledWith('u_friend', 20, SELF_ID);
         expect(fetchRangeHistory).not.toHaveBeenCalled();
+        expect(messages[0]).toMatchObject({ auto_reply: true, raw_message: '63213' });
+        expect(messages[1]).not.toHaveProperty('auto_reply');
+        expect(await messageStore.findEvent(Number(messages[0]!.message_id))).toMatchObject({
+            auto_reply: true,
+            raw_message: '63213',
+        });
         expect(
             messages.map((message) => ({
                 sender: message.user_id,

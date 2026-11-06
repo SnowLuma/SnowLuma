@@ -18,6 +18,8 @@ export interface OneBotSender extends JsonObject {
 export interface OneBotPrivateMessageEvent extends OneBotBaseEvent {
     post_type: 'message' | 'message_sent';
     message_type: 'private';
+    /** Present only when QQ marks this message as an automatic reply. */
+    auto_reply?: true;
     sub_type: string;
     message_id: number;
     message_seq?: number;

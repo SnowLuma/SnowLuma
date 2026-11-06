@@ -21,6 +21,7 @@ export interface MsgPushHead {
     readonly c2cCmd: number;
     /** Sender-local C2C client sequence (field 5), or the group sequence. */
     readonly sequence: number;
+    readonly autoReply?: true;
     /** Bidirectional C2C sequence (field 11); zero on groups/legacy packets. */
     readonly ntMsgSeq: number;
     readonly timestamp: number;
@@ -94,6 +95,7 @@ export function buildContextFromMessage(
         subType: msg.contentHead.subType ?? 0,
         c2cCmd: msg.contentHead.c2cCmd ?? 0,
         sequence: msg.contentHead.sequence ?? 0,
+        autoReply: msg.contentHead.autoReply ? true : undefined,
         ntMsgSeq: msg.contentHead.ntMsgSeq ?? 0,
         timestamp: msg.contentHead.timestamp ?? 0,
         msgId: msg.contentHead.msgId ?? 0,

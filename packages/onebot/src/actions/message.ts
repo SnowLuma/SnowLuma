@@ -2,7 +2,11 @@ import { createLogger } from '@snowluma/common/logger';
 import type { JsonObject, JsonValue } from '../types';
 import { defineAction, groupAction, f, type Field } from '../action-kit';
 import { RETCODE, failedResponse, okResponse } from '../types';
-import { messageResultSchema, messageIdSchema, messageDataSchema } from '../action-result-schemas';
+import {
+    messageResultSchema,
+    messageIdSchema,
+    messageWithAutoReplySchema,
+} from '../action-result-schemas';
 
 /** send_msg only (#426). Some clients send `group_id: ""` on private chats.
  *  Treat that exact empty string as absent. Do not change `f.groupId()`. */
@@ -210,7 +214,7 @@ export const actions = [
         ],
         returnsSchema: {
             allOf: [
-                messageDataSchema,
+                messageWithAutoReplySchema,
                 {
                     type: 'object',
                     properties: {
