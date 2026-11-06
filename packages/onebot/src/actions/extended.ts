@@ -3,7 +3,7 @@ import { mapWithConcurrency } from '@snowluma/common/concurrency';
 import { positiveIntEnv } from '@snowluma/common/env';
 import { readFile } from 'node:fs/promises';
 import { FriendDressError } from '@snowluma/protocol/web/friend-dress';
-import { formatGroupRequestFlag } from '@snowluma/protocol/qq-info';
+import { formatGroupRequestFlag, groupRequestSubType } from '@snowluma/protocol/qq-info';
 import type {
     GroupEssenceContent,
     GroupEssenceMessage,
@@ -5486,7 +5486,8 @@ export const actions = [
 // 与标准群系统消息共用过滤收件箱，只保留方言动作的返回形状。
 // 这几个动作只是为实际使用中的 OneBot 方言客户端重命名并投影相同数据。
 async function fetchFilteredGroupRequests(ctx: ApiActionContext) {
-    return ctx.bridge.apis.contacts.fetchGroupRequests(true);
+    const requests = await ctx.bridge.apis.contacts.fetchGroupRequests(true);
+    return requests.filter((request) => groupRequestSubType(request) !== undefined);
 }
 
 function parseDownloadHeaders(headers: unknown): Record<string, string> {

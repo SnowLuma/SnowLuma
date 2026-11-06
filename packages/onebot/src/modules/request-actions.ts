@@ -1,6 +1,7 @@
 import { createLogger } from '@snowluma/common/logger';
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
 import {
+    groupRequestSubType,
     isSelfGroupInvitation,
     type GroupRequestHandle,
     type GroupRequestInfo,
@@ -141,10 +142,7 @@ async function resolveLiveGroupRequest(
 
     const lookup = await fetchRequestInboxes(bridge, 'uin');
     const live = lookup.requests.find(
-        (request) =>
-            request.groupId === handle.groupId &&
-            request.sequence === handle.sequence &&
-            request.eventType > 0,
+        (request) => request.groupId === handle.groupId && request.sequence === handle.sequence,
     );
 
     if (!live) {
@@ -168,6 +166,13 @@ async function applyGroupRequest(
     knownLive?: GroupRequestInfo,
 ): Promise<void> {
     const live = knownLive ?? (await resolveLiveGroupRequest(bridge, handle));
+
+    if (!groupRequestSubType(live)) {
+        throw new Error(
+            `unsupported group request type: group=${live.groupId} sequence=${live.sequence} type=${live.eventType}`,
+        );
+    }
+
     log.debug(
         'handling group request: group=%d sequence=%d eventType=%d filtered=%s approve=%s',
         live.groupId,
@@ -263,7 +268,11 @@ export async function handleGroupAddRequest(
 
     const lookup = await fetchRequestInboxes(bridge, 'uid');
     const candidates = lookup.requests.filter((request) => {
-        if (request.groupId !== parsed.groupId || request.state !== 1 || request.eventType <= 0) {
+        if (
+            request.groupId !== parsed.groupId ||
+            request.state !== 1 ||
+            groupRequestSubType(request) !== parsed.requestType
+        ) {
             return false;
         }
 

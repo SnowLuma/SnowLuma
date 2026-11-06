@@ -58,7 +58,7 @@ function fakeRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRequestInf
         operatorName: 'op',
         sequence: 42,
         state: 1,
-        eventType: 7,
+        eventType: 2,
         comment: 'pls',
         filtered: false,
         ...overrides,
@@ -118,7 +118,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
                           fakeRequest({
                               groupId: 999,
                               sequence: 261237407,
-                              eventType: 7,
+                              eventType: 1,
                               filtered: false,
                           }),
                       ],
@@ -131,7 +131,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
         expect(setAddRequest).toHaveBeenCalledWith(
             999,
             261237407,
-            7,
+            1,
             false,
             'no',
             false,
@@ -172,11 +172,12 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
     it('matches add requests by groupId and targetUid', async () => {
         const setAddRequest = vi.fn(async () => {});
         const fetchGroupRequestsByUid = vi.fn(async () => [
+            fakeRequest({ sequence: 41, targetUid: 'u_t', eventType: 2 }),
             fakeRequest({
                 groupId: 999,
                 targetUid: 'u_t',
                 sequence: 42,
-                eventType: 7,
+                eventType: 1,
                 filtered: false,
             }),
         ]);
@@ -188,7 +189,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
         await handleGroupAddRequest(bridge, 'add:999:u_t', true, 'ok');
 
         expect(setAddRequest).toHaveBeenCalledOnce();
-        expect(setAddRequest).toHaveBeenCalledWith(999, 42, 7, true, 'ok', false, undefined);
+        expect(setAddRequest).toHaveBeenCalledWith(999, 42, 1, true, 'ok', false, undefined);
         expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(false, 100);
         expect(fetchGroupRequestsByUid).toHaveBeenCalledWith(true, 100);
     });
@@ -197,11 +198,12 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
         const setAddRequest = vi.fn(async () => {});
         const bridge = fakeBridge({
             fetchGroupRequestsByUid: vi.fn(async () => [
+                fakeRequest({ sequence: 96, invitorUid: 'u_i', eventType: 1 }),
                 fakeRequest({
                     groupId: 999,
                     invitorUid: 'u_i',
                     sequence: 97,
-                    eventType: 8,
+                    eventType: 22,
                     filtered: false,
                 }),
             ]),
@@ -212,7 +214,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
         await handleGroupAddRequest(bridge, 'invite:999:u_i', false, 'no');
 
         expect(setAddRequest).toHaveBeenCalledOnce();
-        expect(setAddRequest).toHaveBeenCalledWith(999, 97, 8, false, 'no', false, undefined);
+        expect(setAddRequest).toHaveBeenCalledWith(999, 97, 22, false, 'no', false, undefined);
     });
 
     it('finds a request that only lives in the filtered inbox (#197)', async () => {
@@ -284,7 +286,7 @@ describe('onebot/modules/request-actions / handleGroupAddRequest', () => {
         expect(setAddRequest).toHaveBeenCalledExactlyOnceWith(
             999,
             124,
-            7,
+            2,
             true,
             '',
             false,

@@ -152,19 +152,33 @@ export interface GroupRequestInfo {
     operatorName: string;
     sequence: number;
     state: number;
-    /** High-level notification type returned by the request list. */
+    /** Client notification type corresponding to the wire discriminator, when known. */
     notifyType?: number;
-    /** 0x10C8 operation discriminator derived from notifyType. */
+    /** Wire discriminator shared by the request list and approval. */
     eventType: number;
     comment: string;
     filtered: boolean;
     operateTransInfo?: Uint8Array;
 }
 
-/** Invitations handled by the invited account, rather than a group administrator.
- * Notification types 1 and 2 use different approval discriminators. */
+/** A member invited the account to join. Wire type 10 reports a refused invitation. */
 export function isSelfGroupInvitation(request: Pick<GroupRequestInfo, 'eventType'>): boolean {
-    return request.eventType === 2 || request.eventType === 10;
+    return request.eventType === 2;
+}
+
+/** Only joins and invitations correspond to a OneBot group request. */
+export function groupRequestSubType(
+    request: Pick<GroupRequestInfo, 'eventType'>,
+): 'add' | 'invite' | undefined {
+    if (request.eventType === 1) {
+        return 'add';
+    }
+
+    if (isSelfGroupInvitation(request) || request.eventType === 22) {
+        return 'invite';
+    }
+
+    return undefined;
 }
 
 /** Approval tuple required by OIDB 0x10C8. The OneBot flag is opaque to

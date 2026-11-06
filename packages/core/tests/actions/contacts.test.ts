@@ -397,7 +397,7 @@ describe('apis/contacts / group requests', () => {
                 requests: [
                     {
                         sequence: 1_785_525_232_784_291n,
-                        eventType: 7,
+                        eventType: 1,
                         state: 1,
                         group: { groupUin: 1_095_186_374, groupName: 'group' },
                         target: { uin: 1_234_567_890, name: 'requester' },
@@ -439,7 +439,7 @@ describe('apis/contacts / group requests', () => {
                 requests: [
                     {
                         sequence: 42n,
-                        eventType: 7,
+                        eventType: 1,
                         state: 1,
                         group: { groupUin: 999, groupName: 'group' },
                         target: { uid: 'target_uid', name: 'requester' },
@@ -462,6 +462,8 @@ describe('apis/contacts / group requests', () => {
                 targetUin: 1_234_567_890,
                 invitorUid: 'inviter_uid',
                 operatorUid: 'operator_uid',
+                notifyType: 7,
+                eventType: 1,
                 filtered: true,
             }),
         ]);

@@ -1,5 +1,5 @@
 import { GroupInviteTracker } from '@snowluma/protocol/group-invite-tracker';
-import { isSelfGroupInvitation } from '@snowluma/protocol/qq-info';
+import { groupRequestSubType } from '@snowluma/protocol/qq-info';
 import { FetchDownloadRkeys } from '@snowluma/protocol/oidb-services/contacts/fetch-download-rkeys';
 import {
     FetchFriendListPage,
@@ -12,7 +12,8 @@ import { FetchGroupMemberListPage } from '@snowluma/protocol/oidb-services/conta
 import {
     FetchGroupRequests,
     FetchGroupRequestsByUid,
-    groupRequestOperationType,
+    groupRequestNotifyType,
+    type DecodedGroupRequest,
 } from '@snowluma/protocol/oidb-services/contacts/fetch-group-requests';
 import {
     FetchRobotUinRanges,
@@ -79,19 +80,43 @@ export function isRobotUin(uin: number, ranges: readonly RobotUinRange[]): boole
     );
 }
 
-function normalizeGroupRequestSequence(
-    rawSequence: bigint | number | undefined,
+function groupRequestMetadata(
+    raw: Pick<
+        DecodedGroupRequest,
+        'sequence' | 'state' | 'eventType' | 'comment' | 'operateTransInfo'
+    >,
     groupId: number,
-): number {
-    const sequence = Number(rawSequence ?? 0);
+    filtered: boolean,
+) {
+    const sequence = Number(raw.sequence ?? 0);
 
     if (!Number.isSafeInteger(sequence) || sequence <= 0) {
         throw new Error(
-            `invalid group-request sequence: group=${groupId} sequence=${String(rawSequence ?? 0)}`,
+            `invalid group-request sequence: group=${groupId} sequence=${String(raw.sequence ?? 0)}`,
         );
     }
 
-    return sequence;
+    const eventType = raw.eventType ?? 0;
+    const notifyType = groupRequestNotifyType(eventType);
+
+    if (notifyType === undefined) {
+        log.warn(
+            'unsupported group-request wire type: group=%d sequence=%d type=%d',
+            groupId,
+            sequence,
+            eventType,
+        );
+    }
+
+    return {
+        sequence,
+        state: raw.state ?? 0,
+        eventType,
+        notifyType,
+        comment: raw.comment ?? '',
+        filtered,
+        operateTransInfo: raw.operateTransInfo?.length ? raw.operateTransInfo : undefined,
+    };
 }
 
 const MEMBER_LIST_TTL_MS = 60_000;
@@ -556,18 +581,6 @@ export class ContactsApi {
                 this.ctx.identity.findUidByUin(operatorUin, groupId) ||
                 this.ctx.identity.findUidByUin(operatorUin) ||
                 '';
-            const notifyType = raw.eventType ?? 0;
-            const operationType = groupRequestOperationType(notifyType);
-            const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
-
-            if (operationType === null) {
-                log.warn(
-                    'unsupported group-request notification type: group=%d sequence=%s type=%d',
-                    groupId,
-                    String(raw.sequence ?? 0n),
-                    notifyType,
-                );
-            }
 
             requests.push({
                 groupId,
@@ -593,16 +606,7 @@ export class ContactsApi {
                     this.ctx.identity.findUinByUid(operatorUid) ||
                     0,
                 operatorName: raw.operatorUser?.name ?? '',
-                sequence,
-                state: raw.state ?? 0,
-                notifyType,
-                eventType: operationType ?? 0,
-                comment: raw.comment ?? '',
-                filtered,
-                operateTransInfo:
-                    raw.operateTransInfo && raw.operateTransInfo.length > 0
-                        ? raw.operateTransInfo
-                        : undefined,
+                ...groupRequestMetadata(raw, groupId, filtered),
             });
         }
 
@@ -626,18 +630,6 @@ export class ContactsApi {
             const targetUid = raw.target?.uid ?? '';
             const invitorUid = raw.invitor?.uid ?? '';
             const operatorUid = raw.operatorUser?.uid ?? '';
-            const notifyType = raw.eventType ?? 0;
-            const operationType = groupRequestOperationType(notifyType);
-            const sequence = normalizeGroupRequestSequence(raw.sequence, groupId);
-
-            if (operationType === null) {
-                log.warn(
-                    'unsupported group-request notification type: group=%d sequence=%s type=%d',
-                    groupId,
-                    String(raw.sequence ?? 0n),
-                    notifyType,
-                );
-            }
 
             requests.push({
                 groupId,
@@ -660,16 +652,7 @@ export class ContactsApi {
                     this.ctx.identity.findUinByUid(operatorUid) ??
                     0,
                 operatorName: raw.operatorUser?.name ?? '',
-                sequence,
-                state: raw.state ?? 0,
-                notifyType,
-                eventType: operationType ?? 0,
-                comment: raw.comment ?? '',
-                filtered,
-                operateTransInfo:
-                    raw.operateTransInfo && raw.operateTransInfo.length > 0
-                        ? raw.operateTransInfo
-                        : undefined,
+                ...groupRequestMetadata(raw, groupId, filtered),
             });
         }
 
@@ -698,15 +681,17 @@ export class ContactsApi {
 
         return (
             [...main.value, ...filtered.value].find((request) => {
-                if (request.groupId !== groupId || request.state !== 1) {
+                if (
+                    request.groupId !== groupId ||
+                    request.state !== 1 ||
+                    groupRequestSubType(request) !== subType
+                ) {
                     return false;
                 }
 
                 return subType === 'add'
-                    ? request.eventType === 1 && request.targetUid === uid
-                    : (isSelfGroupInvitation(request) || request.eventType === 22) &&
-                          request.invitorUid === uid &&
-                          request.targetUid === invitedUid;
+                    ? request.targetUid === uid
+                    : request.invitorUid === uid && request.targetUid === invitedUid;
             }) ?? null
         );
     }

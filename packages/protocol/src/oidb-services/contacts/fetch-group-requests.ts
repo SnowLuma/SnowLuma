@@ -19,45 +19,31 @@ import type {
 import type { OidbGroupRequestList } from '@snowluma/proto-defs/oidb-actions/base';
 import { invokeOidb, type OidbSender } from '../../oidb-service';
 
-// Current QQ's EncodeOperateSysNotify maps the high-level list notification
-// type to the discriminator sent by 0x10C8. This table was read directly from
-// the current Linux client; keeping the distinction prevents list type 7
-// (join request) from being incorrectly sent back as operation type 7.
-const GROUP_REQUEST_OPERATION_TYPE = new Map<number, number>([
+// Field 2 in a list entry and in its approval uses the same wire value.
+// Only the client-facing notification type needs translation.
+const GROUP_REQUEST_NOTIFY_TYPES = new Map<number, number>([
     [0, 0],
-    [1, 2],
-    [2, 10],
-    [3, 11],
-    [4, 12],
-    [5, 22],
-    [6, 35],
-    [7, 1],
-    [8, 3],
-    [9, 6],
-    [10, 7],
-    [11, 13],
-    [12, 15],
-    [13, 16],
-    [14, 17],
-    [15, 19],
-    [16, 8],
-    [17, 100],
+    [1, 7],
+    [2, 1],
+    [3, 8],
+    [6, 9],
+    [7, 10],
+    [8, 16],
+    [10, 2],
+    [11, 3],
+    [12, 4],
+    [13, 11],
+    [15, 12],
+    [16, 13],
+    [17, 14],
+    [19, 15],
+    [22, 5],
+    [35, 6],
+    [100, 17],
 ]);
-const GROUP_REQUEST_OPERATION_OUTPUT = new Set(GROUP_REQUEST_OPERATION_TYPE.values());
 
-export function groupRequestOperationType(notifyType: number): number | null {
-    const mapped = GROUP_REQUEST_OPERATION_TYPE.get(notifyType);
-
-    if (mapped !== undefined) {
-        return mapped;
-    }
-
-    // Some list replies already carry the mapped discriminator (e.g. 22).
-    if (GROUP_REQUEST_OPERATION_OUTPUT.has(notifyType)) {
-        return notifyType;
-    }
-
-    return null;
+export function groupRequestNotifyType(eventType: number): number | undefined {
+    return GROUP_REQUEST_NOTIFY_TYPES.get(eventType);
 }
 
 export interface DecodedGroupRequestUser {

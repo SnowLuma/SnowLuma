@@ -1300,7 +1300,7 @@ function fakeFilteredRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRe
         operatorName: 'op',
         sequence: 42,
         state: 1,
-        eventType: 7,
+        eventType: 1,
         comment: 'pls',
         filtered: true,
         ...overrides,
@@ -1310,7 +1310,9 @@ function fakeFilteredRequest(overrides: Partial<GroupRequestInfo> = {}): GroupRe
 describe('extended-actions / get_group_ignored_notifies', () => {
     it('maps filtered fetchGroupRequests(true) into the napcat shape', async () => {
         const fetchGroupRequests = vi.fn(async (filtered: boolean) =>
-            filtered ? [fakeFilteredRequest()] : [],
+            filtered
+                ? [fakeFilteredRequest(), fakeFilteredRequest({ sequence: 43, eventType: 7 })]
+                : [],
         );
         const bridge = fakeBridge({ fetchGroupRequests: fetchGroupRequests as any });
         const h = makeHandler(fakeCtx(bridge));
@@ -1329,7 +1331,7 @@ describe('extended-actions / get_group_ignored_notifies', () => {
                 actor: 8888,
                 invitor_uin: 7777,
                 invitor_nick: 'inviter',
-                flag: 'slreq:1:42:999:7:1',
+                flag: 'slreq:1:42:999:1:1',
             },
         ]);
     });
