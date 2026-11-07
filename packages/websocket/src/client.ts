@@ -14,6 +14,7 @@ import {
 import {
     WebSocket as InternalWebSocket,
     CONNECTING,
+    CLOSING,
     OPEN,
     CLOSED,
     isValidCloseCode,
@@ -90,6 +91,7 @@ export class WebSocketClient extends EventEmitter {
 
     private readonly _socket: Socket;
     private _handshakeBuf: Buffer = Buffer.alloc(0);
+    private _earlyError: Error | null = null;
     private _wsKey: string;
     private _expectedAccept: string;
 
@@ -287,12 +289,27 @@ export class WebSocketClient extends EventEmitter {
     }
 
     private _onEarlyError(err: Error): void {
+        this._earlyError = err;
+        this._readyState = CLOSING;
         this.emit('error', err);
     }
 
     private _onEarlyClose(): void {
-        if (!this._ws) {
+        if (!this._ws && this._readyState !== CLOSED) {
             this._readyState = CLOSED;
+            const queued = this._pendingQueue.splice(0);
+            const error = this._earlyError ?? new Error('WebSocket is not open');
+
+            for (const entry of queued) {
+                try {
+                    entry.cb?.(error);
+                } catch (cause) {
+                    queueMicrotask(() => {
+                        throw cause;
+                    });
+                }
+            }
+
             this.emit('close', 1006, '');
         }
     }
@@ -306,9 +323,10 @@ export class WebSocketClient extends EventEmitter {
             /* noop */
         }
 
+        this._earlyError = err;
+        this._readyState = CLOSING;
         this.emit('error', err);
-        this._readyState = CLOSED;
-        this.emit('close', 1006, '');
+        this._onEarlyClose();
     }
 
     send(
@@ -323,6 +341,17 @@ export class WebSocketClient extends EventEmitter {
         if (typeof options === 'function') {
             cb = options;
             options = undefined;
+        }
+
+        if (this._readyState !== CONNECTING) {
+            const err = new Error('WebSocket is not open');
+
+            if (cb) {
+                cb(err);
+                return;
+            }
+
+            throw err;
         }
 
         this._pendingQueue.push({ data, options, cb });
@@ -344,6 +373,12 @@ export class WebSocketClient extends EventEmitter {
             return this._ws.close(code, reason);
         }
 
+        if (this._readyState === CLOSING || this._readyState === CLOSED) {
+            return;
+        }
+
+        this._readyState = CLOSING;
+
         try {
             this._socket.destroy();
         } catch {
@@ -355,6 +390,12 @@ export class WebSocketClient extends EventEmitter {
         if (this._ws) {
             return this._ws.terminate();
         }
+
+        if (this._readyState === CLOSING || this._readyState === CLOSED) {
+            return;
+        }
+
+        this._readyState = CLOSING;
 
         try {
             this._socket.destroy();

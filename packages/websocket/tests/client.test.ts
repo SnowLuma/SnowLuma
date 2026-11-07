@@ -969,6 +969,76 @@ describe('WebSocketClient', () => {
         expect(client.readyState).toBe(3);
     });
 
+    it('settles queued sends on a rejected handshake and refuses sends after close', async () => {
+        const { port, nextSocket } = await listenPlain();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        client.on('close', () => client.close());
+        const first = vi.fn();
+        const second = vi.fn();
+        client.send('before-open', first);
+        client.send('also-before-open', second);
+
+        const socket = await nextSocket();
+        await readRequest(socket);
+        socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n');
+        expect((await events.waitError()).message).toContain('Unexpected response status 401');
+        await events.waitClose();
+        expect(first).toHaveBeenCalledOnce();
+        expect(second).toHaveBeenCalledOnce();
+        expect(first.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+        expect(first.mock.calls[0]?.[0].message).toContain('Unexpected response status 401');
+        expect(second.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(events.closes).toHaveLength(1);
+        expect(client.readyState).toBe(WebSocketClient.CLOSED);
+
+        const afterClose = vi.fn();
+        client.send('after-close', afterClose);
+        expect(afterClose).toHaveBeenCalledOnce();
+        expect(afterClose.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+        expect(() => client.send('after-close-without-callback')).toThrow('WebSocket is not open');
+    });
+
+    it('notifies every queued callback and closes even if a callback throws', async () => {
+        const { port, nextSocket } = await listenPlain();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        const thrown = new Error('callback failed');
+        const deferred: Array<() => void> = [];
+        vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((fn) => deferred.push(fn));
+        const second = vi.fn();
+        client.send('first', () => {
+            throw thrown;
+        });
+        client.send('second', second);
+
+        const socket = await nextSocket();
+        await readRequest(socket);
+        socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n');
+        await events.waitClose();
+        expect(second).toHaveBeenCalledOnce();
+        expect(events.closes).toHaveLength(1);
+        expect(deferred).toHaveLength(1);
+        expect(() => deferred[0]!()).toThrow(thrown);
+    });
+
+    it('settles queued sends when closed before the handshake', async () => {
+        const { port, nextSocket } = await listenPlain();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        const callback = vi.fn();
+        client.send('queued', callback);
+        const socket = await nextSocket();
+        socket.resume();
+        client.close();
+        expect(client.readyState).toBe(WebSocketClient.CLOSING);
+        expect(() => client.send('after-close')).toThrow('WebSocket is not open');
+        await events.waitClose();
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    });
+
     it('terminates an open connection without a close frame', async () => {
         const { port, nextSocket } = await listenPlain();
         const client = createClient(`ws://127.0.0.1:${port}`);
