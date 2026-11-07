@@ -6,7 +6,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@snowluma/protocol/highway/pipeline', () => ({
-    runNtv2Upload: vi.fn(async () => ({ msgInfo: { msgInfoBody: [], extBizInfo: {} } })),
+    runNtv2Upload: vi.fn(async () => ({
+        msgInfo: { msgInfoBody: [{ index: { fileUuid: 'uploaded-image' } }], extBizInfo: {} },
+    })),
     finalizeMediaMsgInfo: vi.fn(() => new Uint8Array([0xca, 0xfe])),
     hexToBytes: vi.fn((hex: string) => new Uint8Array(hex.length / 2)),
 }));

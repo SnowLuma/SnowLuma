@@ -167,7 +167,12 @@ describe('self-sent remote media', () => {
                     raw_message: `[CQ:image,file=failed.jpg,url=${originalUrl}][CQ:image,file=,url=https://fresh.example/fresh.jpg][CQ:image,file=missing.jpg,url=https://original.example/missing.jpg]`,
                 },
             });
-            expect(resolver).toHaveBeenCalledTimes(2);
+            // URLs already on the message remain refreshable without a global alias.
+            expect(resolver).toHaveBeenCalledTimes(3);
+            expect(resolver).toHaveBeenLastCalledWith(
+                expect.objectContaining({ imageUrl: 'https://original.example/missing.jpg' }),
+                true,
+            );
             expect(await ref.messageStore.findEvent(42)).toEqual(original);
         },
     );

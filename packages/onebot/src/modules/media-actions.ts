@@ -1,29 +1,17 @@
 import type { BridgeInterface } from '@snowluma/core/bridge-interface';
+import type { MessageElementOf } from '@snowluma/protocol/events';
 import { createLogger } from '@snowluma/common/logger';
 import type { ImageUrlResolver } from '../event-converter';
 import type { CachedImage, MediaStore } from '../media-store';
 import type { MessageStore } from '../message-store';
 import type { OneBotInstanceContext } from '../instance-context';
 import { resolveRemoteMediaUrl } from '../media-url-resolver';
+import { imageMd5FromFile, isStoredMediaSegment } from '../message-media';
 import { segmentsToRawMessage } from '../helper/cq';
 import { pttTransKey, requestPttTransText } from './ptt-trans-waiter';
-import type { JsonObject, JsonValue } from '../types';
+import type { JsonObject } from '../types';
 
 const log = createLogger('OneBot');
-
-type StoredMediaSegment = JsonObject & { type: 'image' | 'record' | 'video'; data: JsonObject };
-
-function isStoredMediaSegment(segment: JsonValue): segment is StoredMediaSegment {
-    return (
-        segment !== null &&
-        typeof segment === 'object' &&
-        !Array.isArray(segment) &&
-        (segment.type === 'image' || segment.type === 'record' || segment.type === 'video') &&
-        segment.data !== null &&
-        typeof segment.data === 'object' &&
-        !Array.isArray(segment.data)
-    );
-}
 
 export async function refreshMessageMedia(
     ref: Pick<OneBotInstanceContext, 'bridge' | 'messageStore' | 'mediaStore' | 'converterCtx'>,
@@ -36,13 +24,17 @@ export async function refreshMessageMedia(
 
     const segments = event.message.filter(isStoredMediaSegment);
     const voiceVideoSegments = segments.filter((segment) => segment.type !== 'image');
-    const media =
-        voiceVideoSegments.length > 0
-            ? (await ref.messageStore.findMedia(messageId))?.filter(
-                  (element) => element.type !== 'image',
-              )
-            : null;
-    const meta = voiceVideoSegments.length > 0 ? await ref.messageStore.findMeta(messageId) : null;
+    const snapshots = segments.length > 0 ? await ref.messageStore.findMedia(messageId) : null;
+    const meta = segments.length > 0 ? await ref.messageStore.findMeta(messageId) : null;
+    const media = snapshots?.filter((element) => element.type !== 'image');
+    const aligned =
+        snapshots?.length === segments.length &&
+        snapshots.every((element, index) => element.type === segments[index]!.type);
+
+    if (snapshots && !aligned && segments.some((segment) => segment.type === 'image')) {
+        log.warn('[get_msg] image metadata association inconsistent message_id=%d', messageId);
+    }
+
     // Validate the ordered association once; a filename lookup can select another upload.
     const voiceVideo =
         meta &&
@@ -64,19 +56,58 @@ export async function refreshMessageMedia(
             let url: string | null;
 
             if (segment.type === 'image') {
-                const file =
-                    typeof segment.data.file === 'string'
-                        ? segment.data.file
-                        : segment.data.file_id;
+                const snapshot = aligned ? snapshots?.[index] : undefined;
+                const ownUrl =
+                    typeof segment.data.url === 'string' && /^https?:\/\//i.test(segment.data.url)
+                        ? segment.data.url
+                        : '';
 
-                if (typeof file !== 'string' || !file) {
-                    continue;
+                if (meta && (snapshot?.type === 'image' || ownUrl)) {
+                    const element: MessageElementOf<'image'> =
+                        snapshot?.type === 'image'
+                            ? snapshot
+                            : {
+                                  type: 'image' as const,
+                                  subType:
+                                      typeof segment.data.sub_type === 'number'
+                                          ? segment.data.sub_type
+                                          : 0,
+                              };
+                    const source = element.imageUrl || element.url || ownUrl;
+
+                    if (typeof source === 'string' && /^https?:\/\//i.test(source)) {
+                        url = ref.converterCtx.imageUrlResolver
+                            ? await ref.converterCtx.imageUrlResolver(
+                                  { ...element, imageUrl: source },
+                                  meta.isGroup,
+                              )
+                            : source;
+                    } else {
+                        url = null;
+                    }
+                } else if (!snapshots) {
+                    const file =
+                        typeof segment.data.file === 'string'
+                            ? segment.data.file
+                            : segment.data.file_id;
+
+                    if (typeof file !== 'string' || !file) {
+                        continue;
+                    }
+
+                    const cached = await ref.mediaStore.findImage(file);
+                    const md5 = imageMd5FromFile(file);
+                    url =
+                        cached &&
+                        meta &&
+                        cached.isGroup === meta.isGroup &&
+                        cached.sessionId === meta.targetId &&
+                        (!md5 || cached.md5Hex?.toLowerCase() === md5)
+                            ? await resolveImageUrl(cached, ref.converterCtx.imageUrlResolver)
+                            : null;
+                } else {
+                    url = null;
                 }
-
-                url = await resolveImageUrl(
-                    await ref.mediaStore.findImage(file),
-                    ref.converterCtx.imageUrlResolver,
-                );
             } else {
                 if (!voiceVideo) {
                     continue;

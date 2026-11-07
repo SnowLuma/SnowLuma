@@ -11,6 +11,7 @@ import {
     type MediaSubFileUpload,
 } from './pipeline';
 import { computeHashes, detectImageFormat, loadBinarySource } from './utils';
+import { ntImageUrlFromMsgInfo } from '../msg-push/helpers';
 
 const moduleLog = createLogger('Highway.Image');
 
@@ -208,8 +209,16 @@ export async function uploadImageMsgInfo(
     });
 
     const encoded = finalizeMediaMsgInfo(upload, pic);
+    const imageUrl = ntImageUrlFromMsgInfo(upload.msgInfo?.msgInfoBody?.[0], isGroup);
+
+    if (!imageUrl) {
+        throw new Error('image upload response is missing a download reference');
+    }
+
     // Retain successful upload metadata for the caller's self-sent history.
     Object.assign(element, {
+        imageUrl,
+        fileId: image.fileName,
         md5Hex: image.md5Hex,
         sha1Hex: image.sha1Hex,
         fileSize: image.fileSize,

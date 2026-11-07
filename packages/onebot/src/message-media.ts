@@ -1,8 +1,29 @@
 import type { MessageElement } from '@snowluma/protocol/events';
 import { serializeMediaInfo } from './media-store';
-import type { JsonObject } from './types';
+import type { JsonObject, JsonValue } from './types';
 
 export type MessageMedia = Extract<MessageElement, { type: 'image' | 'record' | 'video' }>;
+export type StoredMediaSegment = JsonObject & { type: MessageMedia['type']; data: JsonObject };
+
+export function isStoredMediaSegment(segment: JsonValue): segment is StoredMediaSegment {
+    return (
+        segment !== null &&
+        typeof segment === 'object' &&
+        !Array.isArray(segment) &&
+        (segment.type === 'image' || segment.type === 'record' || segment.type === 'video') &&
+        segment.data !== null &&
+        typeof segment.data === 'object' &&
+        !Array.isArray(segment.data)
+    );
+}
+
+/** Legacy image segments use a content hash filename; arbitrary aliases prove nothing. */
+export function imageMd5FromFile(file: unknown): string | undefined {
+    return typeof file === 'string'
+        ? /^([a-f0-9]{32})\.(?:png|jpe?g|webp|gif|bmp)$/i.exec(file)?.[1]?.toLowerCase()
+        : undefined;
+}
+
 const mediaSnapshot = Symbol('message media snapshot');
 type MediaSegment = JsonObject & { [mediaSnapshot]?: MessageMedia };
 

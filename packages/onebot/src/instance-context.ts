@@ -5,6 +5,7 @@ import type { ApiActionContext } from './api-handler';
 import type { ConverterContext } from './event-converter';
 import type { MediaStore } from './media-store';
 import type { MessageStore } from './message-store';
+import { readMessageWithImageRepair } from './message-image-repair';
 import type { TempSessionStore } from './temp-session-store';
 import {
     getDownloadRKeys,
@@ -76,7 +77,7 @@ export function buildApiContext(ref: OneBotInstanceContext): ApiActionContext {
         getLoginInfo: () => getLoginInfo(ref),
         isOnline: () => true,
         getUptimeMs: () => ref.getUptimeMs(),
-        getMessage: async (messageId) => await messageStore.findEvent(messageId),
+        getMessage: (messageId) => readMessageWithImageRepair(ref, messageId),
         refreshMessageMedia: (messageId, event) => refreshMessageMedia(ref, messageId, event),
         getMessageMeta: async (messageId) => await messageStore.findMeta(messageId),
         cacheMessageMetas: async (entries) => await messageStore.storeMetas(entries),

@@ -22,7 +22,7 @@ export class MediaIndexer {
                 file: file || element.fileId || '',
                 url,
                 fileSize: element.fileSize ?? 0,
-                fileName: element.fileId ?? '',
+                fileName: element.fileName || element.fileId || '',
                 subType: element.subType ?? 0,
                 summary: element.summary ?? '',
                 imageUrl: element.imageUrl ?? '',

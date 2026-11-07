@@ -26,3 +26,17 @@ identifier without logging quoted content. Fetch failures remain visible.
 Group quotes retain their group-sequence lookup. Forwarded nodes retain their
 inline quote content, which can be resent even when the original message is not
 available in the local account's history.
+
+Image uploads retain their download reference and actual filename in durable
+message metadata. `get_msg` refreshes each image from that message's own reference,
+so a reused filename or a restart does not select another upload.
+
+For older records missing an image reference, `get_msg` requests bounded history
+for the stored conversation and sequence (or the stored timestamp and client
+sequence for legacy private records). Only a unique message with matching sender,
+time and ordered image fingerprints can fill the missing references. The repair
+is saved under the existing signed `message_id`; it preserves message content
+and identity metadata and never restores a record removed while the request was pending.
+Complete images need no history request. If history is unavailable or cannot
+verify the match, the unverified image data is left intact and a warning is logged;
+download URLs are not guessed.

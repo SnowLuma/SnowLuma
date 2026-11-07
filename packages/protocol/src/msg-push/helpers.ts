@@ -3,6 +3,7 @@ import { hexPreview } from '@snowluma/common/hex';
 import { inflateSync } from 'zlib';
 import type { IdentityService } from '../identity-service';
 import type { OperatorInfo } from '@snowluma/proto-defs/notify';
+import type { MsgInfoBody } from '@snowluma/proto-defs/element';
 
 export const MAX_RICH_CARD_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const MAX_RICH_CARD_MESSAGE_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -49,6 +50,16 @@ export function ntImageUrlFromFileId(fileId: string, isGroup: boolean): string {
 
     const appid = isGroup ? 1407 : 1406;
     return `https://multimedia.nt.qq.com.cn/download?appid=${appid}&fileid=${encodeURIComponent(fileId)}`;
+}
+
+/** Upload receipts and received messages carry the same NT image reference. */
+export function ntImageUrlFromMsgInfo(body: MsgInfoBody | undefined, isGroup: boolean): string {
+    if (body?.picture?.urlPath) {
+        const { domain, urlPath, ext } = body.picture;
+        return `https://${domain ?? 'multimedia.nt.qq.com.cn'}${urlPath}${ext?.originalParameter ?? ''}`;
+    }
+
+    return ntImageUrlFromFileId(body?.index?.fileUuid ?? '', isGroup);
 }
 
 export function decompressData(

@@ -33,7 +33,7 @@ import {
     makeImageUrl,
     MAX_RICH_CARD_MESSAGE_OUTPUT_BYTES,
     MAX_RICH_CARD_OUTPUT_BYTES,
-    ntImageUrlFromFileId,
+    ntImageUrlFromMsgInfo,
 } from './helpers';
 import { readXmlMsgAttributes } from './xml-card';
 
@@ -1096,26 +1096,8 @@ function convertElements(elems: ElemDecoded[], isGroup: boolean): MessageElement
 
                         if (bizType === 10 || bizType === 20) {
                             // Image
-                            let url = '';
-
-                            if (body.picture) {
-                                const domain = body.picture.domain ?? 'multimedia.nt.qq.com.cn';
-                                const path = body.picture.urlPath ?? '';
-
-                                if (path) {
-                                    url = 'https://' + domain + path;
-
-                                    if (body.picture.ext?.originalParameter) {
-                                        url += body.picture.ext.originalParameter;
-                                    }
-                                }
-                            }
-
+                            let url = ntImageUrlFromMsgInfo(body, isGroup);
                             let fileId = fi.fileName || idx.fileUuid || '';
-
-                            if (!url && idx.fileUuid) {
-                                url = ntImageUrlFromFileId(idx.fileUuid, isGroup);
-                            }
 
                             const me: MessageElement = {
                                 type: 'image',

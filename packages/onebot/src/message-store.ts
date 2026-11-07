@@ -45,6 +45,7 @@ export class MessageStore {
     private stmtStoreMeta!: SqliteStatement;
     private stmtFindEvent!: SqliteStatement;
     private stmtFindMedia!: SqliteStatement;
+    private stmtUpdateMedia!: SqliteStatement;
     private stmtFindMeta!: SqliteStatement;
     private stmtResolveReplyGroup!: SqliteStatement;
     private stmtResolveReplyPrivate!: SqliteStatement;
@@ -121,6 +122,10 @@ export class MessageStore {
 
             this.stmtFindMedia = this.db.prepare(
                 'SELECT media_data FROM messages WHERE message_hash = ?',
+            );
+            this.stmtUpdateMedia = this.db.prepare(
+                `UPDATE messages SET data = ?, media_data = ?
+                 WHERE message_hash = ? AND data = ? AND media_data IS ?`,
             );
 
             this.stmtFindMeta = this.db.prepare(
@@ -323,6 +328,33 @@ export class MessageStore {
                 media,
             );
             return true;
+        });
+    }
+
+    /** Enrich a read record without changing its identity or restoring a removed row. */
+    async updateMedia(
+        messageId: number,
+        expected: JsonObject,
+        updated: JsonObject,
+    ): Promise<boolean> {
+        const before = JSON.stringify(expected);
+        updated = snapshotMessageEvent(updated);
+        return this.db.serial(async () => {
+            await this.initialization;
+            const previous = (await this.stmtFindMedia.get(messageId)) as
+                { media_data: string | null } | undefined;
+            const media = mergeMessageMedia(
+                previous?.media_data ?? null,
+                serializeMessageMedia(updated),
+            );
+            const result = await this.stmtUpdateMedia.run(
+                JSON.stringify(updated),
+                media,
+                messageId,
+                before,
+                previous?.media_data ?? null,
+            );
+            return result.changes === 1;
         });
     }
 
