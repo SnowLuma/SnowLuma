@@ -28,7 +28,7 @@ export type MessageFormat = 'array' | 'string';
 export interface RequestOptions {
     /** Echo value used to correlate OneBot request and response packets. */
     echo?: JsonValue;
-    /** Override the client's default timeout for this request. Set to 0 to disable timeout. */
+    /** Total request timeout, including connection and response waits. Set to 0 to disable. */
     timeoutMs?: number;
     /** Cancels the request before a SnowLuma response arrives. */
     signal?: AbortSignal;
@@ -38,6 +38,6 @@ export interface RequestOptions {
 export interface SnowLumaClientOptions {
     /** Access token configured in SnowLuma's OneBot settings. */
     accessToken?: string;
-    /** Default timeout for API calls in milliseconds. Defaults to 30000. */
+    /** Default total timeout for API calls in milliseconds, including connection waits. Defaults to 30000. */
     requestTimeoutMs?: number;
 }

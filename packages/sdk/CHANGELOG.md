@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix ordinary WebSocket request deadlines to include connection waits, prevent expired requests from being sent after a late open, and preserve shared connections when an individual request times out or is cancelled. Refs #666.
+
 - Add typed public contact profiles and opt-in friend-list enrichment via `getFriendList({ withProfile: true })` or `with_profile` on either list action; existing request options remain compatible. See [contact profiles](../onebot/CONTACT_PROFILES.md).
 
 - Add a Node reverse WebSocket server with authenticated per-account sessions, Universal and paired API/Event channels, existing action/event/stream helpers, bounded buffers and explicit disconnect handling; see [REVERSE_WEBSOCKET.md](REVERSE_WEBSOCKET.md).

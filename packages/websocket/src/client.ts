@@ -15,6 +15,7 @@ import {
     WebSocket as InternalWebSocket,
     CONNECTING,
     OPEN,
+    CLOSING,
     CLOSED,
     isValidCloseCode,
     type SendCallback,
@@ -137,6 +138,10 @@ export class WebSocketClient extends EventEmitter {
         } as net.NetConnectOpts & tls.ConnectionOptions;
 
         const onConnect = () => {
+            if (this._readyState !== CONNECTING) {
+                return;
+            }
+
             const pathAndQuery = (this._url.pathname || '/') + (this._url.search || '');
             const hostHeader =
                 this._url.port && Number(this._url.port) !== (this._secure ? 443 : 80)
@@ -194,6 +199,10 @@ export class WebSocketClient extends EventEmitter {
     }
 
     private _onHandshakeData(chunk: Buffer): void {
+        if (this._readyState !== CONNECTING) {
+            return;
+        }
+
         this._handshakeBuf = Buffer.concat([this._handshakeBuf, chunk]);
         const idx = this._handshakeBuf.indexOf('\r\n\r\n');
 
@@ -256,6 +265,7 @@ export class WebSocketClient extends EventEmitter {
         this._socket.removeAllListeners('error');
         this._socket.removeAllListeners('close');
 
+        this._handshakeBuf = Buffer.alloc(0);
         this._readyState = OPEN;
         this._ws = new InternalWebSocket(this._socket, {
             isServer: false,
@@ -279,36 +289,65 @@ export class WebSocketClient extends EventEmitter {
             this._ws._onData(rest);
         }
 
-        for (const entry of this._pendingQueue) {
-            this._ws.send(entry.data, entry.options, entry.cb);
+        if (this._ws.readyState !== OPEN) {
+            this._failPendingSends(new Error('WebSocket is not open'));
+            return;
         }
 
+        const pending = this._pendingQueue;
         this._pendingQueue = [];
+
+        for (const entry of pending) {
+            this._ws.send(entry.data, entry.options, entry.cb);
+        }
     }
 
     private _onEarlyError(err: Error): void {
+        if (this._ws || this._readyState === CLOSED) {
+            return;
+        }
+
+        this._stopHandshake(err);
         this.emit('error', err);
     }
 
     private _onEarlyClose(): void {
-        if (!this._ws) {
-            this._readyState = CLOSED;
-            this.emit('close', 1006, '');
+        if (this._ws || this._readyState === CLOSED) {
+            return;
+        }
+
+        this._stopHandshake(new Error('WebSocket closed before handshake completed'));
+        this._readyState = CLOSED;
+        this.emit('close', 1006, '');
+    }
+
+    private _failPendingSends(err: Error): void {
+        const pending = this._pendingQueue;
+        this._pendingQueue = [];
+
+        // Release queued payloads before invoking user code. Each callback is
+        // scheduled independently so reentrant sends cannot rejoin this queue.
+        for (const entry of pending) {
+            if (entry.cb) {
+                process.nextTick(entry.cb, err);
+            }
         }
     }
 
-    private _abort(msg: string): void {
-        const err = new Error('WebSocket handshake failed: ' + msg);
-
-        try {
-            this._socket.destroy();
-        } catch {
-            /* noop */
+    private _stopHandshake(err: Error): void {
+        if (this._readyState !== CONNECTING) {
+            return;
         }
 
-        this.emit('error', err);
-        this._readyState = CLOSED;
-        this.emit('close', 1006, '');
+        this._readyState = CLOSING;
+        this._handshakeBuf = Buffer.alloc(0);
+        this._failPendingSends(err);
+        this._socket.destroy();
+    }
+
+    private _abort(msg: string): void {
+        this._onEarlyError(new Error('WebSocket handshake failed: ' + msg));
+        this._onEarlyClose();
     }
 
     send(
@@ -323,6 +362,17 @@ export class WebSocketClient extends EventEmitter {
         if (typeof options === 'function') {
             cb = options;
             options = undefined;
+        }
+
+        if (this._readyState !== CONNECTING) {
+            const err = new Error('WebSocket is not open');
+
+            if (cb) {
+                cb(err);
+                return;
+            }
+
+            throw err;
         }
 
         this._pendingQueue.push({ data, options, cb });
@@ -344,11 +394,7 @@ export class WebSocketClient extends EventEmitter {
             return this._ws.close(code, reason);
         }
 
-        try {
-            this._socket.destroy();
-        } catch {
-            /* noop */
-        }
+        this._stopHandshake(new Error('WebSocket closed before handshake completed'));
     }
 
     terminate(): void {
@@ -356,10 +402,6 @@ export class WebSocketClient extends EventEmitter {
             return this._ws.terminate();
         }
 
-        try {
-            this._socket.destroy();
-        } catch {
-            /* noop */
-        }
+        this._stopHandshake(new Error('WebSocket terminated before handshake completed'));
     }
 }

@@ -512,91 +512,94 @@ export class SnowLumaWebSocketClient extends SnowLumaApiClient {
         params?: ActionParams<TAction>,
         options?: RequestOptions,
     ): Promise<ApiResponse<ActionResult<TAction>>> {
-        throwIfAborted(options?.signal);
-        await raceWithAbort(
-            this.connect(),
-            options?.signal,
-            'SnowLuma WebSocket request aborted before connection opened',
-        );
-        throwIfAborted(options?.signal);
-
-        const socket = this.connection?.socket;
-
-        if (!socket || socket.readyState !== WEBSOCKET_OPEN) {
-            throw new SnowLumaConnectionError('SnowLuma WebSocket is not open');
-        }
-
-        const echo = options?.echo ?? createEcho();
-        const key = echoKey(echo);
         const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
+        const abort = createRequestAbortState(timeoutMs, options?.signal);
 
-        if (this.pending.has(key)) {
-            throw new SnowLumaConnectionError(
-                'A WebSocket request with this echo is already pending',
+        try {
+            throwIfAborted(abort.signal);
+            await raceWithAbort(
+                this.connect(),
+                abort.signal,
+                'SnowLuma WebSocket request aborted before connection opened',
             );
-        }
+            throwIfAborted(abort.signal);
 
-        return new Promise<ApiResponse<ActionResult<TAction>>>((resolve, reject) => {
-            const cleanup = (): void => {
-                this.pending.delete(key);
+            const socket = this.connection?.socket;
 
-                if (timer) {
-                    clearTimeout(timer);
-                }
+            if (!socket || socket.readyState !== WEBSOCKET_OPEN) {
+                throw new SnowLumaConnectionError('SnowLuma WebSocket is not open');
+            }
 
-                options?.signal?.removeEventListener('abort', abortListener);
-            };
+            const echo = options?.echo ?? createEcho();
+            const key = echoKey(echo);
 
-            const pending: PendingRequest = {
-                resolve: (response) => {
-                    cleanup();
-                    resolve(response as ApiResponse<ActionResult<TAction>>);
-                },
-                reject: (error) => {
-                    cleanup();
-                    reject(error);
-                },
-            };
-
-            const timer =
-                timeoutMs > 0
-                    ? setTimeout(() => {
-                          pending.reject(
-                              new SnowLumaTimeoutError(
-                                  `SnowLuma WebSocket request timed out after ${timeoutMs}ms`,
-                                  timeoutMs,
-                              ),
-                          );
-                      }, timeoutMs)
-                    : null;
-
-            const abortListener = () => {
-                pending.reject(
-                    new SnowLumaAbortError('SnowLuma WebSocket request aborted', {
-                        cause: options?.signal?.reason,
-                    }),
-                );
-            };
-
-            this.pending.set(key, pending);
-            options?.signal?.addEventListener('abort', abortListener, { once: true });
-
-            try {
-                socket.send(
-                    JSON.stringify({
-                        action,
-                        params: toJsonObject(params as JsonObject | undefined),
-                        echo,
-                    }),
-                );
-            } catch (error) {
-                pending.reject(
-                    new SnowLumaConnectionError('Failed to send SnowLuma WebSocket request', {
-                        cause: error,
-                    }),
+            if (this.pending.has(key)) {
+                throw new SnowLumaConnectionError(
+                    'A WebSocket request with this echo is already pending',
                 );
             }
-        });
+
+            return await new Promise<ApiResponse<ActionResult<TAction>>>((resolve, reject) => {
+                const cleanup = (): void => {
+                    if (this.pending.get(key) === pending) {
+                        this.pending.delete(key);
+                    }
+
+                    abort.signal.removeEventListener('abort', abortListener);
+                    abort.cleanup();
+                };
+
+                const pending: PendingRequest = {
+                    resolve: (response) => {
+                        cleanup();
+                        resolve(response as ApiResponse<ActionResult<TAction>>);
+                    },
+                    reject: (error) => {
+                        cleanup();
+                        reject(error);
+                    },
+                };
+
+                const abortListener = (): void => {
+                    pending.reject(
+                        new SnowLumaAbortError('SnowLuma WebSocket request aborted', {
+                            cause: abort.signal.reason,
+                        }),
+                    );
+                };
+
+                this.pending.set(key, pending);
+                abort.signal.addEventListener('abort', abortListener, { once: true });
+
+                try {
+                    socket.send(
+                        JSON.stringify({
+                            action,
+                            params: toJsonObject(params as JsonObject | undefined),
+                            echo,
+                        }),
+                    );
+                } catch (error) {
+                    pending.reject(
+                        new SnowLumaConnectionError('Failed to send SnowLuma WebSocket request', {
+                            cause: error,
+                        }),
+                    );
+                }
+            });
+        } catch (error) {
+            if (abort.isTimedOut()) {
+                throw new SnowLumaTimeoutError(
+                    `SnowLuma WebSocket request timed out after ${timeoutMs}ms`,
+                    timeoutMs,
+                    { cause: error },
+                );
+            }
+
+            throw error;
+        } finally {
+            abort.cleanup();
+        }
     }
 
     override async *requestStream<TAction extends SnowLumaStreamAction>(

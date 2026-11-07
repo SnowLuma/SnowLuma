@@ -302,6 +302,189 @@ describe('SnowLumaWebSocketClient', () => {
         vi.useRealTimers();
     });
 
+    it('times out while opening and never sends the expired action after a late open', async () => {
+        vi.useFakeTimers();
+        const client = new SnowLumaWebSocketClient({ webSocket: MockWebSocket });
+        const settled = vi.fn();
+        const request = client.getStatus({ timeoutMs: 20 }).then(settled, settled);
+        const socket = MockWebSocket.instances.at(-1)!;
+
+        try {
+            await vi.advanceTimersByTimeAsync(20);
+            expect(settled).toHaveBeenCalledExactlyOnceWith(expect.any(SnowLumaTimeoutError));
+            expect(settled.mock.calls[0]![0]).toHaveProperty('timeoutMs', 20);
+            socket.open();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(socket.sent).toHaveLength(0);
+            expect(client.isConnected).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            client.close();
+            await request;
+        }
+    });
+
+    it('uses the client default as one deadline across connection and response waits', async () => {
+        vi.useFakeTimers();
+        const client = new SnowLumaWebSocketClient({
+            webSocket: MockWebSocket,
+            requestTimeoutMs: 30,
+        });
+        const settled = vi.fn();
+        const request = client.getStatus({ echo: 'deadline' }).then(settled, settled);
+        const socket = MockWebSocket.instances.at(-1)!;
+
+        try {
+            await vi.advanceTimersByTimeAsync(20);
+            socket.open();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(socket.sent).toHaveLength(1);
+            await vi.advanceTimersByTimeAsync(9);
+            expect(settled).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(settled).toHaveBeenCalledExactlyOnceWith(expect.any(SnowLumaTimeoutError));
+            expect(settled.mock.calls[0]![0]).toHaveProperty('timeoutMs', 30);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            client.close();
+            await request;
+        }
+    });
+
+    it.each(['timeout', 'abort'] as const)(
+        'keeps a shared opening connection usable after one request ends by %s',
+        async (outcome) => {
+            vi.useFakeTimers();
+            const client = new SnowLumaWebSocketClient({ webSocket: MockWebSocket });
+            const controller = new AbortController();
+            const remove = vi.spyOn(controller.signal, 'removeEventListener');
+            const firstSettled = vi.fn();
+            const first = client
+                .getStatus({ echo: 'first', timeoutMs: 20, signal: controller.signal })
+                .then(firstSettled, firstSettled);
+            const socket = MockWebSocket.instances.at(-1)!;
+            const second = client.getStatus({ echo: 'second', timeoutMs: 100 });
+            const secondResult = second.catch((error: unknown) => error);
+
+            try {
+                if (outcome === 'abort') {
+                    controller.abort('caller cancelled');
+                }
+
+                await vi.advanceTimersByTimeAsync(20);
+                expect(firstSettled).toHaveBeenCalledExactlyOnceWith(
+                    expect.any(outcome === 'timeout' ? SnowLumaTimeoutError : SnowLumaAbortError),
+                );
+
+                if (outcome === 'abort') {
+                    expect(firstSettled.mock.calls[0]![0]).toHaveProperty(
+                        'cause',
+                        'caller cancelled',
+                    );
+                }
+
+                expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+                expect(socket.readyState).toBe(0);
+                socket.open();
+                await vi.advanceTimersByTimeAsync(0);
+                expect(socket.sent.map((value) => JSON.parse(value).echo)).toEqual(['second']);
+                socket.message(
+                    JSON.stringify({
+                        status: 'ok',
+                        retcode: 0,
+                        data: { online: true },
+                        echo: 'second',
+                    }),
+                );
+                await expect(second).resolves.toEqual({ online: true });
+                expect(client.isConnected).toBe(true);
+                expect(vi.getTimerCount()).toBe(0);
+            } finally {
+                client.close();
+                await Promise.all([first, secondResult]);
+            }
+        },
+    );
+
+    it('allows zero timeout through connection and response waits', async () => {
+        vi.useFakeTimers();
+        const client = new SnowLumaWebSocketClient({
+            webSocket: MockWebSocket,
+            requestTimeoutMs: 10,
+        });
+        const settled = vi.fn();
+        const request = client
+            .getStatus({ timeoutMs: 0, echo: 'unlimited' })
+            .then(settled, settled);
+        const socket = MockWebSocket.instances.at(-1)!;
+
+        try {
+            await vi.advanceTimersByTimeAsync(100);
+            expect(settled).not.toHaveBeenCalled();
+            socket.open();
+            await vi.advanceTimersByTimeAsync(100);
+            expect(settled).not.toHaveBeenCalled();
+            expect(socket.sent).toHaveLength(1);
+            socket.message(
+                JSON.stringify({
+                    status: 'ok',
+                    retcode: 0,
+                    data: { online: true },
+                    echo: 'unlimited',
+                }),
+            );
+            await request;
+            expect(settled).toHaveBeenCalledExactlyOnceWith({ online: true });
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            client.close();
+            await request;
+        }
+    });
+
+    it.each(['close', 'constructor failure', 'pre-aborted'] as const)(
+        'cleans request controls when opening ends with %s',
+        async (outcome) => {
+            vi.useFakeTimers();
+            const failure = new Error('opening failed');
+            class OpeningSocket extends MockWebSocket {
+                constructor(url: string) {
+                    if (outcome === 'constructor failure') {
+                        throw failure;
+                    }
+
+                    super(url);
+                }
+            }
+            const client = new SnowLumaWebSocketClient({ webSocket: OpeningSocket });
+            const controller = new AbortController();
+            const remove = vi.spyOn(controller.signal, 'removeEventListener');
+
+            if (outcome === 'pre-aborted') {
+                controller.abort(failure);
+            }
+
+            const before = MockWebSocket.instances.length;
+            const result = client
+                .getStatus({ timeoutMs: 20, signal: controller.signal })
+                .catch((error: unknown) => error);
+
+            if (outcome === 'close') {
+                MockWebSocket.instances.at(-1)!.close();
+                expect(await result).toBeInstanceOf(SnowLumaConnectionError);
+            } else if (outcome === 'constructor failure') {
+                expect(await result).toBe(failure);
+            } else {
+                expect(await result).toBeInstanceOf(SnowLumaAbortError);
+                expect(MockWebSocket.instances).toHaveLength(before);
+            }
+
+            expect(vi.getTimerCount()).toBe(0);
+            expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+            client.close();
+        },
+    );
+
     it('rejects duplicate in-flight echoes without replacing the original request', async () => {
         const client = new SnowLumaWebSocketClient({ webSocket: MockWebSocket });
         const opening = client.connect();

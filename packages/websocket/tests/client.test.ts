@@ -875,6 +875,112 @@ describe('WebSocketClient', () => {
         expect(second.payload).toEqual(Buffer.from('bin'));
     });
 
+    it('settles queued sends once on a rejected handshake and rejects further sends', async () => {
+        const { port, nextSocket } = await listenPlain();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        const reentrant = vi.fn();
+        const fromError = vi.fn();
+        const first = vi.fn(() => client.send('from failed callback', reentrant));
+        const second = vi.fn();
+        client.on('error', () => client.send('from error listener', fromError));
+        client.send('first', first);
+        client.send('second', { binary: true }, second);
+        client.send('without callback');
+        const socket = await nextSocket();
+        await readRequest(socket);
+        socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n');
+        await events.waitClose();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(first).toHaveBeenCalledExactlyOnceWith(events.errors[0]);
+        expect(second).toHaveBeenCalledExactlyOnceWith(events.errors[0]);
+        expect(reentrant).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+        expect(fromError).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+        expect(events.errors[0]?.message).toContain('Unexpected response status 401');
+        expect(events.closes).toEqual([{ code: 1006, reason: '' }]);
+        const afterClose = vi.fn();
+        client.send('after close', afterClose);
+        expect(afterClose).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+        expect(() => client.send('after close without callback')).toThrow('WebSocket is not open');
+
+        client.close();
+        client.terminate();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(events.closes).toHaveLength(1);
+    });
+
+    it.each(['close', 'terminate', 'peer close'] as const)(
+        'settles queued callbacks exactly once after %s before opening',
+        async (outcome) => {
+            const { port, nextSocket } = await listenPlain();
+            const client = createClient(`ws://127.0.0.1:${port}`);
+            const events = track(client);
+            const first = vi.fn();
+            const second = vi.fn();
+            client.send('first', first);
+            client.send('second', { binary: true }, second);
+            client.send('without callback');
+            const socket = await nextSocket();
+            await readRequest(socket);
+
+            if (outcome === 'peer close') {
+                socket.destroy();
+            } else {
+                client[outcome]();
+                const whileClosing = vi.fn();
+                client.send('while closing', whileClosing);
+                expect(whileClosing).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+            }
+
+            await events.waitClose();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(first).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+            expect(second).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+            expect(client.readyState).toBe(WebSocketClient.CLOSED);
+            expect(() => client.send('after close')).toThrow('WebSocket is not open');
+            client.close();
+            client.terminate();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(first).toHaveBeenCalledTimes(1);
+            expect(second).toHaveBeenCalledTimes(1);
+            expect(events.closes).toEqual([{ code: 1006, reason: '' }]);
+        },
+    );
+
+    it('passes the original connection error to queued send callbacks', async () => {
+        const port = await unusedPort();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        const callback = vi.fn();
+        client.send('queued', callback);
+        await events.waitClose();
+        expect(events.errors[0]).toHaveProperty('code', 'ECONNREFUSED');
+        expect(callback).toHaveBeenCalledExactlyOnceWith(events.errors[0]);
+        expect(events.closes).toHaveLength(1);
+    });
+
+    it('settles the pre-open queue if an open listener immediately terminates the connection', async () => {
+        const { port, nextSocket } = await listenPlain();
+        const client = createClient(`ws://127.0.0.1:${port}`);
+        const events = track(client);
+        const first = vi.fn();
+        const second = vi.fn();
+        client.send('without callback');
+        client.send('first', first);
+        client.send('second', second);
+        client.once('open', () => client.terminate());
+        const socket = await nextSocket();
+        const req = await readRequest(socket);
+        socket.write(handshakeResponse(req.headers['sec-websocket-key']!));
+        await events.waitClose();
+        expect(first).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+        expect(second).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
+        expect(events.closes).toHaveLength(1);
+    });
+
     it('delegates send/ping/pong/close after open and forwards control events', async () => {
         const { port, nextSocket } = await listenPlain();
         const client = createClient(`ws://127.0.0.1:${port}`);
