@@ -82,8 +82,12 @@ class FakeSocket extends EventEmitter {
     headers: string[] = [];
     frames: Buffer[] = [];
     closeBeforeResponse = false;
+    idleBeforeResponse = false;
+    stallWrites = false;
+    responseDelayMs = 0;
     connectFailure?: Error | 'timeout';
     private connectTimer?: ReturnType<typeof setTimeout>;
+    private responseTimer?: ReturnType<typeof setTimeout>;
     private buf = Buffer.alloc(0);
     constructor(
         private readonly responseFrame: Buffer,
@@ -105,6 +109,10 @@ class FakeSocket extends EventEmitter {
     }
 
     write(data: unknown, cb?: (err?: Error) => void): boolean {
+        if (this.stallWrites) {
+            return false;
+        }
+
         if (this.destroyed || !this.writable) {
             const err = new Error('write after socket end');
 
@@ -148,8 +156,13 @@ class FakeSocket extends EventEmitter {
             this.buf = this.buf.subarray(total);
             this.posts += 1;
             const thisPost = this.posts;
-            setImmediate(() => {
+
+            const respond = () => {
                 if (this.destroyed) {
+                    return;
+                }
+
+                if (this.idleBeforeResponse) {
                     return;
                 }
 
@@ -199,12 +212,19 @@ class FakeSocket extends EventEmitter {
                     this.emit('end');
                     this.emit('close');
                 }
-            });
+            };
+
+            if (this.responseDelayMs > 0) {
+                this.responseTimer = setTimeout(respond, this.responseDelayMs);
+            } else {
+                setImmediate(respond);
+            }
         }
     }
 
     destroy() {
         clearTimeout(this.connectTimer);
+        clearTimeout(this.responseTimer);
         this.destroyed = true;
         this.writable = false;
     }
@@ -239,8 +259,8 @@ function highwayTrace(entries: LogEntry[]): LogEntry[] {
     return entries.filter((entry) => entry.level === 'trace' && entry.scope === 'Highway');
 }
 
-function makeBridge(): BridgeContext {
-    return { identity: { uin: '10001' } as unknown } as unknown as BridgeContext;
+function makeBridge(uin = '10001'): BridgeContext {
+    return { identity: { uin } as unknown } as unknown as BridgeContext;
 }
 
 function makeSession(): HighwaySession {
@@ -459,6 +479,7 @@ describe('Highway connection selection', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+        vi.unstubAllEnvs();
         setLogLevel(previousLogLevel);
     });
 
@@ -471,6 +492,201 @@ describe('Highway connection selection', () => {
             ],
         };
     }
+
+    it.each([1003, 1004])(
+        'reaches the fourth candidate after three idle peers for command %i (#637)',
+        async (commandId) => {
+            vi.useFakeTimers();
+            vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_IDLE_TIMEOUT_MS', '100');
+            vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '5000');
+            installFactory(() => {
+                const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+                socket.idleBeforeResponse =
+                    createConnectionMock.mock.lastCall?.[0].host !== '192.0.2.4';
+                return socket;
+            });
+            const session = {
+                ...makeSession(),
+                servers: Array.from({ length: 4 }, (_, i) => ({
+                    host: `192.0.2.${i + 1}`,
+                    port: 443,
+                })),
+            };
+            const source = new RecordingChunkSource(80);
+            const completed = expect(
+                uploadHighwayHttp(
+                    makeBridge(),
+                    session,
+                    commandId,
+                    source,
+                    new Uint8Array(16),
+                    new Uint8Array(),
+                ),
+            ).resolves.toBeUndefined();
+            await Promise.all([completed, vi.runAllTimersAsync()]);
+            expect(createConnectionMock.mock.calls.map(([options]) => options)).toEqual(
+                session.servers,
+            );
+            expect(source.reads).toEqual([{ offset: 0, length: 80 }]);
+            expect(source.closeCount).toBe(1);
+            expect((createdSockets as FakeSocket[]).every((socket) => socket.destroyed)).toBe(true);
+        },
+    );
+
+    it('uses recent successful host and port only for the same account and upload type', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_IDLE_TIMEOUT_MS', '100');
+        const session = {
+            ...makeSession(),
+            servers: [
+                { host: '192.0.2.1', port: 14000 },
+                { host: '192.0.2.1', port: 80 },
+            ],
+        };
+        const bridge = makeBridge();
+
+        const send = async (owner: BridgeContext, commandId = 1004, candidates = session) => {
+            installFactory(() => {
+                const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+                socket.idleBeforeResponse = createConnectionMock.mock.lastCall?.[0].port === 14000;
+                return socket;
+            });
+            await Promise.all([
+                expect(
+                    uploadHighwayHttp(
+                        owner,
+                        candidates,
+                        commandId,
+                        new RecordingChunkSource(80),
+                        new Uint8Array(16),
+                        new Uint8Array(),
+                    ),
+                ).resolves.toBeUndefined(),
+                vi.runAllTimersAsync(),
+            ]);
+            return createConnectionMock.mock.calls.map(([options]) => options);
+        };
+
+        expect(await send(bridge)).toEqual(session.servers);
+        expect(await send(bridge)).toEqual([session.servers[1]]);
+        expect(await send(makeBridge('10002'))).toEqual(session.servers);
+        expect(await send(bridge, 1003)).toEqual(session.servers);
+        const replacement = { ...session, servers: [{ host: '192.0.2.2', port: 80 }] };
+        expect(await send(bridge, 1004, replacement)).toEqual(replacement.servers);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        expect(await send(bridge)).toEqual(session.servers);
+    });
+
+    it.each(['response', 'write', 'retry'])(
+        'stops a pending %s at the shared upload deadline and releases resources',
+        async (phase) => {
+            vi.useFakeTimers();
+            vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '150');
+            vi.stubEnv(
+                'SNOWLUMA_HIGHWAY_UPLOAD_IDLE_TIMEOUT_MS',
+                phase === 'retry' ? '50' : '1000',
+            );
+            installFactory(() => {
+                const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+                socket.idleBeforeResponse = true;
+                socket.stallWrites = phase === 'write';
+                return socket;
+            });
+            const entries: LogEntry[] = [];
+            setLogLevel('trace');
+            const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+            const source = new RecordingChunkSource(80);
+            const start = Date.now();
+
+            try {
+                const failed = expect(
+                    uploadHighwayHttp(
+                        makeBridge(),
+                        sessionWithCandidates(),
+                        1004,
+                        source,
+                        new Uint8Array(16),
+                        new Uint8Array(),
+                    ),
+                ).rejects.toThrow('timed out after 150ms');
+                await Promise.all([failed, vi.runAllTimersAsync()]);
+                expect(Date.now() - start).toBe(150);
+                expect(createConnectionMock).toHaveBeenCalledTimes(1);
+                expect(source.closeCount).toBe(1);
+                expect(
+                    (createdSockets as FakeSocket[]).every(
+                        (socket) =>
+                            socket.destroyed &&
+                            socket.listenerCount('data') === 0 &&
+                            socket.listenerCount('close') === 0,
+                    ),
+                ).toBe(true);
+                const terminal = highwayTrace(entries).filter((entry) =>
+                    entry.message.startsWith('highway_put_terminal '),
+                );
+                expect(terminal).toHaveLength(1);
+                expect(terminal[0]!.message).toContain('reason=upload_timeout');
+                expect(vi.getTimerCount()).toBe(0);
+
+                if (phase === 'retry') {
+                    expect(
+                        entries.some(
+                            (entry) =>
+                                entry.message.includes('phase=read_response') &&
+                                entry.message.includes('received=0B'),
+                        ),
+                    ).toBe(true);
+                }
+            } finally {
+                unsubscribe();
+            }
+        },
+    );
+
+    it('does not renew the total deadline when a chunk succeeds', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '250');
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_IDLE_TIMEOUT_MS', '200');
+        installFactory(() => {
+            const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
+            socket.responseDelayMs = 100;
+            return socket;
+        });
+        const source = new RecordingChunkSource(2 * HIGHWAY_BLOCK_SIZE + 80);
+        const start = Date.now();
+        const failed = expect(
+            uploadHighwayHttp(
+                makeBridge(),
+                makeSession(),
+                1004,
+                source,
+                new Uint8Array(16),
+                new Uint8Array(),
+            ),
+        ).rejects.toThrow('acknowledgedBytes=2097152/2097232');
+        await Promise.all([failed, vi.runAllTimersAsync()]);
+        expect(Date.now() - start).toBe(250);
+        expect(source.closeCount).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects invalid timeout configuration before connecting and closes the source', async () => {
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '0');
+        installFactory(() => new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive'));
+        const source = new RecordingChunkSource(80);
+        await expect(
+            uploadHighwayHttp(
+                makeBridge(),
+                makeSession(),
+                1004,
+                source,
+                new Uint8Array(16),
+                new Uint8Array(),
+            ),
+        ).rejects.toThrow('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS');
+        expect(createConnectionMock).not.toHaveBeenCalled();
+        expect(source.closeCount).toBe(1);
+    });
 
     it.each(['timeout', 'ECONNREFUSED', 'ENETUNREACH'])(
         'switches on %s and uploads over the successful connection',
@@ -515,8 +731,9 @@ describe('Highway connection selection', () => {
         },
     );
 
-    it('bounds initial selection to ten seconds without repeating exhausted candidates', async () => {
+    it('bounds initial selection by the configured total deadline without repeating candidates', async () => {
         vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '10000');
         installFactory(() => {
             const socket = new FakeSocket(buildEmptyHighwayResponseFrame(), 'keepalive');
             socket.connectFailure = 'timeout';
@@ -544,7 +761,7 @@ describe('Highway connection selection', () => {
                 new Uint8Array(16),
                 new Uint8Array(),
             );
-            const failed = expect(upload).rejects.toThrow(/connection failed.*TCP connect timeout/);
+            const failed = expect(upload).rejects.toThrow('timed out after 10000ms');
             await vi.runAllTimersAsync();
             await failed;
             expect(Date.now() - start).toBe(10000);
@@ -561,7 +778,7 @@ describe('Highway connection selection', () => {
                 entry.message.startsWith('highway_put_terminal '),
             );
             expect(terminals).toHaveLength(1);
-            expect(terminals[0]!.message).toContain('reason=connect_exhausted');
+            expect(terminals[0]!.message).toContain('reason=upload_timeout');
             expect(terminals[0]!.message).toContain('connections=0');
         } finally {
             unsubscribe();

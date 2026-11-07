@@ -18,14 +18,18 @@ import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import net from 'net';
 import { promises as fsp } from 'fs';
 import type { BridgeContext } from '../bridge-context';
-import { validateUploadConcurrency } from './upload-settings';
+import {
+    highwayUploadTimeouts,
+    validateUploadConcurrency,
+    type HighwayUploadTimeouts,
+} from './upload-settings';
+import { uploadNodeHistory } from './upload-nodes';
 import { computeMd5, packHighwayFrame, unpackHighwayFrame } from './utils';
 
 const log = createLogger('Highway');
 const HIGHWAY_APP_ID = 1600001604;
 const HIGHWAY_BLOCK_SIZE = 1024 * 1024;
 const HIGHWAY_CONNECT_TIMEOUT_MS = 3000;
-const HIGHWAY_CONNECT_BUDGET_MS = 10000;
 
 // Per-chunk transport retry: a transient connection failure retries only
 // the unconfirmed offset, preserving acknowledged data (issue #118).
@@ -43,14 +47,6 @@ const HIGHWAY_DELAY_RETRY_CODES = new Set([102902, 302902]);
 // #352 hits on multi-GiB PUTs without stalling a chunk for ~8 s.
 const HIGHWAY_DELAY_RETRY_MS = 250;
 const HIGHWAY_MAX_DELAY_RETRIES = 8;
-
-// Idle read timeout for a highway response. tcpConnect() clears the socket's
-// own timeout once connected, so a peer that accepts the connection but then
-// neither responds nor FINs would hang the whole upload forever. The single
-// persistent connection (issue #211) keeps a socket alive across the whole
-// file, widening that exposure, so the response reader arms its own idle timer
-// and treats a stall as a retryable transport failure.
-const HIGHWAY_READ_IDLE_MS = 30000;
 
 function sleepMs(ms: number, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
@@ -95,6 +91,7 @@ type HighwayPutFailureReason =
     | 'server_rejected'
     | 'source_close_failed'
     | 'source_read_failed'
+    | 'upload_timeout'
     | 'transport_exhausted';
 
 interface HighwayPutTraceState {
@@ -359,29 +356,25 @@ async function connectHighway(
     servers: HighwayServer[],
     startIndex: number,
     signal: AbortSignal,
+    onFailure: (server: HighwayServer) => void,
 ): Promise<{ socket: net.Socket; server: HighwayServer; serverIndex: number }> {
-    const deadline = Date.now() + HIGHWAY_CONNECT_BUDGET_MS;
     const errors: Error[] = [];
 
     for (let i = 0; i < servers.length; i++) {
         const serverIndex = (startIndex + i) % servers.length;
         const server = servers[serverIndex]!;
-        const remaining = deadline - Date.now();
-
-        if (remaining <= 0) {
-            break;
-        }
 
         try {
             const socket = await tcpConnect(
                 server.host,
                 server.port,
-                Math.min(HIGHWAY_CONNECT_TIMEOUT_MS, remaining),
+                HIGHWAY_CONNECT_TIMEOUT_MS,
                 signal,
             );
             return { socket, server, serverIndex };
         } catch (cause) {
             signal.throwIfAborted();
+            onFailure(server);
             const error = new Error(`${server.host}:${server.port}: ${highwayErrorText(cause)}`, {
                 cause,
             });
@@ -396,13 +389,41 @@ async function connectHighway(
     );
 }
 
-function socketWrite(socket: net.Socket, data: Uint8Array): Promise<void> {
+function socketWrite(socket: net.Socket, data: Uint8Array, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
     return new Promise((resolve, reject) => {
-        socket.write(data, (err) => (err ? reject(err) : resolve()));
+        const finish = (error?: unknown) => {
+            signal.removeEventListener('abort', onAbort);
+
+            if (error !== undefined) {
+                reject(error);
+            } else {
+                resolve();
+            }
+        };
+
+        const onAbort = () => finish(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+
+        try {
+            socket.write(data, (error) => finish(error ?? undefined));
+        } catch (error) {
+            finish(error);
+        }
     });
 }
 
-function readHttpResponseBody(socket: net.Socket, signal: AbortSignal): Promise<Uint8Array> {
+interface RequestProgress {
+    phase: 'write_headers' | 'write_body' | 'read_response';
+    writtenBytes: number;
+}
+
+function readHttpResponseBody(
+    socket: net.Socket,
+    signal: AbortSignal,
+    idleMs: number,
+    progress: RequestProgress,
+): Promise<Uint8Array> {
     signal.throwIfAborted();
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -410,6 +431,7 @@ function readHttpResponseBody(socket: net.Socket, signal: AbortSignal): Promise<
         let contentLength = 0;
         let totalNeeded = 0;
         let settled = false;
+        let receivedBytes = 0;
 
         const partialResponseBody = (): Uint8Array | undefined => {
             if (headerEnd < 0 || getLogLevel() !== 'trace') {
@@ -433,12 +455,12 @@ function readHttpResponseBody(socket: net.Socket, signal: AbortSignal): Promise<
                     finish(() =>
                         reject(
                             new HighwayResponseReadError(
-                                'highway response read timeout (peer idle)',
+                                `highway response read timeout (peer idle; phase=${progress.phase}, written=${progress.writtenBytes}B, received=${receivedBytes}B, headerSeen=${headerEnd >= 0}, expected=${totalNeeded}B)`,
                                 partialResponseBody(),
                             ),
                         ),
                     ),
-                HIGHWAY_READ_IDLE_MS,
+                idleMs,
             );
         };
 
@@ -467,6 +489,7 @@ function readHttpResponseBody(socket: net.Socket, signal: AbortSignal): Promise<
         const onData = (chunk: Buffer) => {
             armIdle();
             chunks.push(chunk);
+            receivedBytes += chunk.length;
             const buf = Buffer.concat(chunks);
 
             if (headerEnd < 0) {
@@ -542,6 +565,7 @@ async function httpPostFrame(
     path: string,
     body: Uint8Array,
     signal: AbortSignal,
+    idleMs: number,
 ): Promise<Uint8Array> {
     const header = `POST ${path} HTTP/1.1\r\nHost: ${host}\r\nConnection: keep-alive\r\nAccept-Encoding: identity\r\nUser-Agent: Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2)\r\nContent-Length: ${body.length}\r\n\r\n`;
     const responseAbort = new AbortController();
@@ -554,14 +578,20 @@ async function httpPostFrame(
     signal.throwIfAborted();
     signal.addEventListener('abort', onAbort, { once: true });
     // Arm the reader before writing: a fast peer may reply before write callbacks.
-    const response = readHttpResponseBody(socket, responseAbort.signal);
+    const progress: RequestProgress = { phase: 'write_headers', writtenBytes: 0 };
+    const response = readHttpResponseBody(socket, responseAbort.signal, idleMs, progress);
     const write = (async () => {
-        await socketWrite(socket, Buffer.from(header, 'ascii'));
+        await socketWrite(socket, Buffer.from(header, 'ascii'), responseAbort.signal);
+        progress.writtenBytes += Buffer.byteLength(header, 'ascii');
         signal.throwIfAborted();
 
         if (body.length > 0) {
-            await socketWrite(socket, body);
+            progress.phase = 'write_body';
+            await socketWrite(socket, body, responseAbort.signal);
+            progress.writtenBytes += body.byteLength;
         }
+
+        progress.phase = 'read_response';
     })();
 
     try {
@@ -739,13 +769,16 @@ async function uploadHighwayHttpOperation(
 
     signal.addEventListener('abort', wake, { once: true });
 
-    const fail = (reason: HighwayPutFailureReason, error: unknown): never => {
+    const abortUpload = (reason: HighwayPutFailureReason, error: unknown): void => {
         if (!signal.aborted) {
             trace.failureReason = reason;
             trace.error = error;
             abort.abort(error);
         }
+    };
 
+    const fail = (reason: HighwayPutFailureReason, error: unknown): never => {
+        abortUpload(reason, error);
         throw signal.reason;
     };
 
@@ -766,6 +799,11 @@ async function uploadHighwayHttpOperation(
     let retries = 0;
     let contiguous = 0;
     const confirmed = new Set<number>();
+    const history = uploadNodeHistory(bridge.identity);
+    const servers = history.order(commandId, session.servers);
+    const maxAttempts = Math.max(HIGHWAY_MAX_CHUNK_ATTEMPTS, servers.length);
+    let timeouts: HighwayUploadTimeouts;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
     const dropSocket = (worker: Worker) => {
         worker.socket?.destroy();
@@ -854,9 +892,10 @@ async function uploadHighwayHttpOperation(
 
                     if (!worker.socket) {
                         const connected = await connectHighway(
-                            session.servers,
+                            servers,
                             worker.serverIndex,
                             signal,
+                            (server) => history.record(commandId, server, false),
                         );
                         worker.socket = connected.socket;
                         worker.serverIndex = connected.serverIndex;
@@ -896,10 +935,11 @@ async function uploadHighwayHttpOperation(
                     );
                     body = await httpPostFrame(
                         worker.socket,
-                        session.servers[worker.serverIndex]!.host,
+                        servers[worker.serverIndex]!.host,
                         pathStr,
                         packHighwayFrame(head, chunk),
                         signal,
+                        timeouts.idleMs,
                     );
                 } catch (error) {
                     signal.throwIfAborted();
@@ -919,9 +959,10 @@ async function uploadHighwayHttpOperation(
                     }
 
                     dropSocket(worker);
+                    history.record(commandId, servers[worker.serverIndex]!, false);
                     transportAttempts += 1;
 
-                    if (transportAttempts >= HIGHWAY_MAX_CHUNK_ATTEMPTS) {
+                    if (transportAttempts >= maxAttempts) {
                         return fail(
                             'transport_exhausted',
                             new Error(
@@ -932,13 +973,13 @@ async function uploadHighwayHttpOperation(
                     }
 
                     retries += 1;
-                    worker.serverIndex = (worker.serverIndex + 1) % session.servers.length;
+                    worker.serverIndex = (worker.serverIndex + 1) % servers.length;
                     log.trace(
                         'highway_put_branch branch=chunk_retry offset=%d bytes=%d attempt=%d nextServer=%j error=%j',
                         offset,
                         chunkSize,
                         transportAttempts,
-                        session.servers[worker.serverIndex],
+                        servers[worker.serverIndex],
                         highwayErrorText(error),
                     );
                     await sleepMs(HIGHWAY_RETRY_BASE_MS * transportAttempts, signal);
@@ -991,7 +1032,7 @@ async function uploadHighwayHttpOperation(
                         effectiveConcurrency = 1;
                     }
 
-                    worker.serverIndex = (worker.serverIndex + 1) % session.servers.length;
+                    worker.serverIndex = (worker.serverIndex + 1) % servers.length;
                     const delayMs = HIGHWAY_DELAY_RETRY_MS;
                     log.trace(
                         'highway_put_branch branch=chunk_delay_retry offset=%d bytes=%d attempt=%d errorCode=%d delayMs=%d',
@@ -1029,6 +1070,7 @@ async function uploadHighwayHttpOperation(
                     );
                 }
 
+                history.record(commandId, servers[worker.serverIndex]!, true);
                 break;
             } finally {
                 activeRequests -= 1;
@@ -1063,12 +1105,29 @@ async function uploadHighwayHttpOperation(
 
     try {
         try {
+            timeouts = highwayUploadTimeouts();
             concurrency = validateUploadConcurrency(
                 options.concurrency === undefined ? 1 : options.concurrency,
             );
         } catch (error) {
-            fail('invalid_options', error);
+            return fail('invalid_options', error);
         }
+
+        deadlineTimer = setTimeout(() => {
+            abortUpload(
+                'upload_timeout',
+                new Error(
+                    `highway upload timed out after ${timeouts.totalMs}ms (cmdId=${commandId} acknowledgedBytes=${trace.uploadedBytes}/${totalSize})`,
+                ),
+            );
+        }, timeouts.totalMs);
+        log.trace(
+            'highway_put_policy idleTimeoutMs=%d totalTimeoutMs=%d maxAttempts=%d servers=%j',
+            timeouts.idleMs,
+            timeouts.totalMs,
+            maxAttempts,
+            servers,
+        );
 
         const pieces = Math.ceil(totalSize / HIGHWAY_BLOCK_SIZE);
         // The final piece commits the file only after every preceding piece is
@@ -1142,6 +1201,7 @@ async function uploadHighwayHttpOperation(
             Date.now() - trace.startedAt,
         );
     } finally {
+        clearTimeout(deadlineTimer);
         abort.abort(new Error('highway upload stopped'));
 
         for (const worker of workers) {

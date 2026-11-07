@@ -177,6 +177,8 @@ beforeEach(() => {
 });
 afterEach(() => {
     setLogLevel(level);
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
 
     for (const socket of sockets) {
         socket.destroy();
@@ -184,6 +186,64 @@ afterEach(() => {
 });
 
 describe('bounded parallel highway uploads', () => {
+    it('does not let trickled response bytes extend the whole-file deadline', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '100');
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_IDLE_TIMEOUT_MS', '30');
+
+        onRequest = ({ socket }) => {
+            const timer = setInterval(() => socket.emit('data', Buffer.from('x')), 10);
+            socket.once('close', () => clearInterval(timer));
+        };
+
+        const source = new Source(80);
+        const start = Date.now();
+        const failed = expect(upload(source, 1)).rejects.toThrow('timed out after 100ms');
+        await Promise.all([failed, vi.runAllTimersAsync()]);
+        expect(Date.now() - start).toBe(100);
+        expect(source.closes).toBe(1);
+        expect(active.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('drains a pending source read after the deadline without sending its bytes', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '50');
+        const source = new Source(80);
+        let reading = false;
+        const read = source.read.bind(source);
+
+        source.read = async (offset, length) => {
+            reading = true;
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+            reading = false;
+            return read(offset, length);
+        };
+
+        const close = vi.spyOn(source, 'close').mockImplementation(async () => {
+            expect(reading).toBe(false);
+        });
+        const failed = expect(upload(source, 1)).rejects.toThrow('timed out after 50ms');
+        await Promise.all([failed, vi.runAllTimersAsync()]);
+        expect(connect).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('aborts all parallel requests at one whole-file deadline', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('SNOWLUMA_HIGHWAY_UPLOAD_TIMEOUT_MS', '1000');
+        const source = new Source(6 * BLOCK);
+        const start = Date.now();
+        const failed = expect(upload(source, 3)).rejects.toThrow('timed out after 1000ms');
+        await Promise.all([failed, vi.runAllTimersAsync()]);
+        expect(Date.now() - start).toBe(1000);
+        expect(requests).toHaveLength(3);
+        expect(sockets.every((socket) => socket.destroyed)).toBe(true);
+        expect(active.size).toBe(0);
+        expect(source.closes).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
     it.each([2, 3, 4])(
         'uses %i connections, accepts out-of-order acknowledgements and sends the tail last',
         async (concurrency) => {
