@@ -73,6 +73,64 @@ function decodeLongMsgRequest(rawBytes: Uint8Array): LongMsgResult {
 }
 
 describe('actions/forward — file segment inside forward node', () => {
+    it('rejects cached temporary files mixed with text before building a forward payload', async () => {
+        buildSendElemsMock.mockClear();
+        const bridge = mockBridge({
+            recallUploadedFile: vi.fn(() => ({ scope: 'group', groupId: 12345, busId: 104 })),
+        });
+        await expect(
+            new ForwardApi(bridge as any).upload(
+                [
+                    {
+                        userUin: 10001,
+                        nickname: 'alice',
+                        elements: [
+                            { type: 'text', text: 'caption' },
+                            { type: 'file', fileId: 'temp' },
+                        ],
+                    },
+                ],
+                12345,
+            ),
+        ).rejects.toThrow(/temporary group files.*only file or image/i);
+        expect(buildSendElemsMock).not.toHaveBeenCalled();
+        expect(bridge.sendRawPacket).not.toHaveBeenCalled();
+    });
+
+    it('disallows temporary fallback when a forward node mixes a new file with text', async () => {
+        buildSendElemsMock.mockClear();
+        const bridge = mockBridge();
+        bridge.apis.groupFile.upload.mockRejectedValueOnce(
+            new Error('temporary group files require only file or image segments'),
+        );
+        await expect(
+            new ForwardApi(bridge as any).upload(
+                [
+                    {
+                        userUin: 10001,
+                        nickname: 'alice',
+                        elements: [
+                            { type: 'text', text: 'caption' },
+                            { type: 'file', url: 'base64://AQID', fileName: 'note.txt' },
+                        ],
+                    },
+                ],
+                12345,
+            ),
+        ).rejects.toThrow(/temporary group files/);
+        expect(bridge.apis.groupFile.upload).toHaveBeenCalledWith(
+            12345,
+            'base64://AQID',
+            'note.txt',
+            '/',
+            true,
+            false,
+            { allowTemporary: false },
+        );
+        expect(buildSendElemsMock).not.toHaveBeenCalled();
+        expect(bridge.sendRawPacket).not.toHaveBeenCalled();
+    });
+
     it('rejects a recursive window shake before identity resolution or upload', async () => {
         buildSendElemsMock.mockClear();
         const resolveUserUid = vi.fn();
@@ -288,7 +346,9 @@ describe('actions/forward — file segment inside forward node', () => {
             12345,
         );
 
-        expect(upload).toHaveBeenCalledWith(12345, 'base64://AQID', 'note.txt', '/', true, false);
+        expect(upload).toHaveBeenCalledWith(12345, 'base64://AQID', 'note.txt', '/', true, false, {
+            allowTemporary: true,
+        });
         expect(publish).not.toHaveBeenCalled();
         const [elements] = buildSendElemsMock.mock.calls[0]!;
         expect(elements).toEqual([
@@ -513,6 +573,7 @@ describe('actions/forward — file segment inside forward node', () => {
             '/',
             true,
             false,
+            { allowTemporary: true },
         );
         const [elements] = buildSendElemsMock.mock.calls[0]!;
         expect(elements).toEqual([

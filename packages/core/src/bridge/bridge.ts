@@ -17,6 +17,8 @@ import type { OnlineDeviceInfo } from '@snowluma/protocol/events';
 import { buildApiHub, type ApiHub } from './apis';
 import { AiVoiceChatType, type AiVoiceCategory, type StrangerStatus } from './apis/extras';
 import type { BridgeInterface, RosterWarmupResult } from './bridge-interface';
+import type { UploadedFileMeta } from './bridge-context';
+export type { UploadedFileMeta } from './bridge-context';
 
 const log = createLogger('Bridge');
 const runtimeLog = createLogger('Bridge.Runtime');
@@ -592,23 +594,6 @@ export interface SendMessageReceipt {
     clientSequence: number;
     random: number;
     timestamp: number;
-}
-
-export interface UploadedFileMeta {
-    fileId: string;
-    scope: 'group' | 'private';
-    /** Group id if scope='group', else `undefined`. */
-    groupId?: number;
-    /** Friend uin if scope='private', else `undefined`. */
-    userId?: number;
-    fileName: string;
-    fileSize: number;
-    fileMd5: Uint8Array;
-    fileSha1: Uint8Array;
-    /** Server-issued hash returned alongside the upload (private only). */
-    fileHash?: string;
-    /** Insert time — used to evict the oldest entry when the cache fills. */
-    rememberedAt: number;
 }
 
 export interface DownloadRKeyInfo {

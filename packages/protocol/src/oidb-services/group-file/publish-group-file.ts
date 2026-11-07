@@ -21,6 +21,7 @@ export namespace PublishGroupFile {
     export interface Params {
         groupId: number;
         fileId: string;
+        busId?: number;
     }
     export type Deps = OidbSender;
 
@@ -29,7 +30,7 @@ export namespace PublishGroupFile {
             groupUin: p.groupId,
             type: 2,
             info: {
-                busiType: 102,
+                busiType: p.busId ?? 102,
                 fileId: p.fileId,
                 field3: Math.floor(Math.random() * 0x7fffffff) >>> 0,
                 field5: true,

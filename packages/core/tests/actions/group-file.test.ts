@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { protobuf_decode, protobuf_encode } from '@snowluma/proton';
 import type { OidbBase } from '@snowluma/proto-defs/oidb';
+import type { FileUploadExt } from '@snowluma/proto-defs/highway';
 import type {
     OidbGroupFileCountViewResp,
     OidbGroupFileReq,
     OidbGroupFileResp,
+    OidbGroupFileUploadResp,
     OidbGroupFileViewResp,
     OidbGroupFileFolderResp,
     OidbGroupSendFileReq,
@@ -68,6 +70,10 @@ function packResponse(body: Uint8Array) {
         errorMessage: '',
         responseData: Buffer.from(body),
     };
+}
+
+function uploadResponse(upload: OidbGroupFileUploadResp) {
+    return packResponse(protobuf_encode<OidbBase<OidbGroupFileResp>>({ body: { upload } }));
 }
 
 let STAGED_FILE: string;
@@ -138,7 +144,7 @@ describe('apis/group-file', () => {
         const api = new GroupFileApi(bridge as any);
         vi.spyOn(api, 'publish').mockResolvedValue();
         const out = await api.upload(12345, '/path/file.bin');
-        expect(out).toEqual({ fileId: 'fid-xyz' });
+        expect(out).toEqual({ fileId: 'fid-xyz', busId: 102 });
         expect(highwayClient.fetchHighwaySession).not.toHaveBeenCalled();
         expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
     });
@@ -224,7 +230,179 @@ describe('apis/group-file', () => {
         await expect(
             new GroupFileApi(bridge as any).upload(12345, '/path/file.bin'),
         ).rejects.toThrow(/code=999/);
+        expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+        expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
     });
+
+    it.each([-403, -9801, -98090])(
+        'retries capacity error %s as a temporary group file',
+        async (retCode) => {
+            const bridge = mockBridge();
+            bridge.sendRawPacket
+                .mockResolvedValueOnce(
+                    uploadResponse({ retCode, retMsg: 'permanent storage full' }),
+                )
+                .mockResolvedValueOnce(
+                    uploadResponse({ fileId: 'temporary-file', busId: 104, boolFileExist: true }),
+                );
+            const api = new GroupFileApi(bridge as any);
+            const result = await api.upload(12345, '/path/file.bin', 'doc.bin', '/folder');
+            expect(result).toMatchObject({ fileId: 'temporary-file', busId: 104 });
+            expect(bridge.sendRawPacket).toHaveBeenCalledTimes(3);
+            const requests = bridge.sendRawPacket.mock.calls
+                .slice(0, 2)
+                .map(([, bytes]) => protobuf_decode<OidbBase<OidbGroupFileReq>>(bytes).body?.file);
+            expect(requests[0]).toMatchObject({ busId: 102, targetDirectory: '/folder' });
+            expect(requests[1]).toEqual({ ...requests[0], busId: 104 });
+            const publish = protobuf_decode<OidbBase<OidbGroupSendFileReq>>(
+                bridge.sendRawPacket.mock.calls[2]![1],
+            );
+            expect(publish.body?.body?.info).toMatchObject({
+                fileId: 'temporary-file',
+                busiType: 104,
+            });
+            expect(bridge.rememberUploadedFile).toHaveBeenCalledWith(
+                expect.objectContaining({ busId: 104, groupId: 12345 }),
+            );
+            expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
+        },
+    );
+
+    it('carries the server-selected storage type through bytes, publication and cached reuse', async () => {
+        const bridge = mockBridge();
+        bridge.sendRawPacket.mockResolvedValueOnce(
+            uploadResponse({
+                fileId: 'temporary-file',
+                busId: 104,
+                uploadIp: '127.0.0.1',
+                uploadPort: 8080,
+                fileKey: new Uint8Array([7]),
+                checkKey: new Uint8Array([8]),
+            }),
+        );
+        bridge.recallUploadedFile.mockImplementation(
+            () => bridge.rememberUploadedFile.mock.calls.at(-1)?.[0],
+        );
+        const api = new GroupFileApi(bridge as any);
+        await api.upload(12345, '/path/file.bin');
+        const ext = protobuf_decode<FileUploadExt>(
+            vi.mocked(highwayClient.uploadHighwayHttp).mock.calls[0]![5],
+        );
+        expect(ext.entry?.busiBuff?.busId).toBe(104);
+        await api.publish(12345, 'temporary-file');
+
+        for (const [, bytes] of bridge.sendRawPacket.mock.calls.slice(1)) {
+            expect(
+                protobuf_decode<OidbBase<OidbGroupSendFileReq>>(bytes).body?.body?.info?.busiType,
+            ).toBe(104);
+        }
+    });
+
+    it('stops after a failed temporary attempt and releases the staged file', async () => {
+        const bridge = mockBridge();
+        bridge.sendRawPacket
+            .mockResolvedValueOnce(uploadResponse({ retCode: -403 }))
+            .mockResolvedValueOnce(
+                uploadResponse({ retCode: -9801, retMsg: 'temporary storage rejected' }),
+            );
+        await expect(
+            new GroupFileApi(bridge as any).upload(12345, '/path/file.bin'),
+        ).rejects.toThrow(/code=-9801/);
+        expect(bridge.sendRawPacket).toHaveBeenCalledTimes(2);
+        expect(bridge.rememberUploadedFile).not.toHaveBeenCalled();
+        expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
+        const staged = await vi.mocked(stageMod.stageSourceToDisk).mock.results.at(-1)!.value;
+        expect(staged.cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('retains temporary mode when the successful retry omits its storage type', async () => {
+        const bridge = mockBridge();
+        bridge.sendRawPacket
+            .mockResolvedValueOnce(uploadResponse({ retCode: -403 }))
+            .mockResolvedValueOnce(uploadResponse({ fileId: 'temp', boolFileExist: true }));
+        const api = new GroupFileApi(bridge as any);
+        const publish = vi.spyOn(api, 'publish').mockResolvedValue();
+        await expect(api.upload(12345, '/path/file.bin')).resolves.toEqual({
+            fileId: 'temp',
+            busId: 104,
+        });
+        expect(publish).toHaveBeenCalledExactlyOnceWith(12345, 'temp', 104);
+    });
+
+    it('rejects an unknown server storage type before bytes or publication', async () => {
+        const bridge = mockBridge();
+        bridge.sendRawPacket.mockResolvedValueOnce(
+            uploadResponse({ fileId: 'bad', busId: 777, boolFileExist: true }),
+        );
+        await expect(
+            new GroupFileApi(bridge as any).upload(12345, '/path/file.bin'),
+        ).rejects.toThrow(/unsupported storage type: 777/);
+        expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+        expect(bridge.rememberUploadedFile).not.toHaveBeenCalled();
+        expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { scope: 'group', groupId: 12345, expected: 104 },
+        { scope: 'group', groupId: 54321, expected: 102 },
+        { scope: 'private', groupId: undefined, expected: 102 },
+    ] as const)(
+        'scopes cached storage to the target group for download and reuse (%j)',
+        async ({ scope, groupId, expected }) => {
+            const bridge = mockBridge();
+            bridge.recallUploadedFile.mockReturnValue({
+                fileId: 'temp',
+                scope,
+                groupId,
+                busId: 104,
+            });
+            bridge.sendRawPacket.mockResolvedValueOnce(
+                packResponse(
+                    protobuf_encode<OidbBase<OidbGroupFileResp>>({
+                        body: {
+                            download: {
+                                downloadDns: 'download.example.com',
+                                downloadUrl: new Uint8Array([1]),
+                            },
+                        },
+                    }),
+                ),
+            );
+            const api = new GroupFileApi(bridge as any);
+            await api.getUrl(12345, 'temp');
+            await api.publish(12345, 'temp');
+            const requests = bridge.sendRawPacket.mock.calls;
+            expect(
+                protobuf_decode<OidbBase<OidbGroupFileReq>>(requests[0]![1]).body?.download?.busId,
+            ).toBe(expected);
+            expect(
+                protobuf_decode<OidbBase<OidbGroupSendFileReq>>(requests[1]![1]).body?.body?.info
+                    ?.busiType,
+            ).toBe(expected);
+        },
+    );
+
+    it.each([{ retCode: -403 }, { fileId: 'temp', busId: 104, boolFileExist: true }])(
+        'rejects a disallowed temporary upload before transferring bytes or publishing (%j)',
+        async (response) => {
+            const bridge = mockBridge();
+            bridge.sendRawPacket.mockResolvedValueOnce(uploadResponse(response));
+            await expect(
+                new GroupFileApi(bridge as any).upload(
+                    12345,
+                    '/path/file.bin',
+                    '',
+                    '/',
+                    true,
+                    false,
+                    { allowTemporary: false },
+                ),
+            ).rejects.toThrow(/temporary group files.*only file or image/i);
+            expect(bridge.sendRawPacket).toHaveBeenCalledOnce();
+            expect(bridge.rememberUploadedFile).not.toHaveBeenCalled();
+            expect(highwayClient.uploadHighwayHttp).not.toHaveBeenCalled();
+        },
+    );
 
     it('upload publishes the file via OIDB 0x6d9_4 after upload (the "empty message" regression)', async () => {
         // Reproduces the bug report: OIDB upload + highway PUT alone only
@@ -341,11 +519,12 @@ describe('apis/group-file', () => {
             const upload = api.upload(12345, 'base64://AQID', 'confirmed.txt');
 
             if (confirmed) {
-                await expect(upload).resolves.toEqual({ fileId: 'fid-confirm' });
-                expect(publishSpy).toHaveBeenCalledExactlyOnceWith(12345, 'fid-confirm');
+                await expect(upload).resolves.toEqual({ fileId: 'fid-confirm', busId: 102 });
+                expect(publishSpy).toHaveBeenCalledExactlyOnceWith(12345, 'fid-confirm', 102);
             } else {
                 await expect(upload).rejects.toBe(failure);
                 expect(publishSpy).not.toHaveBeenCalled();
+                expect(bridge.rememberUploadedFile).not.toHaveBeenCalled();
             }
 
             expect(highwayClient.uploadHighwayHttp).toHaveBeenCalledOnce();

@@ -95,8 +95,7 @@ describe('send_group_msg large-video fallback', () => {
         expect(gid).toBe(12345);
         expect(src).toBe('http://example.com/big.mp4');
         expect(name).toBe('video.mp4');
-        // upload() publishes internally — no second publish().
-        expect(publish).not.toHaveBeenCalled();
+        expect(publish).toHaveBeenCalledExactlyOnceWith(12345, 'auto-fid', undefined);
     });
 
     it('rethrows (no fallback) when a remote video fails with a non-size error', async () => {

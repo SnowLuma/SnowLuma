@@ -30,7 +30,7 @@ vi.mock('@snowluma/protocol/highway/video-upload', () => ({
 }));
 
 import { type bytes, type pb, protobuf_decode, protobuf_encode } from '@snowluma/proton';
-import type { MsgInfo } from '@snowluma/proto-defs/element';
+import type { GroupFileExtra, MsgInfo } from '@snowluma/proto-defs/element';
 import { buildSendElems, encodePrivateRichText } from '@snowluma/protocol/element-builder';
 import { uploadPtt } from '@snowluma/protocol/highway/ptt-upload';
 import { MessageElementValidationError } from '@snowluma/protocol/element-manifest';
@@ -374,6 +374,27 @@ describe('element-builder / all-message validation preflight', () => {
 });
 
 describe('element-builder / file element is no longer carried in elems[]', () => {
+    it.each([12345, 54321])(
+        'preserves temporary storage only in a matching group forward (%s)',
+        async (cachedGroupId) => {
+            const bridge = {
+                recallUploadedFile: vi.fn(() => ({
+                    scope: 'group',
+                    groupId: cachedGroupId,
+                    busId: 104,
+                    fileName: 'doc.pdf',
+                    fileSize: 3,
+                })),
+            } as any;
+            const [elem] = await buildSendElems([{ type: 'file', fileId: 'temp' }], {
+                bridge,
+                groupId: 12345,
+                forwardFake: true,
+            });
+            const extra = protobuf_decode<GroupFileExtra>(elem!.transElem!.elemValue!.subarray(3));
+            expect(extra.inner?.info?.busId).toBe(cachedGroupId === 12345 ? 104 : 102);
+        },
+    );
     // Regression for the `result=79` class: previously the element-builder
     // emitted a `transElem(elemType=24, ...)` for `{type:'file'}` segments
     // and the QQ-NT server rejected the outgoing PbSendMsg with that wire

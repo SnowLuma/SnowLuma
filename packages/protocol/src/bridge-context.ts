@@ -31,6 +31,8 @@ export interface UploadedFileMeta {
     scope: 'group' | 'private';
     /** Group id if scope='group', else `undefined`. */
     groupId?: number;
+    /** Server-selected group storage type: 102 permanent, 104 temporary. */
+    busId?: number;
     /** Friend uin if scope='private', else `undefined`. */
     userId?: number;
     fileName: string;

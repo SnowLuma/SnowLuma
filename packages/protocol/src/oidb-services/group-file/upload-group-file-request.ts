@@ -33,6 +33,7 @@ export namespace UploadGroupFileRequest {
         fileSize: number;
         fileSha1: Uint8Array;
         fileMd5: Uint8Array;
+        busId?: 102 | 104;
     }
 
     export type Deps = OidbSender;
@@ -41,7 +42,7 @@ export namespace UploadGroupFileRequest {
         file: {
             groupUin: p.groupId,
             appId: 4,
-            busId: 102,
+            busId: p.busId ?? 102,
             entrance: 6,
             targetDirectory: p.folderId,
             fileName: p.fileName,

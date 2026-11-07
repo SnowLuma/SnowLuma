@@ -22,15 +22,22 @@ import { MessageStore } from '../src/message-store';
 import { sendGroupMessage } from '../src/modules/message-actions';
 
 function fakeBridge(overrides: Partial<BridgeInterface> = {}): BridgeInterface {
-    return new Proxy({ identity: { nickname: 'SnowLuma' }, ...overrides } as BridgeInterface, {
-        get(target, prop) {
-            if (prop in target) {
-                return (target as any)[prop];
-            }
+    return new Proxy(
+        {
+            identity: { nickname: 'SnowLuma' },
+            recallUploadedFile: vi.fn(),
+            ...overrides,
+        } as BridgeInterface,
+        {
+            get(target, prop) {
+                if (prop in target) {
+                    return (target as any)[prop];
+                }
 
-            throw new Error(`fakeBridge: '${String(prop)}' was not stubbed for this test`);
+                throw new Error(`fakeBridge: '${String(prop)}' was not stubbed for this test`);
+            },
         },
-    });
+    );
 }
 
 function makeCtx(bridge: BridgeInterface, messageStore?: MessageStore): OneBotInstanceContext {
@@ -345,10 +352,214 @@ describe('send_group_msg with {type:"file"} segment', () => {
         expect(upload).not.toHaveBeenCalled();
     });
 
-    it('file segment with url (no file_id) auto-uploads via groupFile.upload (not publish)', async () => {
+    it('rejects text + image + temporary file before any chat publication', async () => {
+        const sendGroup = vi.fn(async () => goodReceipt);
+        const publish = vi.fn();
+        const upload = vi.fn(async () => ({ fileId: 'temp', busId: 104 }));
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: { message: { sendGroup }, groupFile: { upload, publish } } as any,
+            }),
+        );
+        await expect(
+            sendGroupMessage(
+                ctx,
+                12345,
+                [
+                    { type: 'text', data: { text: 'caption' } },
+                    { type: 'image', data: { file: 'base64://AQID' } },
+                    { type: 'file', data: { file: '/tmp/report.pdf' } },
+                ],
+                false,
+            ),
+        ).rejects.toThrow(/temporary group files.*only file or image/i);
+        expect(sendGroup).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
+    });
+
+    it('rejects cached temporary file + text before publishing an earlier permanent file', async () => {
+        const sendGroup = vi.fn(async () => goodReceipt);
+        const publish = vi.fn();
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: { message: { sendGroup }, groupFile: { publish } } as any,
+                recallUploadedFile: vi.fn((id) =>
+                    id === 'temp'
+                        ? {
+                              fileId: id,
+                              scope: 'group',
+                              groupId: 12345,
+                              busId: 104,
+                          }
+                        : undefined,
+                ),
+            } as any),
+        );
+        await expect(
+            sendGroupMessage(
+                ctx,
+                12345,
+                [
+                    { type: 'file', data: { file_id: 'permanent' } },
+                    { type: 'text', data: { text: 'caption' } },
+                    { type: 'file', data: { file_id: 'temp' } },
+                ],
+                false,
+            ),
+        ).rejects.toThrow(/temporary group files.*only file or image/i);
+        expect(sendGroup).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+        'allows temporary files with only file/image content (image=%s)',
+        async (withImage) => {
+            const sendGroup = vi.fn(async () => goodReceipt);
+            const publish = vi.fn();
+            const upload = vi.fn(async () => {
+                expect(sendGroup).not.toHaveBeenCalled();
+                expect(publish).not.toHaveBeenCalled();
+                return { fileId: 'temp', busId: 104 };
+            });
+            const ctx = makeCtx(
+                fakeBridge({
+                    apis: { message: { sendGroup }, groupFile: { upload, publish } } as any,
+                }),
+            );
+            const message = [
+                { type: 'file', data: { file: '/tmp/report.pdf' } },
+                ...(withImage ? [{ type: 'image', data: { file: 'base64://AQID' } }] : []),
+            ];
+            await sendGroupMessage(ctx, 12345, message, false);
+            expect(upload).toHaveBeenCalledWith(
+                12345,
+                '/tmp/report.pdf',
+                'report.pdf',
+                '/',
+                true,
+                false,
+                { allowTemporary: true },
+            );
+            expect(publish).toHaveBeenCalledExactlyOnceWith(12345, 'temp', 104);
+            expect(sendGroup).toHaveBeenCalledTimes(withImage ? 1 : 0);
+        },
+    );
+
+    it('preserves ordinary image + text without entering the group-file path', async () => {
+        const sendGroup = vi.fn(async () => goodReceipt);
+        const upload = vi.fn();
+        const publish = vi.fn();
+        const ctx = makeCtx(
+            fakeBridge({ apis: { message: { sendGroup }, groupFile: { upload, publish } } as any }),
+        );
+        await sendGroupMessage(
+            ctx,
+            12345,
+            [
+                { type: 'image', data: { file: 'base64://AQID' } },
+                { type: 'text', data: { text: 'caption' } },
+            ],
+            false,
+        );
+        expect(sendGroup).toHaveBeenCalledOnce();
+        expect(sendGroup.mock.calls[0]).toMatchObject([
+            12345,
+            [
+                { type: 'image', url: 'base64://AQID' },
+                { type: 'text', text: 'caption' },
+            ],
+        ]);
+        expect(upload).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
+    });
+
+    it('keeps permanent file + text sends, but checks uploads before sending the text', async () => {
+        const sendGroup = vi.fn(async () => goodReceipt);
+        const publish = vi.fn();
+        const upload = vi.fn(async () => {
+            expect(sendGroup).not.toHaveBeenCalled();
+            return { fileId: 'permanent', busId: 102 };
+        });
+        const ctx = makeCtx(
+            fakeBridge({ apis: { message: { sendGroup }, groupFile: { upload, publish } } as any }),
+        );
+        await sendGroupMessage(
+            ctx,
+            12345,
+            [
+                { type: 'text', data: { text: 'caption' } },
+                { type: 'file', data: { file: '/tmp/report.pdf' } },
+            ],
+            false,
+        );
+        expect(upload).toHaveBeenCalledWith(
+            12345,
+            '/tmp/report.pdf',
+            'report.pdf',
+            '/',
+            true,
+            false,
+            { allowTemporary: false },
+        );
+        expect(sendGroup).toHaveBeenCalledOnce();
+        expect(publish).toHaveBeenCalledExactlyOnceWith(12345, 'permanent', 102);
+    });
+
+    it('does not publish the first file or text if a later upload fails', async () => {
+        const sendGroup = vi.fn();
+        const publish = vi.fn();
+        const upload = vi
+            .fn()
+            .mockResolvedValueOnce({ fileId: 'first', busId: 102 })
+            .mockRejectedValueOnce(
+                new Error('temporary group files require only file or image segments'),
+            );
+        const ctx = makeCtx(
+            fakeBridge({ apis: { message: { sendGroup }, groupFile: { upload, publish } } as any }),
+        );
+        await expect(
+            sendGroupMessage(
+                ctx,
+                12345,
+                [
+                    { type: 'text', data: { text: 'caption' } },
+                    { type: 'file', data: { file: '/tmp/one.pdf' } },
+                    { type: 'file', data: { file: '/tmp/two.pdf' } },
+                ],
+                false,
+            ),
+        ).rejects.toThrow(/temporary group files/);
+        expect(sendGroup).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed file publication with its identity and never retries the send', async () => {
+        const cause = new Error('chat post rejected');
+        const publish = vi.fn().mockRejectedValueOnce(cause);
+        const upload = vi.fn(async () => ({ fileId: 'temp', busId: 104 }));
+        const ctx = makeCtx(
+            fakeBridge({
+                apis: { message: { sendGroup: vi.fn() }, groupFile: { upload, publish } } as any,
+            }),
+        );
+        await expect(
+            sendGroupMessage(
+                ctx,
+                12345,
+                [{ type: 'file', data: { file: '/tmp/report.pdf' } }],
+                false,
+            ),
+        ).rejects.toMatchObject({
+            message: 'group file chat post failed (fileId=temp): chat post rejected',
+            cause,
+        });
+        expect(upload).toHaveBeenCalledOnce();
+        expect(publish).toHaveBeenCalledOnce();
+    });
+
+    it('uploads a file source without publishing, then publishes it exactly once', async () => {
         // Happy path for inline file sending: the bot passes a local path
-        // directly. upload() internally calls publish(), so we must NOT
-        // call publish() a second time.
+        // directly. Delay chat publication until all uploads are checked.
         const upload = vi.fn(
             async (
                 _gid: number,
@@ -387,8 +598,16 @@ describe('send_group_msg with {type:"file"} segment', () => {
         expect(name).toBe('audio.wav');
         expect(folder).toBe('/');
         expect(doUpload).toBe(true);
-        // publish must NOT be called — upload() already handles it internally
-        expect(publish).not.toHaveBeenCalled();
+        expect(upload).toHaveBeenCalledWith(
+            12345,
+            '/tmp/audio.wav',
+            'audio.wav',
+            '/',
+            true,
+            false,
+            { allowTemporary: true },
+        );
+        expect(publish).toHaveBeenCalledExactlyOnceWith(12345, 'auto-fid', undefined);
     });
 
     it('percent-decodes a file:// URL basename when name is omitted (#354)', async () => {

@@ -406,6 +406,7 @@ export class ForwardApi {
         name: string,
         groupId?: number,
         userId?: number,
+        allowTemporary = true,
     ): Promise<MessageElementOf<'file'>> {
         if (groupId !== undefined) {
             const uploaded = await this.ctx.apis.groupFile.upload(
@@ -415,6 +416,7 @@ export class ForwardApi {
                 '/',
                 true,
                 false,
+                { allowTemporary },
             );
 
             if (!uploaded.fileId) {
@@ -482,6 +484,7 @@ export class ForwardApi {
         element: MessageElement,
         groupId?: number,
         userId?: number,
+        allowTemporary = true,
     ): Promise<MessageElement> {
         if (element.type !== 'file') {
             return element;
@@ -495,6 +498,7 @@ export class ForwardApi {
                 fileNameForUpload(element),
                 groupId,
                 userId,
+                allowTemporary,
             );
             return {
                 ...stripFileSource(element),
@@ -506,6 +510,14 @@ export class ForwardApi {
             const cached = this.ctx.recallUploadedFile(element.fileId);
 
             if (isCachedFileUsableInTarget(cached, groupId, userId)) {
+                if (groupId !== undefined && cached?.busId === 104 && !allowTemporary) {
+                    throw new MessageElementValidationError(
+                        'UNSENDABLE_TYPE',
+                        'temporary group files require only file or image segments in the same forward node',
+                        'file',
+                    );
+                }
+
                 return element;
             }
 
@@ -515,6 +527,7 @@ export class ForwardApi {
                 fileNameForUpload(element, cached),
                 groupId,
                 userId,
+                allowTemporary,
             );
             return {
                 ...stripFileSource(element),
@@ -532,9 +545,12 @@ export class ForwardApi {
     ): Promise<ForwardNodePayload[]> {
         return Promise.all(
             nodes.map(async (node) => {
+                const allowTemporary = node.elements.every(
+                    (element) => element.type === 'file' || element.type === 'image',
+                );
                 const elements = await Promise.all(
                     node.elements.map((element) =>
-                        this.prepareForwardFileElement(element, groupId, userId),
+                        this.prepareForwardFileElement(element, groupId, userId, allowTemporary),
                     ),
                 );
                 return cloneNodeWithElements(node, elements);

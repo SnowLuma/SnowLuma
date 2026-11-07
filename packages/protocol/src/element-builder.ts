@@ -607,6 +607,8 @@ function makeGroupFileElem(element: MessageElement, ctx?: SendContext): ProtoEle
     }
 
     const cached = ctx?.bridge.recallUploadedFile(element.fileId);
+    const busId =
+        cached?.scope === 'group' && cached.groupId === ctx?.groupId ? (cached.busId ?? 102) : 102;
     const fileSize = element.fileSize ?? cached?.fileSize ?? 0;
     const fileName = element.fileName ?? cached?.fileName ?? '';
     const md5 = element.md5Hex
@@ -618,13 +620,13 @@ function makeGroupFileElem(element: MessageElement, ctx?: SendContext): ProtoEle
 
     // Outer field1 is hardcoded to 6 in NapCat's encoder
     // (`packet/message/element.ts:589`). Inner GroupFileExtraInfo carries
-    // busId=102 + the file_id + name + size + sha1/md5 hashes.
+    // the storage type + file_id + name + size + sha1/md5 hashes.
     const extraBytes = protobuf_encode<GroupFileExtra>({
         field1: 6,
         fileName,
         inner: {
             info: {
-                busId: 102,
+                busId,
                 fileId: element.fileId,
                 fileSize: BigInt(fileSize),
                 fileName,

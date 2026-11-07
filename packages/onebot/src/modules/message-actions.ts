@@ -1409,9 +1409,8 @@ export async function sendGroupMessage(
         throw new Error('message is empty');
     }
 
-    // Two sub-paths for group file segments:
-    //  a) has url/path but no file_id → upload() which internally calls publish()
-    //  b) has file_id from a prior upload_group_file → publish() only
+    // Prepare all file uploads before publishing any part of the message.
+    // Whether storage is temporary is only known after the upload preflight.
     let allFileElements = elements.filter((e) => e.type === 'file');
     let nonFileElements = elements.filter((e) => e.type !== 'file');
 
@@ -1425,6 +1424,73 @@ export async function sendGroupMessage(
             nonFileElements = pre.remaining;
         }
     }
+
+    let allowTemporary = nonFileElements.every((element) => element.type === 'image');
+
+    const assertStorageAllowed = (busId: number | undefined) => {
+        if (busId === 104 && !allowTemporary) {
+            throw new MessageElementValidationError(
+                'UNSENDABLE_TYPE',
+                'temporary group files require only file or image segments; remove text and other content before retrying',
+                'file',
+            );
+        }
+    };
+
+    const preparedFiles: Array<{
+        element: MessageElementOf<'file'>;
+        fileId: string;
+        busId?: number;
+    }> = [];
+
+    const prepareFiles = async (files: Array<MessageElementOf<'file'>>) => {
+        // Check known temporary ids first, even if preceded by a new upload.
+        const candidates = files.map((element) => {
+            const cached = element.fileId
+                ? ref.bridge.recallUploadedFile(element.fileId)
+                : undefined;
+            const busId =
+                cached?.scope === 'group' && cached.groupId === groupId ? cached.busId : undefined;
+            assertStorageAllowed(busId);
+            return { element, fileId: element.fileId, busId };
+        });
+
+        for (const candidate of candidates) {
+            const { element } = candidate;
+
+            if (!candidate.fileId) {
+                if (!element.url) {
+                    throw new MessageElementValidationError(
+                        'MISSING_FIELD',
+                        'group file segment requires file_id or url',
+                        'file',
+                    );
+                }
+
+                const name = element.fileName || guessFileNameFromUrl(element.url) || 'file';
+                const uploaded = await ref.bridge.apis.groupFile.upload(
+                    groupId,
+                    element.url,
+                    name,
+                    '/',
+                    true,
+                    false,
+                    { allowTemporary },
+                );
+                candidate.fileId = uploaded.fileId;
+                candidate.busId = uploaded.busId;
+                assertStorageAllowed(candidate.busId);
+            }
+
+            if (!candidate.fileId) {
+                throw new Error('group file auto-upload returned no file_id');
+            }
+
+            preparedFiles.push({ element, fileId: candidate.fileId, busId: candidate.busId });
+        }
+    };
+
+    await prepareFiles(allFileElements);
 
     let lastReceipt: Awaited<ReturnType<typeof ref.bridge.apis.message.sendGroup>> | undefined;
 
@@ -1447,8 +1513,9 @@ export async function sendGroupMessage(
                 err instanceof Error ? err.message : String(err),
             );
             const { fileEls, remaining } = splitVideoFileFallback(nonFileElements, isSizeErr);
-            allFileElements = [...allFileElements, ...fileEls];
             nonFileElements = remaining;
+            allowTemporary = remaining.every((element) => element.type === 'image');
+            await prepareFiles(fileEls);
 
             if (nonFileElements.length > 0) {
                 lastReceipt = await ref.bridge.apis.message.sendGroup(groupId, nonFileElements);
@@ -1457,34 +1524,14 @@ export async function sendGroupMessage(
         }
     }
 
-    for (const fileEl of allFileElements) {
-        let fileId: string;
-
-        if (fileEl.url && !fileEl.fileId) {
-            // upload() already calls publish() internally — do NOT call publish() again.
-            const name = fileEl.fileName || guessFileNameFromUrl(fileEl.url) || 'file';
-            const result = await ref.bridge.apis.groupFile.upload(
-                groupId,
-                fileEl.url,
-                name,
-                '/',
-                true,
+    for (const { element: fileEl, fileId, busId } of preparedFiles) {
+        try {
+            await ref.bridge.apis.groupFile.publish(groupId, fileId, busId);
+        } catch (err) {
+            throw new Error(
+                `group file chat post failed (fileId=${fileId}): ${err instanceof Error ? err.message : String(err)}`,
+                { cause: err },
             );
-            fileId = result.fileId ?? '';
-
-            if (!fileId) {
-                throw new Error('group file auto-upload returned no file_id');
-            }
-        } else if (fileEl.fileId) {
-            fileId = fileEl.fileId;
-            await ref.bridge.apis.groupFile.publish(groupId, fileId);
-        } else {
-            throw new MessageElementValidationError(
-                'MISSING_FIELD',
-                'group file segment requires file_id or url',
-                'file',
-            );
-            continue;
         }
 
         logSentMessage(true, groupId, [fileEl]);

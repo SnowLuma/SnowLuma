@@ -76,6 +76,16 @@ export interface UploadFileResult {
     fileHash?: string | null;
 }
 
+export interface GroupFileUploadResult {
+    fileId: string;
+    busId: number;
+}
+
+export interface GroupFileUploadOptions {
+    /** False when the enclosing message contains content a temporary file cannot carry. */
+    allowTemporary?: boolean;
+}
+
 // Re-export so callers don't have to dig into apis/shared.
 export type { MediaIndexNode } from './shared';
 
@@ -136,6 +146,7 @@ async function assertUnchanged(
 function buildGroupFileUploadExt(
     senderUin: number,
     groupId: number,
+    busId: number,
     fileName: string,
     fileSize: number,
     md5: Uint8Array,
@@ -150,7 +161,7 @@ function buildGroupFileUploadExt(
         unknown2: 1,
         entry: {
             busiBuff: {
-                busId: 102,
+                busId,
                 senderUin: BigInt(senderUin),
                 receiverUin: BigInt(groupId),
                 groupCode: BigInt(groupId),
@@ -255,12 +266,23 @@ export class GroupFileApi {
 
     // ─────────────── publish (group file → chat) ───────────────
 
-    publish(groupId: number, fileId: string): Promise<void> {
+    publish(groupId: number, fileId: string, busId?: number): Promise<void> {
         if (!fileId) {
             throw new Error('publish requires fileId');
         }
 
-        return PublishGroupFile.invoke(this.ctx, { groupId, fileId });
+        return PublishGroupFile.invoke(this.ctx, {
+            groupId,
+            fileId,
+            busId: busId ?? this.cachedBusId(groupId, fileId),
+        });
+    }
+
+    private cachedBusId(groupId: number, fileId: string): number {
+        const cached = this.ctx.recallUploadedFile(fileId);
+        return cached?.scope === 'group' && cached.groupId === groupId
+            ? (cached.busId ?? 102)
+            : 102;
     }
 
     trans(groupId: number, fileId: string): Promise<TransGroupFileResult> {
@@ -290,7 +312,8 @@ export class GroupFileApi {
         folderId = '/',
         uploadFile = true,
         publishFile = uploadFile,
-    ): Promise<UploadFileResult> {
+        options: GroupFileUploadOptions = {},
+    ): Promise<GroupFileUploadResult> {
         const bridge = this.ctx;
         // Group/private files may legitimately be up to 4 GiB on QQ's wire, so
         // override the default 1 GiB cap with the protocol ceiling. Stage onto a
@@ -307,14 +330,36 @@ export class GroupFileApi {
             const guardStat = await fsp.stat(staged.filePath); // mutation-guard baseline
             const hashes = await hashFileStreaming(staged.filePath);
 
-            const upload = await UploadGroupFileRequest.invoke(this.ctx, {
+            const params: UploadGroupFileRequest.Params = {
                 groupId,
                 fileName,
                 folderId: normalizeDirectory(folderId),
                 fileSize: staged.fileSize,
                 fileSha1: hashes.sha1,
                 fileMd5: hashes.md5,
-            });
+                busId: 102,
+            };
+            let upload = await UploadGroupFileRequest.invoke(this.ctx, params);
+
+            // These are the storage-limit responses for which QQ switches to
+            // temporary storage. Never retry transport, permission or arbitrary
+            // service errors, and never retry the temporary request itself.
+            if (upload.retCode === -403 || upload.retCode === -9801 || upload.retCode === -98090) {
+                if (options.allowTemporary === false) {
+                    throw new Error(
+                        `temporary group files require only file or image segments; remove text and other content before retrying (group file upload code=${upload.retCode})`,
+                    );
+                }
+
+                log.warn(
+                    'Group %d permanent file storage rejected upload (code=%d); retrying as a temporary file',
+                    groupId,
+                    upload.retCode,
+                );
+                params.busId = 104;
+                upload = await UploadGroupFileRequest.invoke(this.ctx, params);
+            }
+
             ensureRetCodeZero(
                 'group file upload',
                 upload.retCode,
@@ -322,29 +367,24 @@ export class GroupFileApi {
                 upload.clientWording,
             );
 
+            const busId = upload.busId || params.busId;
+
+            if (busId !== 102 && busId !== 104) {
+                throw new Error(`group file upload returned unsupported storage type: ${busId}`);
+            }
+
+            if (busId === 104 && options.allowTemporary === false) {
+                throw new Error(
+                    'temporary group files require only file or image segments; remove text and other content before retrying',
+                );
+            }
+
             const fileId =
                 typeof upload.fileId === 'string' && upload.fileId ? upload.fileId : null;
 
             if (!fileId) {
                 throw new Error('group file upload response missing file_id');
             }
-
-            // Remember the upload so a later `send_group_msg` carrying just the
-            // file_id can route via `publish` without forcing the OneBot caller
-            // to thread fileName/size/md5 separately. For groups the wire
-            // publish (OIDB 0x6d9_4) only needs the file_id itself, so this is
-            // mainly for log-line correctness; the c2c counterpart in
-            // `uploadPrivate` is where the cache is actually load-bearing.
-            this.ctx.rememberUploadedFile({
-                fileId,
-                scope: 'group',
-                groupId,
-                fileName,
-                fileSize: staged.fileSize,
-                fileMd5: hashes.md5,
-                fileSha1: hashes.sha1,
-                rememberedAt: Date.now(),
-            });
 
             if (!upload.boolFileExist && uploadFile) {
                 const senderUin = toInt(this.ctx.identity.uin);
@@ -366,6 +406,7 @@ export class GroupFileApi {
                 const ext = buildGroupFileUploadExt(
                     senderUin,
                     groupId,
+                    busId,
                     fileName,
                     staged.fileSize,
                     hashes.md5,
@@ -386,6 +427,20 @@ export class GroupFileApi {
                 await uploadHighwayHttp(bridge, session, 71, chunkSource, hashes.md5, ext);
             }
 
+            // Retain the storage type for later file_id publication and download.
+            // A failed byte transfer must not leave a usable-looking cache entry.
+            this.ctx.rememberUploadedFile({
+                fileId,
+                scope: 'group',
+                groupId,
+                busId,
+                fileName,
+                fileSize: staged.fileSize,
+                fileMd5: hashes.md5,
+                fileSha1: hashes.sha1,
+                rememberedAt: Date.now(),
+            });
+
             // Stage 3: file is on the server, now publish it as a chat message.
             //
             // Without this, OIDB 0x6D6_0 + highway PUT only stages the bytes —
@@ -398,7 +453,7 @@ export class GroupFileApi {
             // tests can mock at the same Api boundary.
             if (publishFile) {
                 try {
-                    await this.publish(groupId, fileId);
+                    await this.publish(groupId, fileId, busId);
                 } catch (err) {
                     // Keep the completed upload identifiable, but a requested chat
                     // publication must not be reported as a successful send.
@@ -409,7 +464,7 @@ export class GroupFileApi {
                 }
             }
 
-            return { fileId };
+            return { fileId, busId };
         } finally {
             await staged.cleanup();
         }
@@ -711,8 +766,12 @@ export class GroupFileApi {
 
     // ─────────────── url fetch (group / private files) ───────────────
 
-    async getUrl(groupId: number, fileId: string, busId = 102): Promise<string> {
-        return GetGroupFileUrl.invoke(this.ctx, { groupId, fileId, busId });
+    async getUrl(groupId: number, fileId: string, busId?: number): Promise<string> {
+        return GetGroupFileUrl.invoke(this.ctx, {
+            groupId,
+            fileId,
+            busId: busId ?? this.cachedBusId(groupId, fileId),
+        });
     }
 
     async getPrivateUrl(userId: number, fileId: string, fileHash: string): Promise<string> {

@@ -4,17 +4,17 @@ import { RETCODE, failedResponse, okResponse } from '../types';
 // NapCat/LLOneBot omit `busid` from their `get_group_file_url` schema entirely,
 // so whatever value a client tacks on is silently ignored. Mirror that here:
 // accept any value, coerce when it's a usable non-negative integer, else fall
-// back to the canonical 102. Restores the legacy `asNumber(busid) || 102`
+// back to the uploaded file's known storage type (otherwise 102). Retains the
 // semantics that a strict `f.int({min:0}).default(102)` regressed (a *present*
 // non-numeric busid was rejected with `expected an integer`). See issue #147.
-function busidOr102(raw: unknown): number {
+function optionalBusId(raw: unknown): number | undefined {
     const n =
         typeof raw === 'number' && Number.isFinite(raw)
             ? Math.trunc(raw)
             : typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))
               ? Math.trunc(Number(raw))
               : NaN;
-    return Number.isInteger(n) && n >= 0 ? n : 102;
+    return Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
 export const actions = [
@@ -159,7 +159,7 @@ export const actions = [
             properties: { url: { type: 'string', description: '文件下载直链' } },
             required: ['url'],
         },
-        // busid is accepted but tolerant (see busidOr102): NapCat/LLBot ignore it,
+        // busid is accepted but tolerant (see optionalBusId): NapCat/LLBot ignore it,
         // so a present null/empty/non-numeric value must not 400 the request (#147).
         params: { file_id: f.fileId(), busid: f.raw() },
         run: async (p, ctx) => {
@@ -167,7 +167,7 @@ export const actions = [
                 url: await ctx.bridge.apis.groupFile.getUrl(
                     p.group_id,
                     p.file_id,
-                    busidOr102(p.busid),
+                    optionalBusId(p.busid),
                 ),
             });
         },
