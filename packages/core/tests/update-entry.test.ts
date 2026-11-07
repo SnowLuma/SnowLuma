@@ -152,7 +152,8 @@ async function candidate(directory: string) {
     await cp(path.join(compiled, '2.0.0/index.mjs'), path.join(directory, 'payload/index.mjs'));
 }
 
-describe('packaged startup', () => {
+// Allow filesystem replacement and both launcher processes to finish before cleanup.
+describe('packaged startup', { timeout: 15_000 }, () => {
     it('preserves the exact Node executable, arguments and working directory', async () => {
         const result = await run('', ['value with spaces']);
         expect(result.code, result.output).toBe(0);

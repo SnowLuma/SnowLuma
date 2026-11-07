@@ -26,7 +26,8 @@ afterEach(async () => {
     await fs.rm(staging, { recursive: true, force: true });
 });
 
-describe('staged updates', () => {
+// These tests copy and replace real release trees, which can be slower on Windows.
+describe('staged updates', { timeout: 15_000 }, () => {
     it.each(['0.9.0', '1.0.0', '2.0.0-rc.1'])(
         'applies an explicitly staged downgrade, reinstall or prerelease: %s',
         async (version) => {

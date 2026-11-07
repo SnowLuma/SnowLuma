@@ -15,6 +15,8 @@ vi.mock('node:fs/promises', async (original) => {
 
 let root: string;
 let staging: string;
+// Real filesystem staging can exceed waitFor's default one-second budget under load.
+const fileSystemWait = { timeout: 5_000 };
 beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snowluma-update-service-'));
     await releaseFixture(root, '1.0.0');
@@ -30,7 +32,7 @@ afterEach(async () => {
     await rm(staging, { recursive: true, force: true });
 });
 
-describe('update service', () => {
+describe('update service', { timeout: 15_000 }, () => {
     it('stages a single download, survives a service reload and leaves running files alone', async () => {
         let finish!: () => void;
         const wait = new Promise<void>((resolve) => {
@@ -53,7 +55,7 @@ describe('update service', () => {
         });
         expect(() => service.start('2.0.0')).toThrow('正在进行');
         finish();
-        await vi.waitFor(() => expect(service.status().phase).toBe('ready'));
+        await vi.waitFor(() => expect(service.status().phase).toBe('ready'), fileSystemWait);
         expect(download).toHaveBeenCalledOnce();
         expect(await readdir(path.join(staging, 'pending'))).toEqual(['payload']);
         const reloaded = await createUpdateService(root, '1.0.0', {
@@ -76,17 +78,19 @@ describe('update service', () => {
             restartAvailable: true,
         });
         service.start('2.0.0');
-        await vi.waitFor(() =>
-            expect(service.status()).toEqual({
-                current: '1.0.0',
-                phase: 'error',
-                message: 'connection reset',
-            }),
+        await vi.waitFor(
+            () =>
+                expect(service.status()).toEqual({
+                    current: '1.0.0',
+                    phase: 'error',
+                    message: 'connection reset',
+                }),
+            fileSystemWait,
         );
         expect(await readdir(staging)).toEqual([]);
         expect(() => service.start('2.0.0')).not.toThrow();
-        await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(2));
-        await vi.waitFor(() => expect(service.status().phase).toBe('error'));
+        await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(2), fileSystemWait);
+        await vi.waitFor(() => expect(service.status().phase).toBe('error'), fileSystemWait);
     });
 
     it.each(['02.0.0', '2.0.0\n', '../../outside', null])(
@@ -112,7 +116,7 @@ describe('update service', () => {
             restartAvailable: true,
         });
         service.start('2.0.0+build.01');
-        await vi.waitFor(() => expect(service.status().phase).toBe('ready'));
+        await vi.waitFor(() => expect(service.status().phase).toBe('ready'), fileSystemWait);
         expect(download).toHaveBeenCalledWith(expect.any(String), '2.0.0+build.01', 'win32-x64');
         expect(service.status()).toMatchObject({ version: '2.0.0+build.01' });
     });
@@ -136,8 +140,9 @@ describe('update service', () => {
                 restartAvailable: true,
             });
             service.start(version);
-            await vi.waitFor(() =>
-                expect(service.status()).toMatchObject({ phase: 'ready', version }),
+            await vi.waitFor(
+                () => expect(service.status()).toMatchObject({ phase: 'ready', version }),
+                fileSystemWait,
             );
             expect(download).toHaveBeenCalledWith(expect.any(String), version, 'win32-x64');
         },
@@ -157,8 +162,9 @@ describe('update service', () => {
         expect(() => service.start('1.0.0-rc.1')).toThrow('降级需要明确确认');
         expect(download).not.toHaveBeenCalled();
         service.start('0.9.0', { allowDowngrade: true });
-        await vi.waitFor(() =>
-            expect(service.status()).toMatchObject({ phase: 'ready', version: '0.9.0' }),
+        await vi.waitFor(
+            () => expect(service.status()).toMatchObject({ phase: 'ready', version: '0.9.0' }),
+            fileSystemWait,
         );
     });
 
@@ -232,11 +238,13 @@ describe('update service', () => {
             Object.assign(new Error('mount became read-only'), { code: 'EROFS' }),
         );
         service.start('2.0.0');
-        await vi.waitFor(() =>
-            expect(service.status()).toMatchObject({
-                phase: 'error',
-                message: expect.stringContaining('mount became read-only'),
-            }),
+        await vi.waitFor(
+            () =>
+                expect(service.status()).toMatchObject({
+                    phase: 'error',
+                    message: expect.stringContaining('mount became read-only'),
+                }),
+            fileSystemWait,
         );
         expect(download).not.toHaveBeenCalled();
     });

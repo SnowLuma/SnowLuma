@@ -6,6 +6,7 @@ import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
 import { releaseAction } from '@/lib/update-versions';
 import { startPolling } from '@/lib/polling';
+import { createUpdateFeedback } from '@/lib/update-feedback';
 import { ReleaseVersionPicker } from './release-version-picker';
 import type { ReleaseVersionsResult, UpdateStatus } from '@/types';
 
@@ -31,8 +32,12 @@ export function UpdateInstaller({ version }: { version: string | null }) {
         }
 
         let disposed = false;
-        let finished = false;
         const activity = phase === 'downloading' ? startAction({ title: '正在下载更新' }) : null;
+        const feedback = createUpdateFeedback(activity, (message) => {
+            (activity ?? startAction({ title: '读取更新状态' })).fail(message, {
+                title: '读取更新状态失败',
+            });
+        });
 
         const stop = startPolling(
             async () => {
@@ -46,17 +51,7 @@ export function UpdateInstaller({ version }: { version: string | null }) {
                     setStatus(next);
                     setError(null);
 
-                    if (next.phase === 'ready') {
-                        if (!finished) {
-                            activity?.succeed({ title: '更新已就绪', detail: '重启后生效' });
-                            finished = true;
-                        }
-                    } else if (next.phase === 'error') {
-                        if (!finished) {
-                            activity?.fail(next.message, { title: '更新失败' });
-                            finished = true;
-                        }
-                    }
+                    feedback.status(next);
                 } catch (caught) {
                     if (disposed) {
                         return;
@@ -65,12 +60,7 @@ export function UpdateInstaller({ version }: { version: string | null }) {
                     const message = caught instanceof Error ? caught.message : String(caught);
                     setError(message);
 
-                    if (!finished) {
-                        (activity ?? startAction({ title: '读取更新状态' })).fail(message, {
-                            title: '读取更新状态失败',
-                        });
-                        finished = true;
-                    }
+                    feedback.pollingError(message);
                 }
             },
             phase === undefined ? 5000 : 1000,
@@ -80,9 +70,7 @@ export function UpdateInstaller({ version }: { version: string | null }) {
             disposed = true;
             stop();
 
-            if (activity && !finished) {
-                activity.succeed({ title: '更新继续在后台进行', detail: '返回关于页面查看结果' });
-            }
+            feedback.dispose();
         };
     }, [api, phase, startAction]);
 
