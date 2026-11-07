@@ -1,4 +1,5 @@
 import { errorMessage } from '@snowluma/common/errors';
+import { positiveIntEnv } from '@snowluma/common/env';
 import {
     createLogger,
     runWithoutRequestContext,
@@ -132,6 +133,8 @@ export class HookSession extends EventEmitter {
     private receiveWatchArmed = false;
     private receiveWatchTimer: ReturnType<typeof setTimeout> | null = null;
     private lastReceiveAt = 0;
+    private readonly receiveStaleAfterMs: number;
+    private readonly receiveStaleConfirmMs: number;
 
     constructor(pid: number, deps: HookSessionDeps) {
         super();
@@ -142,6 +145,14 @@ export class HookSession extends EventEmitter {
         this.pipeWatcher = deps.pipeWatcher;
         this.onPacket = deps.onPacket ?? null;
         this.log = deps.log ?? createLogger('HookSession');
+        this.receiveStaleAfterMs = positiveIntEnv(
+            'SNOWLUMA_RECEIVE_STALE_AFTER_MS',
+            RECEIVE_STALE_AFTER_MS,
+        );
+        this.receiveStaleConfirmMs = positiveIntEnv(
+            'SNOWLUMA_RECEIVE_STALE_CONFIRM_MS',
+            RECEIVE_STALE_CONFIRM_MS,
+        );
     }
 
     // ─────────────── readonly public surface ───────────────
@@ -1313,7 +1324,7 @@ export class HookSession extends EventEmitter {
             }
 
             // A delayed event loop (notably system sleep/resume) lands here long
-            // after the nominal 90s deadline. Do not flip health immediately: give
+            // after the configured deadline. Do not flip health immediately: give
             // the real QQ heartbeat one short confirmation window to arrive.
             this.receiveWatchTimer = setTimeout(() => {
                 this.receiveWatchTimer = null;
@@ -1324,22 +1335,22 @@ export class HookSession extends EventEmitter {
 
                 const silentForMs = Date.now() - this.lastReceiveAt;
 
-                if (silentForMs < RECEIVE_STALE_AFTER_MS + RECEIVE_STALE_CONFIRM_MS) {
+                if (silentForMs < this.receiveStaleAfterMs + this.receiveStaleConfirmMs) {
                     this.scheduleReceiveStaleCheck();
                     return;
                 }
 
                 this.setReceiveHealthy(false);
-                this.log.warn(
+                this.log.debug(
                     'receive path stale: PID=%d UIN=%s lastRecvAt=%s silentFor=%dms; reporting good=false',
                     this.pid,
                     this.receiveWatchUin,
                     new Date(this.lastReceiveAt).toISOString(),
                     silentForMs,
                 );
-            }, RECEIVE_STALE_CONFIRM_MS);
+            }, this.receiveStaleConfirmMs);
             this.receiveWatchTimer.unref();
-        }, RECEIVE_STALE_AFTER_MS);
+        }, this.receiveStaleAfterMs);
         this.receiveWatchTimer.unref();
     }
 

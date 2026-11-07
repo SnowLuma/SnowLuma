@@ -2025,6 +2025,57 @@ describe('HookSession — end-to-end receive health (#233)', () => {
     const HEARTBEAT_CMD = 'trpc.qq_new_tech.status_svc.StatusService.SsoHeartBeat';
     const MESSAGE_CMD = 'trpc.msg.olpush.OlPushService.MsgPush';
 
+    it('falls back to the existing windows for invalid receive settings (#634)', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+        vi.stubEnv('SNOWLUMA_RECEIVE_STALE_AFTER_MS', '0');
+        vi.stubEnv('SNOWLUMA_RECEIVE_STALE_CONFIRM_MS', '2147483648');
+        const { ctx, healthChanges } = await startReceiveSession();
+
+        try {
+            firePacket(ctx, HEARTBEAT_CMD);
+            vi.advanceTimersByTime(104_999);
+            expect(ctx.session.receiveHealthy).toBe(true);
+            vi.advanceTimersByTime(1);
+            expect(healthChanges).toEqual([false]);
+        } finally {
+            ctx.session.dispose();
+            vi.unstubAllEnvs();
+            vi.useRealTimers();
+        }
+    });
+
+    it('uses configured silence and confirmation windows and keeps stale logs at debug (#634)', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+        vi.stubEnv('SNOWLUMA_RECEIVE_STALE_AFTER_MS', '600000');
+        vi.stubEnv('SNOWLUMA_RECEIVE_STALE_CONFIRM_MS', '20000');
+        setLogLevel('debug');
+        const entries: LogEntry[] = [];
+        const unsubscribe = subscribeLogs((entry) => entries.push(entry));
+        const { ctx, healthChanges } = await startReceiveSession();
+
+        try {
+            firePacket(ctx, HEARTBEAT_CMD);
+            vi.advanceTimersByTime(105_000);
+            expect(ctx.session.receiveHealthy).toBe(true);
+            vi.advanceTimersByTime(495_000);
+            expect(ctx.session.receiveHealthy).toBe(true);
+            vi.advanceTimersByTime(19_999);
+            expect(ctx.session.receiveHealthy).toBe(true);
+            vi.advanceTimersByTime(1);
+            expect(healthChanges).toEqual([false]);
+            expect(entries.filter((entry) => entry.message.includes('receive path stale'))).toEqual(
+                [expect.objectContaining({ level: 'debug' })],
+            );
+            firePacket(ctx, MESSAGE_CMD);
+            expect(healthChanges).toEqual([false, true]);
+        } finally {
+            unsubscribe();
+            ctx.session.dispose();
+            vi.unstubAllEnvs();
+            vi.useRealTimers();
+        }
+    });
+
     async function startReceiveSession(onPacket?: PacketSink) {
         const ctx = makeSession({ pipeLive: true, onPacket });
         const healthChanges: boolean[] = [];
