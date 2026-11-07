@@ -26,6 +26,24 @@ export type UpdateStatus = { current: string } & (
     | { phase: 'downloading' | 'ready' | 'restarting'; version: string }
 );
 
+export interface ReleaseVersion {
+    version: string;
+    name: string;
+    notes: string | null;
+    publishedAt: string | null;
+    htmlUrl: string;
+    prerelease: boolean;
+    available: boolean;
+    unavailableReason: string | null;
+}
+
+export interface ReleaseVersionsResult {
+    current: string;
+    target: string | null;
+    releases: ReleaseVersion[];
+    nextPage: number | null;
+}
+
 /** Update-availability info from `GET /api/update/check`. */
 export interface UpdateInfo {
     /** The running build's version (no `v` prefix). */

@@ -27,6 +27,7 @@ import type {
     UiAppearance,
     UiConfig,
     UpdateInfo,
+    ReleaseVersionsResult,
     UpdateStatus,
     UpdateSourceConfig,
     UpdateSourceProbe,
@@ -280,10 +281,11 @@ export interface ApiClient {
         /** Advisory check for a newer stable release. Read-only — never downloads. */
         check(force?: boolean): Promise<UpdateInfo>;
         status(): Promise<UpdateStatus>;
+        releases(page?: number, force?: boolean): Promise<ReleaseVersionsResult>;
         sources(): Promise<{ config: UpdateSourceConfig }>;
         saveSources(config: UpdateSourceConfig): Promise<UpdateSourceSaveResult>;
         testSources(config: UpdateSourceConfig): Promise<{ results: UpdateSourceProbe[] }>;
-        download(version: string): Promise<UpdateStatus>;
+        download(version: string, options?: { allowDowngrade?: boolean }): Promise<UpdateStatus>;
         restart(): Promise<UpdateStatus>;
     };
 

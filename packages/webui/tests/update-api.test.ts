@@ -64,4 +64,76 @@ describe('update API', () => {
         const api = createApiClient({ tokenStore: { load: () => 'token', save: () => undefined } });
         await expect(api.update.restart()).rejects.toThrow('更新包尚未就绪');
     });
+
+    it('requests paged releases and explicitly confirms downgrades', async () => {
+        const fetchMock = vi.fn<typeof fetch>(async () =>
+            Response.json({ current: '2.4.2', target: 'linux-x64', releases: [], nextPage: null }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        const api = createApiClient({ tokenStore: { load: () => 'token', save: () => undefined } });
+        await api.update.releases();
+        await api.update.releases(2, true);
+        await api.update.download('1.0.0', { allowDowngrade: true });
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+            '/api/update/releases?page=1',
+            '/api/update/releases?page=2&force=true',
+            '/api/update/download',
+        ]);
+        expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(
+            JSON.stringify({ version: '1.0.0', allowDowngrade: true }),
+        );
+
+        for (const [, options] of fetchMock.mock.calls) {
+            expect(new Headers(options?.headers).get('X-SnowLuma-Token')).toBe('token');
+        }
+    });
+
+    it('preserves release-list failures for retry instead of returning an empty list', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => Response.json({ message: 'GitHub unavailable' }, { status: 502 })),
+        );
+        const api = createApiClient({ tokenStore: { load: () => 'token', save: () => undefined } });
+        await expect(api.update.releases()).rejects.toThrow('GitHub unavailable');
+    });
+
+    it.each([{}, { current: '2.4.2', target: 'linux-x64', releases: {}, nextPage: null }, []])(
+        'rejects malformed release-list responses instead of crashing the picker: %j',
+        async (payload) => {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(async () => Response.json(payload)),
+            );
+            const api = createApiClient({
+                tokenStore: { load: () => 'token', save: () => undefined },
+            });
+            await expect(api.update.releases()).rejects.toThrow(/无效/);
+        },
+    );
+
+    it('accepts complete release entries including unavailable prereleases', async () => {
+        const payload = {
+            current: '2.4.2',
+            target: 'linux-x64',
+            nextPage: 2,
+            releases: [
+                {
+                    version: '2.5.0-rc.1',
+                    name: 'Preview',
+                    notes: null,
+                    publishedAt: '2026-11-07T00:00:00Z',
+                    htmlUrl: 'https://github.com/SnowLuma/SnowLuma/releases/tag/v2.5.0-rc.1',
+                    prerelease: true,
+                    available: false,
+                    unavailableReason: '缺少当前平台更新包',
+                },
+            ],
+        };
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => Response.json(payload)),
+        );
+        const api = createApiClient({ tokenStore: { load: () => 'token', save: () => undefined } });
+        await expect(api.update.releases()).resolves.toEqual(payload);
+    });
 });

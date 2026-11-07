@@ -35,13 +35,30 @@ async function releaseAsset(
         throw new Error('发布信息无效');
     }
 
-    const asset: unknown = release.assets.find(
+    if (
+        !('tag_name' in release) ||
+        release.tag_name !== `v${version}` ||
+        (!fromPage &&
+            (!('draft' in release) ||
+                release.draft !== false ||
+                !('prerelease' in release) ||
+                typeof release.prerelease !== 'boolean' ||
+                !('published_at' in release) ||
+                typeof release.published_at !== 'string' ||
+                !Number.isFinite(Date.parse(release.published_at))))
+    ) {
+        throw new Error('发布信息不是所选的已发布版本');
+    }
+
+    const assets = release.assets.filter(
         (item: unknown) =>
             item !== null && typeof item === 'object' && 'name' in item && item.name === name,
     );
+    const asset: unknown = assets[0];
     const url = `https://github.com/SnowLuma/SnowLuma/releases/download/v${version}/${name}`;
 
     if (
+        assets.length !== 1 ||
         !asset ||
         typeof asset !== 'object' ||
         !('size' in asset) ||

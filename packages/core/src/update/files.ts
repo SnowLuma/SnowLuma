@@ -1,4 +1,15 @@
-import { access, cp, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import {
+    access,
+    cp,
+    lstat,
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rename,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { constants, existsSync } from 'node:fs';
@@ -116,6 +127,52 @@ export async function readManifest(root: string): Promise<ReleaseManifest> {
     }
 
     return { version: value.version, target: value.target, entries: value.entries };
+}
+
+export async function assertUpdateWritable(root: string, manifest: ReleaseManifest): Promise<void> {
+    const check = async (file: string): Promise<void> => {
+        const stat = await lstat(file);
+
+        if (stat.isSymbolicLink()) {
+            throw new Error(`更新目标不能是符号链接: ${file}`);
+        }
+
+        if (stat.isDirectory()) {
+            await access(file, constants.R_OK | constants.W_OK | constants.X_OK);
+
+            for (const entry of await readdir(file)) {
+                await check(path.join(file, entry));
+            }
+        } else if (stat.isFile()) {
+            // Unix replacement needs write access to the parent; Windows also checks the file.
+            await access(
+                file,
+                constants.R_OK | (process.platform === 'win32' ? constants.W_OK : 0),
+            );
+        } else {
+            throw new Error(`更新目标文件类型无效: ${file}`);
+        }
+    };
+
+    let probe: string | undefined;
+
+    try {
+        await access(root, constants.R_OK | constants.W_OK | constants.X_OK);
+        await checkEntryTypes(root, manifest.entries);
+
+        for (const entry of manifest.entries) {
+            await check(path.join(root, entry));
+        }
+
+        // Probe real writes as well as mode bits, including read-only container mounts.
+        probe = await mkdtemp(path.join(root, '.update-check-'));
+        await writeFile(path.join(probe, 'before'), '');
+        await rename(path.join(probe, 'before'), path.join(probe, 'after'));
+    } finally {
+        if (probe) {
+            await rm(probe, { recursive: true, force: true });
+        }
+    }
 }
 
 async function checkEntryTypes(root: string, entries: string[]): Promise<void> {

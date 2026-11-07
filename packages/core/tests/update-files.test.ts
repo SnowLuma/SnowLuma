@@ -27,6 +27,21 @@ afterEach(async () => {
 });
 
 describe('staged updates', () => {
+    it.each(['0.9.0', '1.0.0', '2.0.0-rc.1'])(
+        'applies an explicitly staged downgrade, reinstall or prerelease: %s',
+        async (version) => {
+            await releaseFixture(
+                path.join(staging, 'pending/payload'),
+                version,
+                'win32-x64',
+                'new.mjs',
+            );
+            expect(await applyPendingUpdate(root)).toBe(version);
+            expect((await readManifest(root)).version).toBe(version);
+            expect(await fs.readFile(path.join(root, 'native/binding.node'), 'utf8')).toBe(version);
+        },
+    );
+
     it.each(['02.0.0', '2.0.0-rc.01', '2.0.0-rc_1', '2.0.0+build..1'])(
         'rejects invalid manifest versions before replacing files: %s',
         async (version) => {
@@ -94,6 +109,7 @@ describe('staged updates', () => {
             'logs/current.log',
             'tmp/unrelated',
             'node.exe',
+            'node',
             'custom.mjs',
         ]) {
             await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
@@ -112,6 +128,7 @@ describe('staged updates', () => {
             'logs/current.log',
             'tmp/unrelated',
             'node.exe',
+            'node',
             'custom.mjs',
         ]) {
             expect(await fs.readFile(path.join(root, file), 'utf8')).toBe('keep');

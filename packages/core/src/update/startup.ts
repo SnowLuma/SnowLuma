@@ -4,6 +4,14 @@ import { applyPendingUpdate } from './files';
 
 export const RESTART_EXIT_CODE = 75;
 
+export function hasUpdateLauncher(root: string): boolean {
+    return (
+        process.connected === true &&
+        typeof process.env.SNOWLUMA_UPDATE_ROOT === 'string' &&
+        path.resolve(process.env.SNOWLUMA_UPDATE_ROOT) === path.resolve(root)
+    );
+}
+
 export async function runApplication(root: string): Promise<void> {
     let stopping = false;
     let child: ReturnType<typeof spawn> | undefined;

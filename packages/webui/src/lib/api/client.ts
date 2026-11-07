@@ -30,6 +30,7 @@ import type {
 } from '@/types';
 import type { PasswordRule } from '@/components/pages/change-password-form';
 import { normalizeOneBotConfig } from '@/lib/onebot-config';
+import { parseReleaseVersions } from '@/lib/update-versions';
 import {
     type AgreementsPayload,
     ApiError,
@@ -178,12 +179,17 @@ class HttpApiClient implements ApiClient {
             check: (force) =>
                 this.getJson<UpdateInfo>(`/api/update/check${force ? '?force=true' : ''}`),
             status: () => this.getJson<UpdateStatus>('/api/update/status'),
+            releases: (page = 1, force = false) =>
+                this.getJson<unknown>(
+                    `/api/update/releases?page=${page}${force ? '&force=true' : ''}`,
+                ).then(parseReleaseVersions),
             sources: () => this.getJson<{ config: UpdateSourceConfig }>('/api/update/sources'),
             saveSources: (config) =>
                 this.postJson<UpdateSourceSaveResult>('/api/update/sources', config),
             testSources: (config) =>
                 this.postJson<{ results: UpdateSourceProbe[] }>('/api/update/sources/test', config),
-            download: (version) => this.postJson<UpdateStatus>('/api/update/download', { version }),
+            download: (version, options) =>
+                this.postJson<UpdateStatus>('/api/update/download', { version, ...options }),
             restart: () => this.postJson<UpdateStatus>('/api/update/restart'),
         };
 

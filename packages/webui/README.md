@@ -113,6 +113,18 @@ Packaged installations offer download and restart controls in Settings → About
 Downloads are verified and staged; files are applied before the application starts.
 Restart confirmation uses the shared modal, and download results use action feedback.
 
+“选择其他版本” loads paginated official releases using the configured download source.
+The picker supports upgrades, same-version reinstalls, prereleases and explicitly
+confirmed downgrades. Missing platform archives or checksums remain visible as
+unavailable releases. A failed list request stays visible and can be retried.
+An active download or staged update prevents another installation.
+
+Docker installations use the same staged update and restart flow when the runtime
+directory is writable and the update launcher is active. Recreating a container
+uses its image or mounted runtime, so switching the program does not update the
+Docker image. See [Core update behavior](../core/UPDATES.md) for permissions,
+runtime compatibility, backups and QQ Hook restart limitations.
+
 On Windows, the native API logs the process token and EXE integrity label once
 at startup. A Low (or lower) token triggers a WebUI warning; file labels and
 query failures alone do not. “临时关闭” lasts for the tab session, including

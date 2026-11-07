@@ -22,12 +22,22 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-function mockRelease(bytes: Uint8Array, target: string, digest?: string) {
-    const name = assetName('2.0.0', target);
-    const url = `https://github.com/SnowLuma/SnowLuma/releases/download/v2.0.0/${name}`;
+function mockRelease(
+    bytes: Uint8Array,
+    target: string,
+    digest?: string,
+    metadata: Record<string, unknown> = {},
+    version = '2.0.0',
+) {
+    const name = assetName(version, target);
+    const url = `https://github.com/SnowLuma/SnowLuma/releases/download/v${version}/${name}`;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
         if (String(input).startsWith('https://api.github.com/')) {
             return Response.json({
+                tag_name: `v${version}`,
+                draft: false,
+                prerelease: false,
+                published_at: '2026-11-01T00:00:00Z',
                 assets: [
                     {
                         name,
@@ -36,6 +46,7 @@ function mockRelease(bytes: Uint8Array, target: string, digest?: string) {
                             digest ?? `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
                     },
                 ],
+                ...metadata,
             });
         }
 
@@ -47,6 +58,51 @@ function mockRelease(bytes: Uint8Array, target: string, digest?: string) {
 }
 
 describe('release downloads', () => {
+    it.each([
+        { tag_name: 'v1.9.0' },
+        { tag_name: '2.0.0' },
+        { tag_name: null },
+        { draft: true },
+        { draft: undefined },
+        { prerelease: undefined },
+        { published_at: null },
+        { published_at: 'invalid' },
+    ])('rejects a different or unpublished release before downloading: %j', async (metadata) => {
+        const fetchMock = mockRelease(new Uint8Array([1]), 'win32-x64', undefined, metadata);
+        await expect(downloadUpdate(root, '2.0.0', 'win32-x64')).rejects.toThrow('已发布版本');
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(await readdir(root)).toEqual([]);
+    });
+
+    it('rejects duplicate platform assets before downloading', async () => {
+        const asset = {
+            name: assetName('2.0.0', 'win32-x64'),
+            size: 1,
+            digest: `sha256:${'a'.repeat(64)}`,
+        };
+        const fetchMock = mockRelease(new Uint8Array([1]), 'win32-x64', undefined, {
+            assets: [asset, asset],
+        });
+        await expect(downloadUpdate(root, '2.0.0', 'win32-x64')).rejects.toThrow('校验信息');
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(await readdir(root)).toEqual([]);
+    });
+
+    it('downloads and validates the exact selected preview version', async () => {
+        const version = '2.1.0-rc.1';
+        const target = 'linux-x64';
+        const source = path.join(root, 'source');
+        await releaseFixture(source, version, target);
+        const archive = path.join(root, 'fixture.tar.gz');
+        await createTar({ file: archive, cwd: source, gzip: true }, ['.']);
+        mockRelease(await readFile(archive), target, undefined, { prerelease: true }, version);
+
+        await downloadUpdate(root, version, target);
+
+        expect(await readManifest(path.join(root, 'payload'))).toMatchObject({ version, target });
+        expect(await readFile(path.join(root, 'payload/client/index.html'), 'utf8')).toBe(version);
+    });
+
     it.each(['403', 'html', 'corrupt', 'interrupted'])(
         'cleans and retries a %s response through a mirror using HTML release checksums',
         async (failure) => {

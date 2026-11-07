@@ -4,7 +4,10 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useActionFeedback } from '@/contexts/ActionFeedbackContext';
 import { useApi } from '@/lib/api';
-import type { UpdateStatus } from '@/types';
+import { releaseAction } from '@/lib/update-versions';
+import { startPolling } from '@/lib/polling';
+import { ReleaseVersionPicker } from './release-version-picker';
+import type { ReleaseVersionsResult, UpdateStatus } from '@/types';
 
 export function UpdateInstaller({ version }: { version: string | null }) {
     const api = useApi();
@@ -13,7 +16,14 @@ export function UpdateInstaller({ version }: { version: string | null }) {
     const [error, setError] = useState<string | null>(null);
     const [confirmRestart, setConfirmRestart] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [showVersions, setShowVersions] = useState(false);
+    const [versions, setVersions] = useState<ReleaseVersionsResult | null>(null);
+    const [versionsLoading, setVersionsLoading] = useState(false);
+    const [versionsError, setVersionsError] = useState<string | null>(null);
+    const [selectedVersion, setSelectedVersion] = useState('');
+    const [downgradeVersion, setDowngradeVersion] = useState<string | null>(null);
     const phase = status?.phase;
+    const canInstall = !submitting && (phase === 'idle' || phase === 'error');
 
     useEffect(() => {
         if (phase !== undefined && phase !== 'downloading') {
@@ -21,72 +31,128 @@ export function UpdateInstaller({ version }: { version: string | null }) {
         }
 
         let disposed = false;
-        let timer: ReturnType<typeof setTimeout>;
+        let finished = false;
         const activity = phase === 'downloading' ? startAction({ title: '正在下载更新' }) : null;
 
-        const poll = async () => {
-            try {
-                const next = await api.update.status();
+        const stop = startPolling(
+            async () => {
+                try {
+                    const next = await api.update.status();
 
-                if (disposed && !activity) {
-                    return;
-                }
+                    if (disposed) {
+                        return;
+                    }
 
-                if (!disposed) {
                     setStatus(next);
                     setError(null);
-                }
 
-                if (next.phase === 'ready') {
-                    activity?.succeed({ title: '更新已就绪', detail: '重启后生效' });
-                } else if (next.phase === 'error') {
-                    activity?.fail(next.message, { title: '更新失败' });
-                } else if (next.phase === 'downloading') {
-                    timer = setTimeout(() => {
-                        void poll();
-                    }, 1000);
-                }
-            } catch (caught) {
-                const message = caught instanceof Error ? caught.message : String(caught);
-                activity?.fail(message, { title: '读取更新状态失败' });
+                    if (next.phase === 'ready') {
+                        if (!finished) {
+                            activity?.succeed({ title: '更新已就绪', detail: '重启后生效' });
+                            finished = true;
+                        }
+                    } else if (next.phase === 'error') {
+                        if (!finished) {
+                            activity?.fail(next.message, { title: '更新失败' });
+                            finished = true;
+                        }
+                    }
+                } catch (caught) {
+                    if (disposed) {
+                        return;
+                    }
 
-                if (!disposed) {
+                    const message = caught instanceof Error ? caught.message : String(caught);
                     setError(message);
-                    timer = setTimeout(() => {
-                        void poll();
-                    }, 5000);
-                }
-            }
-        };
 
-        void poll();
+                    if (!finished) {
+                        (activity ?? startAction({ title: '读取更新状态' })).fail(message, {
+                            title: '读取更新状态失败',
+                        });
+                        finished = true;
+                    }
+                }
+            },
+            phase === undefined ? 5000 : 1000,
+        );
 
         return () => {
             disposed = true;
+            stop();
 
-            if (!activity) {
-                clearTimeout(timer);
+            if (activity && !finished) {
+                activity.succeed({ title: '更新继续在后台进行', detail: '返回关于页面查看结果' });
             }
         };
     }, [api, phase, startAction]);
 
-    const download = async () => {
-        if (!version) {
-            return;
-        }
-
+    const download = async (targetVersion: string, allowDowngrade = false) => {
         setSubmitting(true);
         setError(null);
 
         try {
-            setStatus(await api.update.download(version));
+            setStatus(await api.update.download(targetVersion, { allowDowngrade }));
         } catch (caught) {
             const message = caught instanceof Error ? caught.message : String(caught);
             setError(message);
+            // The server may have accepted the download before the response was lost.
             setStatus(null);
             startAction({ title: '下载更新' }).fail(message, { title: '下载失败' });
+            throw caught;
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const loadVersions = async (page = 1, force = false) => {
+        setShowVersions(true);
+        setVersionsLoading(true);
+        setVersionsError(null);
+        const activity = startAction({ title: '正在读取发行版本' });
+
+        try {
+            const result = await api.update.releases(page, force);
+            setVersions((previous) => ({
+                ...result,
+                releases:
+                    page === 1
+                        ? result.releases
+                        : [
+                              ...(previous?.releases ?? []),
+                              ...result.releases.filter(
+                                  (item) =>
+                                      !previous?.releases.some(
+                                          (old) => old.version === item.version,
+                                      ),
+                              ),
+                          ],
+            }));
+
+            if (page === 1) {
+                setSelectedVersion('');
+            }
+
+            activity.succeed({ title: '发行版本已加载' });
+        } catch (caught) {
+            const message = caught instanceof Error ? caught.message : String(caught);
+            setVersionsError(message);
+            activity.fail(message, { title: '读取发行版本失败' });
+        } finally {
+            setVersionsLoading(false);
+        }
+    };
+
+    const selectDownload = () => {
+        const selected = versions?.releases.find((item) => item.version === selectedVersion);
+
+        if (!selected?.available || !status || !canInstall) {
+            return;
+        }
+
+        if (releaseAction(selected.version, status.current) === '降级') {
+            setDowngradeVersion(selected.version);
+        } else {
+            void download(selected.version).catch(() => undefined);
         }
     };
 
@@ -103,10 +169,6 @@ export function UpdateInstaller({ version }: { version: string | null }) {
             },
         );
     };
-
-    if (status?.phase === 'idle' && !version && !error) {
-        return null;
-    }
 
     return (
         <div className="flex flex-col gap-3 px-5 py-4">
@@ -144,7 +206,7 @@ export function UpdateInstaller({ version }: { version: string | null }) {
                     size="sm"
                     className="self-start"
                     onClick={() => {
-                        void download();
+                        void download(version).catch(() => undefined);
                     }}
                     disabled={submitting}
                 >
@@ -152,6 +214,62 @@ export function UpdateInstaller({ version }: { version: string | null }) {
                     下载更新
                 </Button>
             )}
+            <Button
+                size="sm"
+                variant="outline"
+                className="self-start"
+                disabled={versionsLoading}
+                onClick={() => {
+                    if (showVersions) {
+                        setShowVersions(false);
+                    } else if (versions) {
+                        setShowVersions(true);
+                    } else {
+                        void loadVersions();
+                    }
+                }}
+            >
+                {showVersions ? '收起版本列表' : '选择其他版本'}
+            </Button>
+            {showVersions && (
+                <ReleaseVersionPicker
+                    releases={versions?.releases ?? []}
+                    current={versions?.current ?? status?.current ?? '0.0.0'}
+                    selected={selectedVersion}
+                    loading={versionsLoading}
+                    disabled={!canInstall}
+                    hasMore={versions?.nextPage != null}
+                    error={versionsError}
+                    onSelect={setSelectedVersion}
+                    onRefresh={() => {
+                        void loadVersions(1, true);
+                    }}
+                    onMore={() => {
+                        if (versions?.nextPage) {
+                            void loadVersions(versions.nextPage);
+                        }
+                    }}
+                    onDownload={selectDownload}
+                />
+            )}
+            <ConfirmDialog
+                open={downgradeVersion !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setDowngradeVersion(null);
+                    }
+                }}
+                title={`确认降级到 v${downgradeVersion ?? ''}？`}
+                description="请先备份配置和数据库。降级不会逆向迁移数据，旧版本可能无法读取新版本写入的配置或数据库。请确认 Node 和 QQ 版本兼容。"
+                confirmText="确认降级并下载"
+                destructive
+                confirmDisabled={!canInstall}
+                onConfirm={async () => {
+                    if (downgradeVersion) {
+                        await download(downgradeVersion, true);
+                    }
+                }}
+            />
             <ConfirmDialog
                 open={confirmRestart}
                 onOpenChange={setConfirmRestart}

@@ -7,7 +7,7 @@ export function assetName(version: string, target: string): string {
     return `SnowLuma-v${version}-${platform}-lite.${target.startsWith('win32') ? 'zip' : 'tar.gz'}`;
 }
 
-async function readText(response: Response, limit: number): Promise<string> {
+export async function readText(response: Response, limit: number): Promise<string> {
     if (!response.body) {
         throw new Error('发布信息为空');
     }

@@ -57,7 +57,7 @@ beforeAll(async () => {
                         import fs from 'node:fs';
                         import path from 'node:path';
                         import { fileURLToPath } from 'node:url';
-                        import { RESTART_EXIT_CODE, runApplication } from '${startup}';
+                        import { RESTART_EXIT_CODE, hasUpdateLauncher, runApplication } from '${startup}';
                         import { updateDirectory } from '${files}';
                         const root = path.dirname(fileURLToPath(import.meta.url));
                         if (!process.env.SNOWLUMA_UPDATE_ROOT) {
@@ -79,7 +79,7 @@ beforeAll(async () => {
                             try { process.kill(Number(fs.readFileSync(path.join(root, 'old-pid'), 'utf8')), 0); oldAlive = true; }
                             catch (error) { if (error.code !== 'ESRCH') throw error; }
                         }
-                        console.log(JSON.stringify({version, node:process.execPath, cwd:process.cwd(), args:process.argv.slice(2), oldAlive}));
+                        console.log(JSON.stringify({version, node:process.execPath, cwd:process.cwd(), args:process.argv.slice(2), oldAlive, launcher:hasUpdateLauncher(root)}));
                         process.exit(0);
                         }
                     `;
@@ -125,13 +125,13 @@ afterEach(async () => {
     await rm(staging, { recursive: true, force: true });
 });
 
-function run(mode = '', args: string[] = []) {
+function run(mode = '', args: string[] = [], launcherRoot = '') {
     return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
         const child = spawn(process.execPath, [path.join(root, 'index.mjs'), ...args], {
             cwd: os.tmpdir(),
             stdio: 'pipe',
             windowsHide: true,
-            env: { ...process.env, UPDATE_TEST_MODE: mode },
+            env: { ...process.env, UPDATE_TEST_MODE: mode, SNOWLUMA_UPDATE_ROOT: launcherRoot },
         });
         let output = '';
         child.stdout.on('data', (data: Buffer) => {
@@ -162,7 +162,14 @@ describe('packaged startup', () => {
             cwd: await realpath(os.tmpdir()),
             args: ['value with spaces'],
             oldAlive: false,
+            launcher: true,
         });
+    });
+
+    it('does not mistake a manually set launcher path for a connected restart launcher', async () => {
+        const result = await run('', [], root);
+        expect(result.code, result.output).toBe(0);
+        expect(JSON.parse(result.output)).toMatchObject({ version: '1.0.0', launcher: false });
     });
 
     it('waits for the old process to exit, applies the release, then executes the new code', async () => {
